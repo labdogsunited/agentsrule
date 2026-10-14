@@ -1,4 +1,4 @@
-// Reference world for Phase 0 (spec v0.6.1 §15).
+// Reference world for Phase 0 (spec v0.7 §15).
 // Also the parser fixture: parse -> fmt -> parse must give the same AST,
 // and `emerge fmt` must leave this file unchanged.
 //
@@ -10,6 +10,7 @@
 world Dish {
     space: Continuous2D(w: 512.0, h: 512.0, wrap: true, max_interaction_radius: 4.0);
     child_offset: 0.5;
+    mind_steps: 1;
 
     element C;
     element N;
@@ -61,7 +62,7 @@ world Dish {
         vent: void;
         base: 20mu;
         per_gene: 5mu;
-        per_brain_node: 1mu;
+        per_signal: 1mu;
         per_carried_u: 1mu;
     }
 
@@ -91,6 +92,13 @@ world Dish {
         action steal(s: any substance, max: 0u..10u, from: neighbour) cost 30mu;
         action emit(sig: scent, max: 0.0..10.0) cost 2mu;
         action divide(split: 0.0..1.0) cost 0mu requires body >= 10u;
+    }
+
+    regulation {
+        gene weigh(
+            bias: -16.0..16.0,
+            curve: [linear, step, sigmoid, tanh]
+        ) inputs 1..4 weight -16.0..16.0;
     }
 
     // World rules run in this order. Each rule holds one kind of effect.
@@ -126,52 +134,55 @@ world Dish {
 }
 
 ruleset Tinker {
-    rule wrap weight 0.5 : Add($a, $b) -> Mul(Add($a, $b), Sin($a));
-    rule prune weight 0.2 : Mul($x, Const($c)) where abs($c) < 1e-3 -> 0.0;
+    rule sharpen weight 0.3 : regulate weigh(curve: sigmoid) -> regulate weigh(curve: step);
     rule nudge weight 0.3 : sense $kind(dist: $d) -> sense $kind(dist: jitter($d, sigma: 0.1));
 }
 
 // Must discover body synthesis: a body-producing reaction plus take(nitrate).
-// Spare action slots (act[6], act[7]) are wired to 1.0 by default, so an
-// expressed spare action fires without a separate brain mutation.
+// The natural route is duplication and divergence of existing genes.
 lineage Drifter in Dish {
     profile fast {
-        senses: 8;
-        reactions: 4;
-        actions: 8;
-        brain: cgp(nodes: 32);
-        registers: 4;
+        genes: 32;
+        signals: 16;
+        modules: 8;
     }
 
     mutation {
         rate: 0.02;
         param_sigma: 0.1;
         expression_flip: 0.01;
+        rewire: 0.01;
+        diverge: 0.005;
+        duplicate_gene: 0.005;
+        insert_gene: 0.002;
+        delete_gene: 0.005;
+        duplicate_module: 0.002;
+        delete_module: 0.001;
+        split_module: 0.001;
+        merge_modules: 0.001;
         rules: Tinker;
     }
 
     seed genome {
-        sense gradient(q: cells.body) @food_dir;
-        sense inventory(s: energy) @energy;
-        sense inventory(s: body) @body;
+        module forage {
+            sense gradient(q: cells.body) -> food_x, food_y @food_dir;
+            regulate weigh(curve: tanh) <- [10.0 * food_y] -> steer;
+            action move(speed: 1.0) @go;
+            action turn(angle_deg: 30.0) <- steer @turn_to_food;
+        }
 
-        reaction photosynthesis rate 1u;
-        reaction respiration rate 1u;
+        module metabolism {
+            reaction photosynthesis rate 1u;
+            reaction respiration rate 1u;
+            action take(s: light, max: 1u) @eat_light;
+            action take(s: carbon, max: 1u) @eat_carbon;
+        }
 
-        action move(speed: 1.0) @go;
-        action turn(angle_deg: 30.0) @steer;
-        action take(s: light, max: 1u) @eat_light;
-        action take(s: carbon, max: 1u) @eat_carbon;
-        action take(s: body, max: 1u) @eat_body;
-        action divide(split: 0.5) threshold 0.5 @split;
-
-        brain {
-            act[0] = 1.0;
-            act[1] = Tanh(Scale(sense[0].y, 10.0));
-            act[2] = 1.0;
-            act[3] = 1.0;
-            act[4] = 1.0;
-            act[5] = Gt(sense[2], 10.0);
+        module reproduce {
+            sense inventory(s: body) -> fullness;
+            regulate weigh(bias: -10.0, curve: step) <- [fullness] -> ready;
+            action take(s: body, max: 1u) @eat_body;
+            action divide(split: 0.5) <- ready threshold 0.5 @split;
         }
     }
 
@@ -185,43 +196,49 @@ lineage Drifter in Dish {
 // Positive control: body synthesis already works. Run with mutation off.
 lineage Builder in Dish {
     profile fast {
-        senses: 8;
-        reactions: 4;
-        actions: 8;
-        brain: cgp(nodes: 32);
-        registers: 4;
+        genes: 32;
+        signals: 16;
+        modules: 8;
     }
 
     mutation {
         rate: 0.02;
         param_sigma: 0.1;
         expression_flip: 0.01;
+        rewire: 0.01;
+        diverge: 0.005;
+        duplicate_gene: 0.005;
+        insert_gene: 0.002;
+        delete_gene: 0.005;
+        duplicate_module: 0.002;
+        delete_module: 0.001;
+        split_module: 0.001;
+        merge_modules: 0.001;
         rules: Tinker;
     }
 
     seed genome {
-        sense gradient(q: cells.body) @food_dir;
-        sense inventory(s: energy) @energy;
-        sense inventory(s: body) @body;
+        module forage {
+            sense gradient(q: cells.body) -> food_x, food_y @food_dir;
+            regulate weigh(curve: tanh) <- [10.0 * food_y] -> steer;
+            action move(speed: 1.0) @go;
+            action turn(angle_deg: 30.0) <- steer @turn_to_food;
+        }
 
-        reaction photosynthesis rate 1u;
-        reaction respiration rate 1u;
-        reaction build rate 250mu;
+        module metabolism {
+            reaction photosynthesis rate 1u;
+            reaction respiration rate 1u;
+            reaction build rate 250mu;
+            action take(s: light, max: 1u) @eat_light;
+            action take(s: carbon, max: 1u) @eat_carbon;
+            action take(s: nitrate, max: 250mu) @eat_nitrate;
+        }
 
-        action move(speed: 1.0) @go;
-        action turn(angle_deg: 30.0) @steer;
-        action take(s: light, max: 1u) @eat_light;
-        action take(s: carbon, max: 1u) @eat_carbon;
-        action take(s: nitrate, max: 250mu) @eat_nitrate;
-        action divide(split: 0.5) threshold 0.5 @split;
-
-        brain {
-            act[0] = 1.0;
-            act[1] = Tanh(Scale(sense[0].y, 10.0));
-            act[2] = 1.0;
-            act[3] = 1.0;
-            act[4] = 1.0;
-            act[5] = Gt(sense[2], 10.0);
+        module reproduce {
+            sense inventory(s: body) -> fullness;
+            regulate weigh(bias: -10.0, curve: step) <- [fullness] -> ready;
+            action take(s: body, max: 1u) @eat_body;
+            action divide(split: 0.5) <- ready threshold 0.5 @split;
         }
     }
 

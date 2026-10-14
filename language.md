@@ -1,8 +1,10 @@
 # The `.em` Language
 
-**Language reference — draft, companion to spec v0.6.1**
+**Language reference — draft, companion to spec v0.7**
 
-This document defines the syntax and static rules of `.em` files. `spec-v0.6.1.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
+This document defines the syntax and static rules of `.em` files. `spec-v0.7.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
+
+> **Being restructured.** `core.md` now defines the core language. This document's syntax will be rewritten around it; until then, `core.md`'s examples are provisional and this document remains the syntax reference for the creatures application.
 
 Conventions:
 - **MUST** / **MUST NOT** mark normative requirements.
@@ -17,7 +19,7 @@ Conventions:
 2. **Laws in the type system.** Conservation, dissipation and the separation between evolution and world rules are checked at compile time wherever possible (§4, §5).
 3. **Small contexts.** A file is a set of declarations plus a few small inner languages, each with a fixed list of what it may read and do (§5).
 4. **Patchable.** Every item has a readable path and a persistent ID, and every edit can be expressed as a patch at a stated revision (§10).
-5. **Compiles to straight-line code.** No user-written loops or recursion in anything that runs every tick, so world rules and brains lower directly to WGSL.
+5. **Compiles to straight-line code.** No user-written loops or recursion in anything that runs every tick, so world rules and minds lower directly to WGSL.
 
 ---
 
@@ -34,6 +36,9 @@ Conventions:
 | Range | `bound .. bound`, inclusive; a bound is an optionally negative integer, float or amount | `0..512`, `-30.0..30.0`, `0u..10u` |
 | Label | `@` identifier | `@eat_light` |
 | Capture | `$` identifier (patterns only) | `$a`, `$c` |
+| Arrows | `->` (flows out) and `<-` (flows in) | `-> steer`, `<- steer` |
+
+Arrows are single tokens, read by longest match: `a<-1.0` is `a <- 1.0`, so a comparison with a negative number needs a space (`a < -1.0`). The formatter always writes one.
 
 Negative numbers outside ranges are written with unary minus (`-1.0`), which the formatter keeps attached to the literal. Unary minus applies only to `int` and `f32`: `-5u` and `-50bp` are type errors (`E0203`), because amounts and rates are never negative.
 
@@ -54,7 +59,7 @@ Negative numbers outside ranges are written with unary minus (`-1.0`), which the
 - **Indentation:** 4 spaces per level. No tabs.
 - **Spacing:** exactly one space around binary operators, `=`, `->` and `|>`, after `,`, and after the `:` of a config key, a named argument or a patch position (`add after rules.weather: ...`); none before them. The `:` between a declaration name and its type or formula (`field cells : Grid(...)`, `reaction rot : body -> ...`, `rule wrap weight 0.5 : ...`) has one space on each side. No space inside brackets.
 - **No column alignment.** Consecutive declarations are never padded to line up. This keeps diffs small when a name changes length.
-- **Line width:** 100 columns. If a line is longer, the formatter breaks the **last** bracketed group (`(...)` or `[...]`) that opens on that line: each item goes on its own line, indented one level deeper, and the closing bracket goes on its own line at the original indentation. It repeats until every line fits or no group is left to break. There is no trailing comma.
+- **Line width:** 100 columns. If a line is longer, the formatter breaks one bracketed group (`(...)` or `[...]`) on it: among the **outermost** groups on that line (those not inside another group on the line), the one with the **most characters** inside, the first one on a tie. Each item goes on its own line, indented one level deeper, and the closing bracket goes on its own line at the original indentation. It repeats until every line fits or no group is left to break. There is no trailing comma.
 - **Blank lines:** preserved between declarations and statements, collapsed to at most one. None at the start or end of a block.
 - **Comments:** kept in place. A trailing comment has one space before `//`.
 - **Order:** declarations in a world are sorted into the order of §6 (§6, first paragraph).
@@ -69,19 +74,20 @@ Keywords come in two kinds.
 self true false and or not
 ```
 
-**Contextual keywords** are words that only have a special meaning in a particular position, such as the start of a declaration or statement. Everywhere else they are ordinary identifiers, so they can be argument names (`to:`, `where:`), config keys (`brain:`, `senses:`) or path segments (`Dish.rules`):
+**Contextual keywords** are words that only have a special meaning in a particular position, such as the start of a declaration or statement. Everywhere else they are ordinary identifiers, so they can be argument names (`to:`, `where:`), config keys (`genes:`, `senses:`) or path segments (`Dish.rules`):
 
 ```
 world lineage ruleset view chart explore patch
 element substance potential reaction field holds signal source sink waste
 senses sense actions action cost per requires
 rule on let when else for in genesis
-profile mutation seed genome brain dormant threshold rate weight where
+profile mutation seed genome module regulation regulate gene keep inputs weight
+dormant threshold rate where
 layer vary base set add remove replace rename after before to move_to
 any act reg
 ```
 
-A **declared name** (of a world, substance, reaction, rule, field, lineage, `let` binding, label and so on) MUST NOT be any keyword of either kind (`E0110`), and MUST NOT be a built-in function name (§12) or an opcode name (§8.4). This keeps every name unambiguous wherever it is used.
+A **declared name** (of a world, substance, reaction, rule, field, lineage, `let` binding, label and so on) MUST NOT be any keyword of either kind (`E0110`), and MUST NOT be a built-in function name (§12) or a regulation kind (§8.5). This keeps every name unambiguous wherever it is used.
 
 ---
 
@@ -175,7 +181,7 @@ Each block of code belongs to exactly one context. A context fixes what code may
 | **Signal rule** | `rule ... on field { }` containing signal assignments | as transfer rule | assign signals of the rule's field |
 | **Genesis** | `genesis { }` in a world or lineage | as transfer rule, plus `uniform` | `transfer` from sources; set a new entity's `position` and `heading`; `count:` in a lineage |
 | **Requirement** | `requires` in an action menu | the entity's own inventory, by substance name | — (a `bool` expression) |
-| **Brain** | `brain { }` in a genome | `sense[i]`, `reg[r]` | assign `act[j]` and `reg[r]` using opcodes only |
+| **Genome** | `seed genome { }` | its own signals, by name | declare genes, modules and signals; no expressions beyond constants and weights |
 | **Pattern** | `ruleset { }` | the genome being rewritten | produce a replacement |
 | **View** | `view`, `chart` | any buffer or metric | produce pixels or plot series |
 | **Explore** | `explore { }` | paths into the base world | vary them |
@@ -184,7 +190,7 @@ The most important consequences:
 
 - **Substances move only through `transfer`, `react` and `diffuse_conserved`** in world rules and genesis, or through action intents chosen by genomes. There is no assignment to an amount anywhere: `self.carbon = 5u` is `E0302`. Signals can be assigned, because they are not conserved.
 - **A world rule holds one kind of effect.** The kind is inferred from its effect statements. A rule that mixes kinds is `E0303`; split it into consecutive rules. A rule with no effects is `E0304`.
-- **Genomes have no effects of their own.** A brain only writes lanes; the runtime turns lanes into intents.
+- **Genomes have no effects of their own.** Genes only read and write signals; the runtime turns action genes into intents and runs reaction genes under the laws.
 - **Only genesis may draw from a source without a rule**, and only at time zero or in `entity.inject`.
 - **View code cannot write simulation state** or use the simulation's random streams.
 
@@ -265,7 +271,7 @@ upkeep {
     vent: void;
     base: 20mu;
     per_gene: 5mu;
-    per_brain_node: 1mu;
+    per_signal: 1mu;
     per_carried_u: 1mu;
 }
 
@@ -277,9 +283,10 @@ limits {
 
 max_age: 20_000;
 child_offset: 0.5;
+mind_steps: 1;
 ```
 
-`child_offset` is the distance, in space units, behind its parent at which a child is placed (spec §7.5). It defaults to `0.5`.
+`child_offset` is the distance, in space units, behind its parent at which a child is placed (spec §7.5). It defaults to `0.5`. `mind_steps` is how many times per tick every mind updates its signals (spec §5.4). It defaults to `1`.
 
 `pay` and `becomes` MUST have the same composition, `pay → becomes` MUST be downhill, `vent` MUST accept `becomes` (`E0701`), and `base` MUST be greater than `0mu` (`E0702`).
 
@@ -306,7 +313,19 @@ actions {
 }
 ```
 
-- Sense and action names are fixed by the engine; a menu chooses which ones exist in the world and narrows their parameter ranges. An unknown name is `E0501`.
+The regulation menu lists the kinds of regulation gene genomes may use (spec §5.3, §8.5 here), with their parameter ranges, how many inputs they take and, for weighted kinds, the range of input weights:
+
+```
+regulation {
+    gene weigh(
+        bias: -16.0..16.0,
+        curve: [linear, step, sigmoid, tanh]
+    ) inputs 1..4 weight -16.0..16.0;
+    gene product() inputs 2..2;
+}
+```
+
+- Sense, action and regulation kind names are fixed by the engine; a menu chooses which ones exist in the world and narrows their parameter ranges. An unknown name is `E0501`.
 - Every action states its fee, including `0mu`. Fees are paid in the upkeep `pay` substance (spec §3.3), so the fee has no substance name.
 - `per distance` is the only fee modifier in P0.
 - `requires` is an expression in the Requirement context (§5).
@@ -409,17 +428,24 @@ Effect statements may carry a label (`react(rot, rate: 50bp) @slow_rot;`) so pat
 ```
 lineage Drifter in Dish {
     profile fast {
-        senses: 8;
-        reactions: 4;
-        actions: 8;
-        brain: cgp(nodes: 32);
-        registers: 4;
+        genes: 32;
+        signals: 16;
+        modules: 8;
     }
 
     mutation {
         rate: 0.02;
         param_sigma: 0.1;
         expression_flip: 0.01;
+        rewire: 0.01;
+        diverge: 0.005;
+        duplicate_gene: 0.005;
+        insert_gene: 0.002;
+        delete_gene: 0.005;
+        duplicate_module: 0.002;
+        delete_module: 0.001;
+        split_module: 0.001;
+        merge_modules: 0.001;
         rules: Tinker;
     }
 
@@ -433,90 +459,82 @@ lineage Drifter in Dish {
 }
 ```
 
-Names inside a lineage resolve in the scope of its world, so `spark` means `Dish.spark`. `heading` defaults to a uniform random angle.
+- The `profile` sets the genome's capacity (spec §5.7). The seed MUST fit in it (`E0801`).
+- The `mutation` block sets the rate of each operator in spec §8.1. Omitted operators have rate `0.0`.
+- Names inside a lineage resolve in the scope of its world, so `spark` means `Dish.spark`. `heading` defaults to a uniform random angle.
 
-### 8.2 Genes
+### 8.2 Seed genomes and genes
+
+A seed genome is an optional list of signal declarations followed by one or more modules. Every gene is inside a module.
 
 ```
 seed genome {
-    sense gradient(q: cells.body) @food_dir; // sense[0]
-    sense inventory(s: energy) @energy; // sense[1]
-    sense inventory(s: body) @body; // sense[2]
+    signal hunger keep 0.9;
 
-    reaction photosynthesis rate 1u;
-    reaction respiration rate 1u;
-    dormant reaction build rate 250mu;
+    module forage {
+        sense gradient(q: cells.body) -> food_x, food_y @food_dir;
+        regulate weigh(curve: tanh) <- [10.0 * food_y] -> steer;
+        action move(speed: 1.0) @go;
+        action turn(angle_deg: 30.0) <- steer @turn_to_food;
+    }
 
-    action move(speed: 1.0) @go; // act[0]
-    action turn(angle_deg: 30.0) @steer; // act[1]
-    action take(s: light, max: 1u) @eat_light; // act[2]
-    action divide(split: 0.5) threshold 0.5 @split; // act[3]
-
-    brain { ... }
+    module metabolism {
+        reaction photosynthesis rate 1u <- hunger;
+        reaction respiration rate 1u;
+        dormant reaction build rate 250mu;
+    }
 }
 ```
 
-- Genes are numbered by kind, in order: the `i`-th sense gene is `sense[i]`, the `j`-th action gene is `act[j]`. Dormant genes take a number like any other.
-- `threshold` defaults to `0.0`. An action fires when its lane is above the threshold; how the lane sets the action's size is defined per action in spec §5.1.
-- `dormant` starts a gene unexpressed.
-- Each parameter MUST lie in the menu's range for that parameter (`E0601`).
-- Labels (`@name`) are optional. They give the gene a stable path and a stable ID match across edits (§10).
+The four gene forms, with arrows showing what flows in and out:
 
-### 8.3 Brain
-
-The brain is written as assignments of opcode expressions. It compiles to CGP nodes.
-
-```
-brain {
-    let full = Gt(sense[2], 10.0);
-    act[0] = 1.0;
-    act[1] = Tanh(Scale(sense[0].y, 10.0));
-    act[2] = 1.0;
-    act[3] = full;
-    reg[0] = Select(full, sense[1], reg[0]); // remember energy when full
-}
-```
-
-| Lane | Meaning |
+| Form | Meaning |
 | :-- | :-- |
-| `sense[i]` | first lane of sense gene `i` (same as `sense[i].x`) |
-| `sense[i].y` | second lane (`0.0` for one-lane senses) |
-| `reg[r]` | on the right of `=`: register `r` as committed last tick |
-| `reg[r] = ...` | the value register `r` will hold next tick |
-| `act[j] = ...` | the output for action gene `j` |
+| `sense ITEM(params) -> s1;` or `-> s1, s2;` | write the sense's reading into one or two signals |
+| `regulate KIND(params) <- [inputs] -> s;` | compute from the input signals and write signal `s` |
+| `reaction NAME rate AMOUNT <- source;` | run a reaction at up to `rate` µ of extent per tick, scaled by `clamp(source, 0, 1)` |
+| `action ITEM(params) <- source threshold x;` | fire when `source > x`, sized by `source` (spec §5.5) |
 
-- Every action gene listed in the seed and **expressed** MUST have its `act[j]` assigned (`E0603`), so a seed's behaviour is always written out.
-- Every other action lane — dormant genes listed in the seed, and the spare slots the profile adds (spec §5.3) — defaults to the constant `1.0`. The brain may assign them, but never has to mention a slot the seed doesn't list. When mutation later expresses such a gene, it fires at full size at once. All lanes set to `1.0` share one `Const` node.
-- An unassigned register **holds** its value (spec §5.5).
-- Each lane and each `let` name is assigned at most once (`E0604`).
-- Only opcode calls, lanes, `let` names and float literals are allowed. Infix operators are not: write `Add(a, b)`, not `a + b`, because rewrite patterns match opcode names. `emerge explain` shows an infix rendering for people.
-- A float literal is a `Const` node. Identical constants may share one node.
-- The compiler rejects a brain that needs more nodes than the profile allows (`E0602`).
+- A **source** is a signal name or a float constant. The default source is `1.0`, and `emerge fmt` omits `<- 1.0`, just as it omits `threshold 0.0`.
+- **Inputs** of a regulation gene are a list of `weight * signal` terms. A weight of `1.0` is omitted: `[fullness]` means `[1.0 * fullness]`. Kinds without weights (such as `product`) take plain signal names. The number of inputs and the weight range come from the regulation menu (§6.7); out of range is `E0601`.
+- `dormant` starts a gene unexpressed; `dormant module` starts a whole module unexpressed.
+- Each parameter MUST lie in the menu's range (`E0601`).
+- Labels (`@name`) are optional. They give a gene a stable path and a stable ID match across edits (§10).
 
-### 8.4 Opcodes
+### 8.3 Signals
 
-Opcode calls are the only fully positional calls in the language. The source order of operands is fixed here; the compiler maps it onto the node's `src_a`, `src_b`, `src_c` and `param` fields.
+- **Signals are named by the genome.** A name used in a gene is a signal in that genome's table. Names are local to the genome and MUST NOT match a name declared in the world (`E0112`), so a bare name is never ambiguous.
+- **Every signal that is read MUST be written** by some gene in the seed (`E0605`). A signal that is written but never read is allowed; it is free (spec §5.1).
+- **`signal NAME keep x;`** sets a signal's keep factor (`0.0..1.0`). It is needed only when `x` is not `0.0`.
+- **Generated names.** Signals and modules that evolution creates get names of the form `s17` and `m3`. These forms are reserved: a seed MUST NOT declare them (`E0113`).
+- Signals hold `f32` values and update as described in spec §5.4.
 
-| Opcode | Signature | Result |
-| :-- | :-- | :-- |
-| `Const` | `Const(k)`, written as the literal `k` | `k` |
-| `Add` | `Add(a, b)` | `a + b` |
-| `Sub` | `Sub(a, b)` | `a − b` |
-| `Mul` | `Mul(a, b)` | `a · b` |
-| `Div` | `Div(a, b)` | `abs(b) < 1e-6 ? 1.0 : a / b` |
-| `Min` | `Min(a, b)` | `min(a, b)` |
-| `Max` | `Max(a, b)` | `max(a, b)` |
-| `Abs` | `Abs(a)` | `abs(a)` |
-| `Neg` | `Neg(a)` | `−a` |
-| `Sin` | `Sin(a)` | `sin(a)` |
-| `Tanh` | `Tanh(a)` | `tanh(a)` |
-| `Sqrt` | `Sqrt(a)` | `sqrt(abs(a))` |
-| `Gt` | `Gt(a, b)` | `a > b ? 1.0 : 0.0` |
-| `Select` | `Select(cond, then, else)` | `cond > 0.5 ? then : else` (node: `src_a = then`, `src_b = else`, `src_c = cond`) |
-| `MulAdd` | `MulAdd(a, b, c)` | `a · b + c` |
-| `Scale` | `Scale(a, k)`, `k` a float literal | `a · k` (`k` stored in `param`) |
+### 8.4 Modules
 
-Every result is sanitized as in spec §10.1.
+```
+module reproduce {
+    sense inventory(s: body) -> fullness;
+    regulate weigh(bias: -10.0, curve: step) <- [fullness] -> ready;
+    action divide(split: 0.5) <- ready threshold 0.5 @split;
+}
+```
+
+- A module's name is unique within its genome.
+- Whether a signal is private to a module or part of its interface is **derived** from which genes use it (spec §5.1). In the example, `fullness` and `ready` are private to `reproduce`; if another module read `ready`, it would become part of the interface.
+- The order of modules, and of genes within a module, is the genome order (spec §5.2).
+
+### 8.5 Regulation kinds
+
+The world's `regulation` menu (§6.7) lists which kinds a genome may use. The engine defines each kind:
+
+| Kind | Inputs | Parameters | Output |
+| :-- | :-- | :-- | :-- |
+| `weigh` | 1–4, weighted | `bias`, `curve` | `curve(bias + Σ weight · input)` |
+| `product` | 2, unweighted | — | `input₁ · input₂` |
+| `delay` [P1] | 1, unweighted | `ticks` | the input `ticks` mind steps ago |
+| `add`, `sub`, `mul`, `div`, `min`, `max`, `compare`, `select`, `sin` [P1] | 1–3, unweighted | — | as in spec §5.3 |
+
+Curves: `linear`, `step`, `sigmoid`, `tanh` (spec §5.3).
 
 ---
 
@@ -526,16 +544,15 @@ Every result is sanitized as in spec §10.1.
 
 ```
 ruleset Tinker {
-    rule wrap weight 0.5 : Add($a, $b) -> Mul(Add($a, $b), Sin($a));
-    rule prune weight 0.2 : Mul($x, Const($c)) where abs($c) < 1e-3 -> 0.0;
+    rule sharpen weight 0.3 : regulate weigh(curve: sigmoid) -> regulate weigh(curve: step);
     rule nudge weight 0.3 : sense $kind(dist: $d) -> sense $kind(dist: jitter($d, sigma: 0.1));
+    rule calm weight 0.1 : regulate weigh(bias: $b) where $b > 8.0 -> regulate weigh(bias: $b / 2.0);
 }
 ```
 
-- A **brain pattern** is an opcode expression with captures. `Const($c)` matches any float literal and binds its value.
-- A **gene pattern** is `sense`, `reaction` or `action`, then a name or a capture for the menu item, then the parameters it matches. Parameters it doesn't list are left unchanged.
-- `$x` captures any subexpression; repeated captures must match equal subtrees.
-- `where` guards are expressions over captured constants, using math built-ins (`abs`, `min`, `max`).
+- A **pattern** is a gene form without its wiring: `sense`, `regulate`, `reaction` or `action`, then a name or a capture for the menu item, then the parameters it matches. Parameters and wiring it doesn't mention are left unchanged.
+- `$x` captures a parameter's value.
+- `where` guards are expressions over captured values, using math built-ins (`abs`, `min`, `max`).
 - Replacements may call `jitter(value, sigma: f32)`, which draws from the mutation stream.
 
 ### 9.2 Views and charts
@@ -597,10 +614,11 @@ Every item has a readable path:
 | A rule | `Dish.rules.rotting` |
 | A statement in a rule | `Dish.rules.rotting@slow_rot` (by label) or `Dish.rules.rotting.react[0]` (by kind and position) |
 | A setting | `Dish.upkeep.base` |
-| A seed gene | `Drifter.seed@eat_light` (by label) or `Drifter.seed.action[2]` (by kind and position) |
-| A brain binding | `Drifter.seed.brain.full` |
+| A module | `Drifter.seed.forage` |
+| A seed gene | `Drifter.seed.forage@turn_to_food` (by label) or `Drifter.seed.forage.action[1]` (by kind and position within its module) |
+| A signal | `Drifter.seed.signals.steer` |
 
-Positional paths (`action[2]`) change meaning when items are inserted before them. Labels don't. Tools that patch genes or statements should label them.
+Positional paths (`action[1]`) change meaning when items are inserted before them. Labels don't. Tools that patch genes or statements should label them.
 
 ### 10.2 Persistent IDs
 
@@ -664,9 +682,10 @@ block_cfg   := IDENT '{' entry* '}'            // second_law, reaction_space, up
 setting     := IDENT ':' value ';'             // space, remains, max_age
 entry       := IDENT ':' value ';'
 
-menu        := ('senses' | 'actions') '{' mitem* '}'
+menu        := ('senses' | 'actions' | 'regulation') '{' mitem* '}'
 mitem       := 'sense' IDENT '(' sep(param) ')' ';'
              | 'action' IDENT '(' sep(param) ')' 'cost' AMOUNT ('per' IDENT)? ('requires' expr)? ';'
+             | 'gene' IDENT '(' sep(param) ')' 'inputs' RANGE ('weight' RANGE)? ';'
 param       := IDENT ':' ( RANGE | 'any' IDENT | '[' sep(IDENT) ']' | IDENT )
 
 // ---- rules and genesis ----
@@ -686,20 +705,21 @@ ldecl       := 'profile' IDENT '{' entry* '}'
              | 'mutation' '{' entry* '}'
              | seed
              | genesis
-seed        := 'seed' 'genome' '{' gene* brain '}'
-gene        := 'dormant'? ( 'sense' call
-                          | 'reaction' IDENT 'rate' AMOUNT
-                          | 'action' call ('threshold' '-'? FLOAT)? ) LABEL? ';'
-brain       := 'brain' '{' bstmt* '}'
-bstmt       := ('let' IDENT | lane) '=' bexpr ';'
-lane        := ('sense' | 'act' | 'reg') '[' INT ']' ('.' IDENT)?
-bexpr       := '-'? FLOAT | lane | IDENT | OPCODE '(' sep(bexpr) ')'
+seed        := 'seed' 'genome' '{' sigdecl* module+ '}'
+sigdecl     := 'signal' IDENT 'keep' FLOAT ';'
+module      := 'dormant'? 'module' IDENT '{' gene* '}'
+gene        := 'dormant'? gbody LABEL? ';'
+gbody       := 'sense' call '->' IDENT (',' IDENT)?
+             | 'regulate' call '<-' '[' sep(input) ']' '->' IDENT
+             | 'reaction' IDENT 'rate' AMOUNT ('<-' source)?
+             | 'action' call ('<-' source)? ('threshold' '-'? FLOAT)?
+input       := ('-'? FLOAT '*')? IDENT
+source      := IDENT | '-'? FLOAT
 
 // ---- rulesets ----
 ruleset     := 'ruleset' IDENT '{' rrule* '}'
 rrule       := 'rule' IDENT 'weight' FLOAT ':' pattern ('where' expr)? '->' pattern ';'
-pattern     := CAPTURE | '-'? FLOAT | OPCODE '(' sep(pattern) ')'
-             | ('sense' | 'reaction' | 'action') (IDENT | CAPTURE) '(' sep(IDENT ':' pexpr) ')'
+pattern     := ('sense' | 'regulate' | 'reaction' | 'action') (IDENT | CAPTURE) '(' sep(IDENT ':' pexpr) ')'
 pexpr       := CAPTURE | expr
 
 // ---- views, charts, explore ----
@@ -742,7 +762,6 @@ literal     := INT | FLOAT | AMOUNT | RATE | RANGE | 'true' | 'false'
 // ---- tokens ----
 LABEL       := '@' IDENT
 CAPTURE     := '$' IDENT
-OPCODE      := one of the 16 names in §8.4
 ```
 
 **Precedence**, loosest first: `|>`; `or`; `and`; `not`; comparisons; `+ -`; `* /`; unary `-`. Comparisons do not chain. All binary operators are left-associative. The grammar accepts unary `-` on any expression; the type checker allows it only on `int` and `f32` (§2).
@@ -782,7 +801,6 @@ Built-ins are grouped by the context that may call them. "Subject" is the one po
 | `Continuous2D` | — | `w`, `h`, `wrap`, `max_interaction_radius` |
 | `Grid` | — | `w`, `h` |
 | `balanced` | — | `max_inputs`, `max_outputs`, `max_coeff` |
-| `cgp` | — | `nodes` |
 
 **Patterns:** `jitter` (subject: value; `sigma`) and the math built-ins.
 
@@ -843,9 +861,9 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E03xx` | contexts: an effect or read not allowed here, mixed rule kinds |
 | `E04xx` | chemistry: balance, dissipation, canonical form, potentials, reaction space size |
 | `E05xx` | menus and actions |
-| `E06xx` | genomes and brains: ranges, node count, lanes, unassigned actions |
+| `E06xx` | genomes: ranges, inputs, signals read but never written |
 | `E07xx` | routes: payment, overflow, waste, remains, caps |
-| `E08xx` | limits and profiles: CGP bounds, slot counts |
+| `E08xx` | limits and profiles: capacity |
 | `E09xx` | patches and hot-swaps: stale revisions, missing destinations, unresolved paths |
 
 ---
