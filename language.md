@@ -1,8 +1,8 @@
 # The `.em` Language
 
-**Language reference — draft, companion to spec v0.6**
+**Language reference — draft, companion to spec v0.6.1**
 
-This document defines the syntax and static rules of `.em` files. `spec-v0.6.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
+This document defines the syntax and static rules of `.em` files. `spec-v0.6.1.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
 
 Conventions:
 - **MUST** / **MUST NOT** mark normative requirements.
@@ -35,7 +35,7 @@ Conventions:
 | Label | `@` identifier | `@eat_light` |
 | Capture | `$` identifier (patterns only) | `$a`, `$c` |
 
-Negative numbers outside ranges are written with unary minus (`-1.0`), which the formatter keeps attached to the literal.
+Negative numbers outside ranges are written with unary minus (`-1.0`), which the formatter keeps attached to the literal. Unary minus applies only to `int` and `f32`: `-5u` and `-50bp` are type errors (`E0203`), because amounts and rates are never negative.
 
 **Rules for literals:**
 - An amount MUST be a whole number of µ: `0.5u` is `500mu` and allowed; `0.0005u` is an error (`E0101`).
@@ -47,6 +47,18 @@ Negative numbers outside ranges are written with unary minus (`-1.0`), which the
 - Commas only separate items inside `( )` and `[ ]`.
 - Config blocks and encoding blocks always use `key: value;`.
 
+### 2.2 Formatting
+
+`emerge fmt` is fully determined by these rules, so the canonical text of a program is unique:
+
+- **Indentation:** 4 spaces per level. No tabs.
+- **Spacing:** exactly one space around binary operators, `=`, `->` and `|>`, after `,`, and after the `:` of a config key, a named argument or a patch position (`add after rules.weather: ...`); none before them. The `:` between a declaration name and its type or formula (`field cells : Grid(...)`, `reaction rot : body -> ...`, `rule wrap weight 0.5 : ...`) has one space on each side. No space inside brackets.
+- **No column alignment.** Consecutive declarations are never padded to line up. This keeps diffs small when a name changes length.
+- **Line width:** 100 columns. If a line is longer, the formatter breaks the **last** bracketed group (`(...)` or `[...]`) that opens on that line: each item goes on its own line, indented one level deeper, and the closing bracket goes on its own line at the original indentation. It repeats until every line fits or no group is left to break. There is no trailing comma.
+- **Blank lines:** preserved between declarations and statements, collapsed to at most one. None at the start or end of a block.
+- **Comments:** kept in place. A trailing comment has one space before `//`.
+- **Order:** declarations in a world are sorted into the order of §6 (§6, first paragraph).
+
 ### 2.1 Keywords
 
 Keywords come in two kinds.
@@ -54,7 +66,7 @@ Keywords come in two kinds.
 **Hard keywords** are reserved everywhere and can never be identifiers:
 
 ```
-self  true  false  and  or  not
+self true false and or not
 ```
 
 **Contextual keywords** are words that only have a special meaning in a particular position, such as the start of a declaration or statement. Everywhere else they are ordinary identifiers, so they can be argument names (`to:`, `where:`), config keys (`brain:`, `senses:`) or path segments (`Dish.rules`):
@@ -78,13 +90,13 @@ A **declared name** (of a world, substance, reaction, rule, field, lineage, `let
 A file is a list of top-level items. Order between items does not matter; names are resolved globally.
 
 ```
-world   Dish    { ... }              // physics, chemistry, rules, menus
-ruleset Tinker  { ... }              // genome rewrite rules
-lineage Drifter in Dish { ... }      // a seed genome and its mutation settings
-view    Main  for Dish { ... }       // rendering
-chart   Health for Dish { ... }      // plots
-explore Atlas { base: Dish; ... }    // parameter sweeps
-patch   Dish base 41 { ... }         // edits, only in patch files and the API
+world Dish { ... } // physics, chemistry, rules, menus
+ruleset Tinker { ... } // genome rewrite rules
+lineage Drifter in Dish { ... } // a seed genome and its mutation settings
+view Main for Dish { ... } // rendering
+chart Health for Dish { ... } // plots
+explore Atlas { base: Dish; ... } // parameter sweeps
+patch Dish base 41 { ... } // edits, only in patch files and the API
 ```
 
 **Names.** Top-level items share one namespace. Inside a world, each kind of declaration (substances, reactions, rules, fields, sources and sinks) has its own namespace, matching its path segment (`Dish.reactions.rot`, `Dish.rules.rotting`). Even so, a name MUST be unique across all kinds within one world (`E0111`), so a bare name in an expression always means one thing.
@@ -112,11 +124,12 @@ Potentials are `i32` but appear only in `substance` declarations.
 **Amounts are typed by substance.** This catches mixing substances at compile time:
 
 ```
-self.carbon + self.carbon            // amount[carbon]           ok
-self.carbon + self.light             // E0201 different substances
-self.carbon > 0u                     // bool                      ok  (0u fits any substance)
-self.carbon * 50bp                   // amount[carbon], floored   ok
-transfer(carbon, from: self, to: below, amount: self.light)   // E0202 amount[light] where amount[carbon] expected
+self.carbon + self.carbon // ok: amount[carbon]
+self.carbon + self.light // E0201: different substances
+self.carbon > 0u // ok: bool (0u fits any substance)
+self.carbon * 50bp // ok: amount[carbon], floored
+// E0202: amount[light] where amount[carbon] is expected
+transfer(carbon, from: self, to: below, amount: self.light);
 ```
 
 **No implicit conversions.** Conversions are built-in functions (§12):
@@ -196,9 +209,9 @@ element E;
 
 second_law { min_drop: 1; }
 
-substance light   = E      potential 10;
-substance sugar   = C + E  potential 9;
-substance ozone   = 3 O    potential 12;     // coefficient before the element
+substance light = E potential 10;
+substance sugar = C + E potential 9;
+substance ozone = 3 O potential 12; // coefficient before the element
 ```
 
 One element per `element` declaration. Every substance MUST declare a potential (`E0403`).
@@ -215,20 +228,20 @@ A substance field lists each substance with its cap. A signal field holds one `f
 ### 6.4 Boundaries, waste and remains
 
 ```
-source sun  : [light];
+source sun : [light];
 source rock : [carbon, nitrate, body];
-sink   void : any;
-sink   vent : [heat];
+sink void : any;
+sink vent : [heat];
 
-waste heat -> void;          // vented from every inventory after React
-remains: void;               // where a dead entity's unplaceable substances go
+waste heat -> void; // vented from every inventory after React
+remains: void; // where a dead entity's unplaceable substances go
 ```
 
 ### 6.5 Reactions and the reaction space
 
 ```
 reaction respiration : sugar -> carbon + energy;
-reaction burn        : 2 sugar + oxygen -> 2 carbon + 2 energy + heat;
+reaction burn : 2 sugar + oxygen -> 2 carbon + 2 energy + heat;
 
 reaction_space {
     include: [photosynthesis, respiration, build];
@@ -263,7 +276,10 @@ limits {
 }
 
 max_age: 20_000;
+child_offset: 0.5;
 ```
+
+`child_offset` is the distance, in space units, behind its parent at which a child is placed (spec §7.5). It defaults to `0.5`.
 
 `pay` and `becomes` MUST have the same composition, `pay → becomes` MUST be downhill, `vent` MUST accept `becomes` (`E0701`), and `base` MUST be greater than `0mu` (`E0702`).
 
@@ -272,7 +288,7 @@ max_age: 20_000;
 ```
 senses {
     sense probe(q: any quantity, angle_deg: -180.0..180.0, dist: 0.0..8.0);
-    sense gradient(q: any quantity);                      // .x forward, .y left
+    sense gradient(q: any quantity); // .x forward, .y left
     sense inventory(s: any substance);
     sense crowd(radius: 0.0..6.0);
     sense neighbour(s: any substance, rank: 0..3);
@@ -280,13 +296,13 @@ senses {
 }
 
 actions {
-    action move(speed: 0.0..2.0)                  cost 20mu per distance;
-    action turn(angle_deg: 0.0..30.0)             cost 10mu;
-    action take(s: any substance, max: 0u..10u)   cost 5mu;
-    action drop(s: any substance, max: 0u..10u)   cost 0mu;
-    action give(s: any substance, max: 0u..10u, to: neighbour)    cost 5mu;
-    action emit(sig: scent, max: 0.0..10.0)       cost 2mu;
-    action divide(split: 0.0..1.0)                cost 0mu requires body >= 10u;
+    action move(speed: 0.0..2.0) cost 20mu per distance;
+    action turn(angle_deg: 0.0..30.0) cost 10mu;
+    action take(s: any substance, max: 0u..10u) cost 5mu;
+    action drop(s: any substance, max: 0u..10u) cost 0mu;
+    action give(s: any substance, max: 0u..10u, to: neighbour) cost 5mu;
+    action emit(sig: scent, max: 0.0..10.0) cost 2mu;
+    action divide(split: 0.0..1.0) cost 0mu requires body >= 10u;
 }
 ```
 
@@ -423,18 +439,18 @@ Names inside a lineage resolve in the scope of its world, so `spark` means `Dish
 
 ```
 seed genome {
-    sense gradient(q: cells.light) @light_dir;       // sense[0]
-    sense inventory(s: energy) @energy;              // sense[1]
-    sense inventory(s: body) @body;                  // sense[2]
+    sense gradient(q: cells.body) @food_dir; // sense[0]
+    sense inventory(s: energy) @energy; // sense[1]
+    sense inventory(s: body) @body; // sense[2]
 
     reaction photosynthesis rate 1u;
-    reaction respiration    rate 1u;
-    dormant reaction build  rate 250mu;
+    reaction respiration rate 1u;
+    dormant reaction build rate 250mu;
 
-    action move(speed: 1.0) @go;                     // act[0]
-    action turn(angle_deg: 30.0) @steer;             // act[1]
-    action take(s: light, max: 1u) @eat_light;       // act[2]
-    action divide(split: 0.5) threshold 0.5 @split;  // act[3]
+    action move(speed: 1.0) @go; // act[0]
+    action turn(angle_deg: 30.0) @steer; // act[1]
+    action take(s: light, max: 1u) @eat_light; // act[2]
+    action divide(split: 0.5) threshold 0.5 @split; // act[3]
 
     brain { ... }
 }
@@ -455,8 +471,9 @@ brain {
     let full = Gt(sense[2], 10.0);
     act[0] = 1.0;
     act[1] = Tanh(Scale(sense[0].y, 10.0));
+    act[2] = 1.0;
     act[3] = full;
-    reg[0] = Select(full, sense[1], reg[0]);   // remember energy when full
+    reg[0] = Select(full, sense[1], reg[0]); // remember energy when full
 }
 ```
 
@@ -468,7 +485,8 @@ brain {
 | `reg[r] = ...` | the value register `r` will hold next tick |
 | `act[j] = ...` | the output for action gene `j` |
 
-- Every **expressed** action gene MUST have its `act[j]` assigned (`E0603`). Dormant action genes may be left unassigned; the compiler wires them to a constant `0.0`.
+- Every action gene listed in the seed and **expressed** MUST have its `act[j]` assigned (`E0603`), so a seed's behaviour is always written out.
+- Every other action lane — dormant genes listed in the seed, and the spare slots the profile adds (spec §5.3) — defaults to the constant `1.0`. The brain may assign them, but never has to mention a slot the seed doesn't list. When mutation later expresses such a gene, it fires at full size at once. All lanes set to `1.0` share one `Const` node.
 - An unassigned register **holds** its value (spec §5.5).
 - Each lane and each `let` name is assigned at most once (`E0604`).
 - Only opcode calls, lanes, `let` names and float literals are allowed. Infix operators are not: write `Add(a, b)`, not `a + b`, because rewrite patterns match opcode names. `emerge explain` shows an infix rendering for people.
@@ -508,7 +526,7 @@ Every result is sanitized as in spec §10.1.
 
 ```
 ruleset Tinker {
-    rule wrap  weight 0.5 : Add($a, $b) -> Mul(Add($a, $b), Sin($a));
+    rule wrap weight 0.5 : Add($a, $b) -> Mul(Add($a, $b), Sin($a));
     rule prune weight 0.2 : Mul($x, Const($c)) where abs($c) < 1e-3 -> 0.0;
     rule nudge weight 0.3 : sense $kind(dist: $d) -> sense $kind(dist: jitter($d, sigma: 0.1));
 }
@@ -602,16 +620,17 @@ The journal, the node editor's `.meta.json` and the API all refer to items by ID
 
 ```
 patch Dish base 41 {
-    set     upkeep.base = 25mu;
-    set     rules.sunlight.transfer[0].amount = 3u;
+    set upkeep.base = 25mu;
+    set rules.sunlight.transfer[0].amount = 3u;
     add after rules.weather: rule wind on cells { diffuse_conserved([carbon], rate: 100bp); }
     replace rules.smell { self.value = fade(scent.here, keep: 0.8); }
-    remove  reaction_space.exclude[0];
-    rename  rules.rotting to decompose;
-    remove  substances.ozone move_to: void;
+    remove reaction_space.exclude[0];
+    rename rules.rotting to decompose;
+    remove substances.ozone move_to: void;
 }
 ```
 
+- **Paths inside `patch Dish { ... }` are relative to `Dish`:** `upkeep.base` means `Dish.upkeep.base`. The JSON form has no enclosing target, so it always uses full paths. A full path inside a text patch is an error (`E0902`), so each form has one spelling.
 - `base` states the revision the patch was written against. The engine resolves every path at that revision, and rejects the patch as stale if the world has moved on (spec §13.2).
 - A patch is applied as one unit. It is validated, compiled and preflighted in full before commit.
 - Removing a substance or field, or lowering a cap below current balances, MUST say where the contents go (`move_to:`), or the patch is rejected (`E0901`).
@@ -726,7 +745,7 @@ CAPTURE     := '$' IDENT
 OPCODE      := one of the 16 names in §8.4
 ```
 
-**Precedence**, loosest first: `|>`; `or`; `and`; `not`; comparisons; `+ -`; `* /`; unary `-`. Comparisons do not chain. All binary operators are left-associative.
+**Precedence**, loosest first: `|>`; `or`; `and`; `not`; comparisons; `+ -`; `* /`; unary `-`. Comparisons do not chain. All binary operators are left-associative. The grammar accepts unary `-` on any expression; the type checker allows it only on `int` and `f32` (§2).
 
 **Subject arguments.** The grammar accepts a positional first argument on any call; the type checker allows it only on built-ins marked as taking a subject in §12, and requires it there. A subject can never be written as a named argument. This keeps one spelling per call.
 

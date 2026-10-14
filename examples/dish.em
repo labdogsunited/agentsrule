@@ -1,4 +1,4 @@
-// Reference world for Phase 0 (spec v0.6 §15).
+// Reference world for Phase 0 (spec v0.6.1 §15).
 // Also the parser fixture: parse -> fmt -> parse must give the same AST,
 // and `emerge fmt` must leave this file unchanged.
 //
@@ -9,6 +9,7 @@
 
 world Dish {
     space: Continuous2D(w: 512.0, h: 512.0, wrap: true, max_interaction_radius: 4.0);
+    child_offset: 0.5;
 
     element C;
     element N;
@@ -16,30 +17,35 @@ world Dish {
 
     second_law { min_drop: 1; }
 
-    substance light   = E      potential 10;
-    substance energy  = E      potential 8;
-    substance heat    = E      potential 0;
-    substance sugar   = C + E  potential 9;
-    substance carbon  = C      potential 0;
-    substance nitrate = N      potential 0;
-    substance body    = C + N  potential 5;
+    substance light = E potential 10;
+    substance energy = E potential 8;
+    substance heat = E potential 0;
+    substance sugar = C + E potential 9;
+    substance carbon = C potential 0;
+    substance nitrate = N potential 0;
+    substance body = C + N potential 5;
 
-    field cells : Grid(w: 256, h: 256) holds [light: 2_000u, sugar: 2_000u, carbon: 2_000u,
-                                              nitrate: 2_000u, body: 2_000u];
+    field cells : Grid(w: 256, h: 256) holds [
+        light: 2_000u,
+        sugar: 2_000u,
+        carbon: 2_000u,
+        nitrate: 2_000u,
+        body: 2_000u
+    ];
     field scent : Grid(w: 256, h: 256) signal;
 
-    source sun   : [light];
+    source sun : [light];
     source spark : [energy];
-    source rock  : [carbon, nitrate, body];
-    sink   void  : any;
+    source rock : [carbon, nitrate, body];
+    sink void : any;
 
     waste heat -> void;
     remains: void;
 
-    reaction photosynthesis : carbon + light            -> sugar;
-    reaction respiration    : sugar                     -> carbon + energy;
-    reaction build          : carbon + nitrate + energy -> body + heat;
-    reaction rot            : body                      -> carbon + nitrate;
+    reaction photosynthesis : carbon + light -> sugar;
+    reaction respiration : sugar -> carbon + energy;
+    reaction build : carbon + nitrate + energy -> body + heat;
+    reaction rot : body -> carbon + nitrate;
 
     reaction_space {
         include: [photosynthesis, respiration, build, rot];
@@ -77,14 +83,14 @@ world Dish {
     }
 
     actions {
-        action move(speed: 0.0..2.0)                    cost 20mu per distance;
-        action turn(angle_deg: 0.0..30.0)               cost 10mu;
-        action take(s: any substance, max: 0u..10u)     cost 5mu;
-        action drop(s: any substance, max: 0u..10u)     cost 0mu;
-        action give(s: any substance, max: 0u..10u, to: neighbour)    cost 5mu;
+        action move(speed: 0.0..2.0) cost 20mu per distance;
+        action turn(angle_deg: 0.0..30.0) cost 10mu;
+        action take(s: any substance, max: 0u..10u) cost 5mu;
+        action drop(s: any substance, max: 0u..10u) cost 0mu;
+        action give(s: any substance, max: 0u..10u, to: neighbour) cost 5mu;
         action steal(s: any substance, max: 0u..10u, from: neighbour) cost 30mu;
-        action emit(sig: scent, max: 0.0..10.0)         cost 2mu;
-        action divide(split: 0.0..1.0)                  cost 0mu requires body >= 10u;
+        action emit(sig: scent, max: 0.0..10.0) cost 2mu;
+        action divide(split: 0.0..1.0) cost 0mu requires body >= 10u;
     }
 
     // World rules run in this order. Each rule holds one kind of effect.
@@ -93,9 +99,9 @@ world Dish {
     }
 
     rule weather on cells {
-        transfer(carbon,  from: rock, to: self, amount: 20mu, overflow: void);
+        transfer(carbon, from: rock, to: self, amount: 20mu, overflow: void);
         transfer(nitrate, from: rock, to: self, amount: 10mu, overflow: void);
-        transfer(body,    from: rock, to: self, amount: 1mu,  overflow: void);
+        transfer(body, from: rock, to: self, amount: 1mu, overflow: void);
     }
 
     rule rotting on cells {
@@ -112,20 +118,22 @@ world Dish {
 
     genesis {
         for cell in cells {
-            transfer(carbon,  from: rock, to: cell, amount: 50u);
+            transfer(carbon, from: rock, to: cell, amount: 50u);
             transfer(nitrate, from: rock, to: cell, amount: 20u);
-            transfer(body,    from: rock, to: cell, amount: 1u);
+            transfer(body, from: rock, to: cell, amount: 1u);
         }
     }
 }
 
 ruleset Tinker {
-    rule wrap  weight 0.5 : Add($a, $b) -> Mul(Add($a, $b), Sin($a));
+    rule wrap weight 0.5 : Add($a, $b) -> Mul(Add($a, $b), Sin($a));
     rule prune weight 0.2 : Mul($x, Const($c)) where abs($c) < 1e-3 -> 0.0;
     rule nudge weight 0.3 : sense $kind(dist: $d) -> sense $kind(dist: jitter($d, sigma: 0.1));
 }
 
 // Must discover body synthesis: a body-producing reaction plus take(nitrate).
+// Spare action slots (act[6], act[7]) are wired to 1.0 by default, so an
+// expressed spare action fires without a separate brain mutation.
 lineage Drifter in Dish {
     profile fast {
         senses: 8;
@@ -143,18 +151,18 @@ lineage Drifter in Dish {
     }
 
     seed genome {
-        sense gradient(q: cells.light) @light_dir;
+        sense gradient(q: cells.body) @food_dir;
         sense inventory(s: energy) @energy;
         sense inventory(s: body) @body;
 
         reaction photosynthesis rate 1u;
-        reaction respiration    rate 1u;
+        reaction respiration rate 1u;
 
         action move(speed: 1.0) @go;
         action turn(angle_deg: 30.0) @steer;
-        action take(s: light,  max: 1u) @eat_light;
+        action take(s: light, max: 1u) @eat_light;
         action take(s: carbon, max: 1u) @eat_carbon;
-        action take(s: body,   max: 1u) @eat_body;
+        action take(s: body, max: 1u) @eat_body;
         action divide(split: 0.5) threshold 0.5 @split;
 
         brain {
@@ -192,18 +200,18 @@ lineage Builder in Dish {
     }
 
     seed genome {
-        sense gradient(q: cells.light) @light_dir;
+        sense gradient(q: cells.body) @food_dir;
         sense inventory(s: energy) @energy;
         sense inventory(s: body) @body;
 
         reaction photosynthesis rate 1u;
-        reaction respiration    rate 1u;
-        reaction build          rate 250mu;
+        reaction respiration rate 1u;
+        reaction build rate 250mu;
 
         action move(speed: 1.0) @go;
         action turn(angle_deg: 30.0) @steer;
-        action take(s: light,   max: 1u) @eat_light;
-        action take(s: carbon,  max: 1u) @eat_carbon;
+        action take(s: light, max: 1u) @eat_light;
+        action take(s: carbon, max: 1u) @eat_carbon;
         action take(s: nitrate, max: 250mu) @eat_nitrate;
         action divide(split: 0.5) threshold 0.5 @split;
 

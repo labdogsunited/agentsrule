@@ -1,8 +1,8 @@
 # Emergent: a Rule-Based Language for Open-Ended Evolution
 
-**Architecture & Design Specification — v0.6**
+**Architecture & Design Specification — v0.6.1**
 
-Status: draft. Supersedes v0.5. This version applies the v0.5 review (`archive/spec-v0.5-review.md`) and folds in the syntax of `language.md`. The main changes are a conservation route for action fees (§3.3), exact overflow rules (§7.2), one kind of effect per world rule (§7.4), canonical reactions (§4.4), persistent IDs and revisions (§12.1, §13), a numeric contract (§10), and a reference world with a baseline and a positive control (§15). Appendix A lists every change.
+Status: draft. v0.6.1 is a point release of v0.6: it fixes the reference world's steering and its path to body synthesis, and settles several runtime edge cases (Appendix B). v0.6 superseded v0.5. v0.6 applied the v0.5 review (`archive/spec-v0.5-review.md`) and folds in the syntax of `language.md`. The main changes are a conservation route for action fees (§3.3), exact overflow rules (§7.2), one kind of effect per world rule (§7.4), canonical reactions (§4.4), persistent IDs and revisions (§12.1, §13), a numeric contract (§10), and a reference world with a baseline and a positive control (§15). Appendix A lists every change.
 
 Companion documents:
 - **`language.md`** defines the syntax and static rules of `.em` files. It is normative for syntax; this document is normative for runtime behaviour.
@@ -70,7 +70,7 @@ Conventions:
 | **Store** | Anything inside the world that holds substances: a field cell or an entity's inventory |
 | **Source / sink** | A **ledger boundary** outside the world. Sources emit substances into stores; sinks absorb them. They are not stores and hold no balance |
 | **World rule** | A user-authored rule the world runs every tick. Evolution cannot change it; the user or AI can hot-swap it |
-| **Entity** | An abstract agent with a stable ID, a position, a heading, an inventory, registers and a **genome** |
+| **Entity** | An abstract agent with a stable ID, a position, a heading (stored as a unit vector), an inventory, registers and a **genome** |
 | **Genome** | The entity's evolvable rules: sense genes, reaction genes, action genes, a brain program, and optional bond and message genes |
 | **Lineage** | A template that seeds entities. "Species" are detected from genome similarity at runtime, not declared |
 | **Revision** | A number that identifies one version of a running world's definition. Every committed patch increments it (§13) |
@@ -84,7 +84,7 @@ Conventions:
 - **The ledger counts elements, not substances.** A reaction may turn substances into other substances only if the element totals on both sides are equal. For every element `e`, after every tick:
 
   ```
-  Σ_stores amount_e  −  emitted_e  +  absorbed_e  ==  0
+  Σ_stores amount_e − emitted_e + absorbed_e == 0
   ```
 
   `emitted_e` and `absorbed_e` are cumulative `u64` totals at the source and sink boundaries. Sources and sinks hold no balance, so nothing is counted twice.
@@ -129,7 +129,7 @@ upkeep {
 
 - **The payment route** is the reaction `pay → becomes`, followed by moving the product to the `vent` sink. The two substances **MUST** have the same element composition, the reaction **MUST** be downhill (§3.2), and `vent` must accept `becomes`. A payment of `x` µ debits `x` µ of `pay` from the entity, and the ledger records `x` µ of `becomes` absorbed by `vent`.
 - **Action fees use the same route** [P0]. Menus write a fee as an amount only (`cost 10mu`), and it is paid in the `pay` substance. Separately declared payment routes for other substances are a later extension.
-- **What upkeep counts.** `per_gene` applies to expressed genes only. `per_brain_node` applies to active brain nodes only (§5.4). `per_carried_u` applies to each whole `1u` carried, over all substances, rounded down.
+- **What upkeep counts.** `per_gene` applies to expressed genes only. `per_brain_node` applies to active brain nodes only (§5.4). `per_carried_u` applies to `floor(Σ_s amount_s / 1_000)`: amounts of all substances are summed first, then rounded down to whole units, so splitting an inventory across substances saves nothing.
 - **`base` MUST be greater than `0mu`**, so no entity lives for free.
 - **Rounding.** Totals are computed in `u64`. Costs that depend on an `f32` are rounded up to whole µ (§3.5).
 - **Order.** Upkeep is charged first in Arbitrate (§7.2), before any fee, so a genome cannot skip it.
@@ -172,13 +172,13 @@ element E;
 
 second_law { min_drop: 1; }
 
-substance light   = E      potential 10;
-substance energy  = E      potential 8;
-substance heat    = E      potential 0;
-substance sugar   = C + E  potential 9;
-substance carbon  = C      potential 0;
-substance nitrate = N      potential 0;
-substance body    = C + N  potential 5;
+substance light = E potential 10;
+substance energy = E potential 8;
+substance heat = E potential 0;
+substance sugar = C + E potential 9;
+substance carbon = C potential 0;
+substance nitrate = N potential 0;
+substance body = C + N potential 5;
 ```
 
 A substance's composition counts elements per µ: `1 µ` of `sugar` holds `1 µ` of `C` and `1 µ` of `E`. The order of substance declarations is their **stable substance order**, used for canonical reactions (§4.4).
@@ -186,10 +186,10 @@ A substance's composition counts elements per µ: `1 µ` of `sugar` holds `1 µ`
 ### 4.2 Reactions
 
 ```
-reaction photosynthesis : carbon + light            -> sugar;            // ΔG = −1
-reaction respiration    : sugar                     -> carbon + energy;  // ΔG = −1
-reaction build          : carbon + nitrate + energy -> body + heat;      // ΔG = −3
-reaction rot            : body                      -> carbon + nitrate; // ΔG = −5
+reaction photosynthesis : carbon + light -> sugar; // ΔG = −1
+reaction respiration : sugar -> carbon + energy; // ΔG = −1
+reaction build : carbon + nitrate + energy -> body + heat; // ΔG = −3
+reaction rot : body -> carbon + nitrate; // ΔG = −5
 ```
 
 - The compiler **MUST** reject a reaction whose element totals don't balance, whose `ΔG > −min_drop`, or that is not in canonical form (§4.4). A non-canonical hand-written reaction gets a diagnostic with the canonical form as a suggested fix.
@@ -246,21 +246,21 @@ senses {
     sense inventory(s: any substance);
     sense crowd(radius: 0.0..6.0);
     sense neighbour(s: any substance, rank: 0..3);
-    sense channel(ch: any channel);                               // [P1]
+    sense channel(ch: any channel); // [P1]
     sense clock(period: 1..1_000);
 }
 
 actions {
-    action move(speed: 0.0..2.0)                    cost 20mu per distance;
-    action turn(angle_deg: 0.0..30.0)               cost 10mu;
-    action take(s: any substance, max: 0u..10u)     cost 5mu;
-    action drop(s: any substance, max: 0u..10u)     cost 0mu;
-    action give(s: any substance, max: 0u..10u, to: neighbour)    cost 5mu;
+    action move(speed: 0.0..2.0) cost 20mu per distance;
+    action turn(angle_deg: 0.0..30.0) cost 10mu;
+    action take(s: any substance, max: 0u..10u) cost 5mu;
+    action drop(s: any substance, max: 0u..10u) cost 0mu;
+    action give(s: any substance, max: 0u..10u, to: neighbour) cost 5mu;
     action steal(s: any substance, max: 0u..10u, from: neighbour) cost 30mu;
-    action emit(sig: any signal, max: 0.0..10.0)    cost 2mu;
-    action send(ch: any channel, max: 0.0..1.0)    cost 10mu;   // [P1]
-    action divide(split: 0.0..1.0)                  cost 0mu requires body >= 10u;
-    action bond(to: neighbour)                      cost 50mu;   // [P2]
+    action emit(sig: any signal, max: 0.0..10.0) cost 2mu;
+    action send(ch: any channel, max: 0.0..1.0) cost 10mu; // [P1]
+    action divide(split: 0.0..1.0) cost 0mu requires body >= 10u;
+    action bond(to: neighbour) cost 50mu; // [P2]
 }
 ```
 
@@ -280,6 +280,11 @@ actions {
 **Several genes for the same action.**
 - For `move`, `turn` and `divide`, only the **first firing gene in slot order** counts. Later ones are dropped before fees and pay nothing. A parent divides at most once per tick.
 - Substance actions (`take`, `drop`, `give`, `steal`) and `emit` all count. Each is a separate request with its own fee.
+
+**Targets.**
+- `take` and `drop` act on `cell_at(pos)`, using the entity's position at the start of the tick.
+- `give` and `steal` act on the **nearest living entity** in the snapshot within `max_interaction_radius`, measured with wrapping. Ties go to the lower entity ID. An entity never targets itself.
+- If an action has no target (no neighbour in range, or a cell that cannot hold the substance), its intent is dropped in Think and **pays no fee**, like a duplicate action.
 
 **Fees.** Fees are attempt fees (§7.2). `per distance` fees are charged on the **requested** distance, before movement is resolved.
 
@@ -331,7 +336,9 @@ The brain is the CGP design from v0.3 §5:
 - Each node is 8 bytes (`opcode: u8`, `src_a/b/c: u8`, `param: f32`), using 16 protected, branch-free opcodes. The source-level signatures of the opcodes are listed in `language.md` §8.4.
 - Output genes, an active bitmask, and no compaction (so homology between genomes is preserved).
 - **Bound:** with `I` input lanes and `N` nodes, `I + N ≤ 256`, and `N ≤ 64` (the width of the active mask). The compiler rejects a profile that exceeds either.
-- A node is **active** if it is reachable from an output lane read by an expressed action gene, or from a register output.
+- **Live registers.** A register is **live** if its read lane `reg[r]` is reachable from the output of an expressed action gene, either directly or through the write of another live register. The runtime computes the live set at birth as a fixed point.
+- A node is **active** if it is reachable from the output of an expressed action gene, or from the write of a live register. Registers that nothing reads cost no upkeep, so they are free to drift.
+- **Unassigned action lanes** default to the constant `1.0` (`language.md` §8.3). A spare action slot that becomes expressed therefore fires at full size without needing a separate brain mutation.
 - Every value is sanitized after every node, as in v0.3 §5.3 and §10.1.
 
 In the `free` profile, node insertion and deletion keep the graph feed-forward by renumbering operand references.
@@ -353,9 +360,9 @@ Every world declares its limits. The compiler checks static limits and the runti
 ```
 limits {
     max_entities: 200_000;
-    max_genome_bytes: 4_096;       // [P1] for `free`
-    max_reaction_space: 65_536;    // reaction indices fit in u16
-    inventory_cap: 100u;           // per substance, per entity
+    max_genome_bytes: 4_096; // [P1] for `free`
+    max_reaction_space: 65_536; // reaction indices fit in u16
+    inventory_cap: 100u; // per substance, per entity
 }
 ```
 
@@ -406,7 +413,7 @@ All ordering below is part of the contract. The CPU reference executor (§14) im
 
 ### 7.1 Sense and think
 
-Each entity evaluates its sense genes against a read-only snapshot of tick `t`, runs its brain, and turns firing action genes into intents, in action-slot order, applying the rules for duplicate actions (§5.1). This step is read-only, so it is free of races. Register writes are committed at its end (§5.5).
+Each entity evaluates its sense genes against a read-only snapshot of tick `t`, runs its brain, and turns firing action genes into intents, in action-slot order, applying the rules for duplicate actions and missing targets (§5.1). This step is read-only, so it is free of races. Register writes are committed at its end (§5.5).
 
 ### 7.2 Arbitrate
 
@@ -418,7 +425,7 @@ The steps run in this order:
    - **Stage 1, per origin and substance:** if requests exceed the origin's balance, each request is granted pro-rata. A source origin has no balance, so stage 1 grants every request from a source in full.
    - **Stage 2, per destination and substance:** if the stage-1 grants exceed the destination's headroom (cap minus balance at the start of the step), each grant is reduced pro-rata. Outflows during this step do not create headroom. A sink destination has no cap.
    - **Commit:** each transfer **delivers** its stage-2 amount. If it names an overflow sink, it also **overflows** `stage-1 grant − stage-2 grant` to that sink. The origin is debited `delivered + overflowed`; a source origin records the same sum as emitted. Anything not delivered or overflowed stays at its origin, and an amount the origin could not supply in stage 1 is simply never moved.
-   - **Remainders:** each stage floors the pro-rata shares and then hands out the leftover µ one at a time, largest fractional part first, with ties broken by Philox (`pass = arbitrate`).
+   - **Remainders:** each stage floors the pro-rata shares and then hands out the leftover µ one at a time, largest fractional part first, with ties broken by Philox (`pass = arbitrate`), keyed by the store being arbitrated (§10.2).
 
    Some capacity may be left unused when stage 2 reduces a grant that stage 1 limited. That is accepted for P0.
 4. **Movement.** Each entity turns and then moves by its intents plus a soft repulsion force, computed as a gather from the snapshot so no atomics are needed. Dying entities do not move.
@@ -429,7 +436,7 @@ The steps run in this order:
 
 ```
 extent = min( rate,
-              min over inputs  i: floor(balance_i / coeff_i),
+              min over inputs i: floor(balance_i / coeff_i),
               min over outputs o: floor(headroom_o / coeff_o) )
 ```
 
@@ -456,7 +463,7 @@ Conditions (`when`) may appear in any kind of rule and read the state at the sta
 ### 7.5 Life
 
 1. **Disposal.** An entity dies if it is dying (§7.2) or has reached `max_age`. Each substance in its inventory goes to its field cell, as far as the cell holds that substance and has headroom. Everything else goes to the world's `remains` sink. The compiler **MUST** check that `remains` accepts every substance that cannot always reach a field cell.
-2. **Division.** An entity divides if its first firing `divide` intent survived Arbitrate, the action's `requires` condition holds now, and `max_entities` is not reached. The child gets `floor(split × amount)` of every substance (the remainder stays with the parent), a new stable entity ID, a mutated copy of the genome (§8), its parent's heading, and a position next to the parent. Children are created in parent-ID order, so IDs are deterministic.
+2. **Division.** An entity divides if its first firing `divide` intent survived Arbitrate, the action's `requires` condition holds now, and `max_entities` is not reached. The child gets `floor(split × amount)` of every substance (the remainder stays with the parent), a new stable entity ID, a mutated copy of the genome (§8), and its parent's heading vector, copied exactly. The child is placed at `pos − heading × child_offset`, wrapped to the space, where `heading` is the parent's stored unit vector and `child_offset` is a world setting (`child_offset: 0.5;`, default `0.5`). This uses no trigonometry and no random draw, so CPU and GPU place children identically. Children are created in parent-ID order, so IDs are deterministic.
 3. **Compaction and binning** of the entity buffer (not of genomes) prepare the next tick.
 
 ---
@@ -473,7 +480,7 @@ Variation is applied to the child's genome at division, in this order:
 4. **Recombination** [P1]: a mate's genome is crossed over, uniformly or by aligned gene types, when the world enables `divide(mate: true)`.
 5. **Horizontal transfer** [P2]: an optional `share_gene` action copies one gene to a neighbour, at a cost.
 
-All randomness comes from Philox, keyed by `(seed, tick, entity_id, pass)`, with fixed draw indices per pass as in v0.3. A run may switch variation off for control experiments (`--mutation off`).
+All randomness comes from Philox, keyed by `(seed, tick, stream, pass)` (§10.2), with fixed draw indices per pass as in v0.3. A run may switch variation off for control experiments (`--mutation off`).
 
 ### 8.2 Selection
 
@@ -522,7 +529,7 @@ Rules that move substances are arbitrated like any other transfer (§7.4), so co
 
 ```
 ruleset Tinker {
-    rule wrap  weight 0.5 : Add($a, $b) -> Mul(Add($a, $b), Sin($a));
+    rule wrap weight 0.5 : Add($a, $b) -> Mul(Add($a, $b), Sin($a));
     rule prune weight 0.2 : Mul($x, Const($c)) where abs($c) < 1e-3 -> 0.0;
     rule nudge weight 0.3 : sense $kind(dist: $d) -> sense $kind(dist: jitter($d, sigma: 0.1));
 }
@@ -579,12 +586,12 @@ Denormal floats may be flushed to zero. Fused multiply-add is allowed only where
 
 ### 10.2 Determinism
 
-- All randomness uses Philox-4x32-10, keyed by `(seed, tick, entity_id, pass)`. Accumulation uses integers. There are no float atomics.
+- All randomness uses Philox-4x32-10, keyed by `(seed, tick, stream, pass)`. The `stream` is the entity ID for anything about an entity, and `(rule index, cell index)` for anything about a field cell, with `cell index = y × w + x`. In Arbitrate (§7.2), it is the store being arbitrated: an entity ID for an inventory, `(0, cell index)` for a cell. Accumulation uses integers. There are no float atomics.
 - **Same seed, same device, same journal ⇒ same run** (`--deterministic`). The journal (§13.3) records everything needed to reproduce the run.
 - The conservation ledger is exact everywhere and is never relaxed, in every mode.
 - Bit-identical results across different GPUs are a non-goal.
 - **CPU and GPU agree exactly only on integer contracts.** Transcendental functions (`Sin`, `Tanh`, `Sqrt`) and movement differ between CPU and GPU, and a tiny float difference can change which cell an entity is in. So the reference executor is compared with GPU kernels in two ways (§16):
-  - **Contract fixtures** use fixed positions and brains made only of exact operations (`Add`, `Sub`, `Mul` of small integers, `Gt`, `Select`, constants). On these, every integer in the state must match exactly.
+  - **Contract fixtures** use fixed positions, axis-aligned headings (`(±1, 0)` or `(0, ±1)`), no `turn` actions, and brains made only of exact operations (`Add`, `Sub`, `Mul` of small integers, `Gt`, `Select`, constants). On these, every integer in the state must match exactly. Child placement (§7.5) needs no trigonometry, so it is exact in fixtures.
   - **Full worlds** must conserve exactly on both, and their statistics (population, flux, births) must agree within a tolerance across seeds.
 - Features may opt out of determinism for speed when they say so explicitly (for example a `fast_unordered` movement mode). Doing so marks the run as non-replayable.
 
@@ -721,7 +728,7 @@ It contains one world, `Dish`, and two lineages:
 
 | Lineage | Seed genome | Used for |
 | :-- | :-- | :-- |
-| `Drifter` | Photosynthesis and respiration; moves forward, steers toward light, takes light, carbon and body; divides at `body ≥ 10u` | The evolution test, and the baseline with mutation off |
+| `Drifter` | Photosynthesis and respiration; moves forward, steers toward `body` in the cells, takes light, carbon and body; divides at `body ≥ 10u` | The evolution test, and the baseline with mutation off |
 | `Builder` | As `Drifter`, plus `build` and `take(nitrate)` instead of `take(body)` | The positive control: shows the world supports body synthesis at all |
 
 A run chooses which lineages to seed (`--lineages`, or `world.create` in the API).
@@ -730,27 +737,28 @@ The core of `Drifter`'s seed genome:
 
 ```
 seed genome {
-    sense gradient(q: cells.light) @light_dir;
+    sense gradient(q: cells.body) @food_dir;
     sense inventory(s: energy) @energy;
     sense inventory(s: body) @body;
 
     reaction photosynthesis rate 1u;
-    reaction respiration    rate 1u;
+    reaction respiration rate 1u;
 
     action move(speed: 1.0) @go;
     action turn(angle_deg: 30.0) @steer;
-    action take(s: light,  max: 1u) @eat_light;
+    action take(s: light, max: 1u) @eat_light;
     action take(s: carbon, max: 1u) @eat_carbon;
-    action take(s: body,   max: 1u) @eat_body;
+    action take(s: body, max: 1u) @eat_body;
     action divide(split: 0.5) threshold 0.5 @split;
 
     brain {
-        act[0] = 1.0;                            // always move forward
-        act[1] = Tanh(Scale(sense[0].y, 10.0));  // turn toward light
+        act[0] = 1.0; // always move forward
+        act[1] = Tanh(Scale(sense[0].y, 10.0)); // turn toward body
         act[2] = 1.0;
         act[3] = 1.0;
         act[4] = 1.0;
-        act[5] = Gt(sense[2], 10.0);             // divide at body ≥ 10u
+        act[5] = Gt(sense[2], 10.0); // divide at body ≥ 10u
+        // act[6] and act[7] (spare slots) default to 1.0
     }
 }
 ```
@@ -760,9 +768,9 @@ seed genome {
 These are design arguments, to be checked by the baseline and control runs (§16), not results.
 
 - **Seeds can live.** Each tick a seed takes light and carbon, and in the same tick (React follows Arbitrate) runs photosynthesis and then respiration, which gives up to `1u` of energy. Its costs are about `20mu` base, `5mu × 11` expressed genes, a few active brain nodes, `20mu` for moving, `10mu` for turning, `15mu` in take fees, and `1mu` per unit carried: about `130mu` per tick at first, and under `250mu` once carbon and energy build up to the `100u` cap. The `5u` endowment covers more than 30 ticks without income.
-- **Seeds travel.** `move` always fires at full speed, and `turn` steers toward light. Travel no longer depends on a light gradient pointing along the heading.
+- **Seeds forage.** `move` always fires at full speed, and `turn` steers up the gradient of `body` in the cells. Light is a poor guide: `sunlight` adds `2u` per cell per tick and a seed takes only `1u`, so every cell fills to its cap and the light field is flat. `body` is the scarce resource, grazed cells are depleted, and the gradient points toward cells nobody has visited yet.
 - **Seeds can reproduce before discovering body synthesis.** `body` arrives from the detritus rain (`1mu` per cell per tick, plus `1u` per cell at genesis) and from dead entities. Rot removes it at `50bp` per tick, so a cell settles near `200mu`. A seed must therefore travel and collect `10u` to divide. This limits the population, and divisions are where mutation happens.
-- **Discovering body synthesis is the milestone.** The profile has two spare reaction slots and two spare action slots, filled with unexpressed random genes (§5.3). Body synthesis needs an expressed reaction that produces `body` (`build`, or a generated one such as `carbon + nitrate + light → body + heat`, ΔG = −5) and an expressed `take(nitrate)`. So it takes at least two changes. The test measures **body synthesis flux**, not a particular reaction.
+- **Discovering body synthesis is the milestone.** The profile has two spare reaction slots and two spare action slots, filled with unexpressed random genes (§5.3). Body synthesis needs an expressed reaction that produces `body` (`build`, or a generated one such as `carbon + nitrate + light → body + heat`, ΔG = −5) and an expressed `take(nitrate)`. So it takes at least two changes, both of which can happen first in dormant genes, where mutation costs nothing. Spare action lanes default to `1.0` (§5.4), so once the right action gene is expressed it fires without a third, brain-level change. The test measures **body synthesis flux**, not a particular reaction.
 - **No free lunch.** The dissipation law blocks `heat → energy` (ΔG = +8), `carbon + nitrate → body` without energy (ΔG = +5), and reversed respiration `carbon + energy → sugar` (ΔG = +1).
 - **Shortcuts that remain are physics.** `light → energy` (ΔG = −2) is downhill, so it is generated, capped at `250mu` per tick, while the curated chain runs at up to `1u`. To forbid it, add `exclude: [light -> energy];`.
 
@@ -854,3 +862,20 @@ Numbers in brackets refer to the items in `archive/spec-v0.5-review.md`.
 - **Numeric contract [9]:** saturating integer and amount arithmetic, division by zero gives `0`, defined float sanitizing and conversions (§10.1).
 - **CPU/GPU comparison [9]:** exact integer match only on contract fixtures; statistical agreement on full worlds (§10.2, exit criterion 3).
 - **Lineage seeding:** runs choose which lineages to seed, and `--mutation off` is a run flag (§8.1, §12.2).
+
+---
+
+## Appendix B: what changed in v0.6.1
+
+From the review of v0.6:
+
+- **Steering (§15.1):** seeds steer up the `body` gradient instead of the light gradient. Light fills every cell to its cap, so its gradient is flat.
+- **Spare action lanes (§5.4, `language.md` §8.3):** unassigned action lanes default to `1.0` instead of `0.0`, so body synthesis needs two genetic changes, not three. Expressed action genes listed in a seed must still be assigned explicitly.
+- **Live registers (§5.4):** a register costs upkeep only if an expressed action reads it, directly or through other live registers.
+- **Action targets (§5.1):** `take` and `drop` use the cell at the start-of-tick position; `give` and `steal` target the nearest living entity in range, ties to the lower ID; an action with no target is dropped without a fee.
+- **Child placement (§7.5):** `pos − heading × child_offset`, using the stored unit heading vector; new world setting `child_offset` (default `0.5`).
+- **Carried upkeep (§3.3):** amounts are summed over substances before rounding down.
+- **Random streams (§10.2):** Philox is keyed by a stream: entity ID, or `(rule index, cell index)` for cells.
+- **Contract fixtures (§10.2):** headings are axis-aligned and fixtures use no `turn`.
+- **Formatting (`language.md` §2.2):** no column alignment, a 100-column limit and a defined wrapping rule, so `examples/dish.em` can be byte-for-byte canonical.
+- **Patches and unary minus (`language.md` §10.3, §4.1):** paths inside `patch` are relative to its target; unary `-` applies only to `int` and `f32`.
