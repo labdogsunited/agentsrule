@@ -48,10 +48,15 @@ fn a_partial_run_must_be_allowed() {
     assert!(e.message.contains("signal field `scent`") && e.message.contains("rule `smell`"), "{e}");
 
     let c = compile(DISH, &["Drifter"], 1, true).unwrap();
-    assert_eq!(c.partial, ["signal field `scent`", "rule `smell` on signal field `scent`"]);
+    let partial: Vec<_> = c.partial.iter().map(|e| (e.code, e.path.as_str(), e.pos.line)).collect();
+    assert_eq!(partial, [("W1001", "Dish.fields.scent", line_of("field scent")), ("W1001", "Dish.rules.smell", line_of("rule smell"))]);
     for s in ["Dish.reaction_space", "Drifter.mutation", "ruleset Tinker", "view Main", "chart Health"] {
         assert!(c.notes.iter().any(|x| x.starts_with(s)), "{s} not in {:?}", c.notes);
     }
+}
+
+fn line_of(needle: &str) -> usize {
+    DISH.lines().position(|l| l.contains(needle)).expect("needle") + 1
 }
 
 /// Compiles `dish.em` with its first `from` (in `Drifter` where both lineages have it)
@@ -65,6 +70,7 @@ fn rejected(from: &str, to: &str) -> emerge_ref::compile::Error {
 fn gene_arguments_must_be_on_the_menu_and_in_range() {
     let e = rejected("action move(speed: 1.0) @go;", "action move(speed: 99.0) @go;");
     assert_eq!((e.path.as_str(), e.message.as_str()), ("Drifter.seed.forage@go", "`speed: 99.0` is outside the menu's range 0.0..2.0"));
+    assert_eq!((e.code, e.pos.line, e.pos.col), ("E0601", line_of("action move(speed: 1.0) @go;"), 13));
     let e = rejected("action take(s: light, max: 1u)", "action take(s: light, max: 11u)");
     assert!(e.message.contains("outside the menu's range"), "{e}");
     let e = rejected("action move(speed: 1.0) @go;", "action move(speed: 1.0, sped: 1.0) @go;");
@@ -85,6 +91,7 @@ fn gene_arguments_must_be_on_the_menu_and_in_range() {
 fn rules_must_name_declared_fields_sources_and_sinks() {
     let e = rejected("rule sunlight on cells", "rule sunlight on typo");
     assert_eq!((e.path.as_str(), e.message.as_str()), ("Dish.rules.sunlight", "unknown field `typo`"));
+    assert_eq!((e.code, e.pos.line), ("E0114", line_of("rule sunlight on cells")));
     let e = rejected("transfer(light, from: sun,", "transfer(light, from: rock,");
     assert_eq!(e.message, "source `rock` does not emit `light`");
     let e = rejected("amount: 40mu, overflow: void)", "amount: 40mu, overflw: void)");
@@ -99,6 +106,7 @@ fn rules_must_name_declared_fields_sources_and_sinks() {
 fn genesis_must_draw_from_sources_that_emit_and_fit_caps() {
     let e = rejected("transfer(energy, from: spark, to: self, amount: 5u)", "transfer(energy, from: rock, to: self, amount: 5u)");
     assert_eq!((e.path.as_str(), e.message.as_str()), ("Drifter.genesis", "source `rock` does not emit `energy`"));
+    assert_eq!((e.code, e.pos.line), ("E0703", line_of("transfer(energy, from: spark")));
     let e = rejected("transfer(energy, from: spark, to: self, amount: 5u)", "transfer(energy, from: spark, to: self, amount: 500u)");
     assert!(e.message.contains("above the inventory cap"), "{e}");
     let e = rejected("transfer(body, from: rock, to: cell, amount: 1u)", "transfer(body, from: rock, to: cell, amount: 5_000u)");
@@ -120,7 +128,7 @@ fn unsupported_or_unknown_things_are_errors() {
 
     let src = DISH.replace("reaction rot : body -> carbon + nitrate;", "reaction rot : carbon + nitrate -> body;");
     let e = compile(&src, &["Drifter"], 1, true).err().unwrap();
-    assert!(e.message.starts_with("E0402"), "{e}");
+    assert_eq!((e.code, e.pos.line), ("E0402", line_of("reaction rot :")), "{e}");
 
     let e = compile(DISH, &["Nobody"], 1, true).err().unwrap();
     assert_eq!(e.message, "no such lineage");

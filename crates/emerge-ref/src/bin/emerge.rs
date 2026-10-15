@@ -3,6 +3,12 @@
 //! `emerge fmt [--check] <file.em>` prints the canonical form of a file. With `--check`,
 //! it prints nothing and fails if the file is not already canonical.
 //!
+//! `emerge check [--json] <file.em>` reports every problem it can find without running the
+//! world: syntax, the language's static rules (chemistry, names, seeds, upkeep), and
+//! compiling the world with all its lineages. Each diagnostic has a code, a position and the
+//! item's path (`language.md` §14); `--json` prints one JSON object per line. It exits with
+//! 1 if there is an error.
+//!
 //! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S]`
 //! compiles the world, seeds it with the lineages and runs it on the CPU reference runner,
 //! auditing the ledger every `--every` ticks. It prints a CSV row per window and a final
@@ -20,6 +26,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("fmt") => fmt(&args[1..]),
+        Some("check") => check(&args[1..]),
         Some("run") => run(&args[1..]),
         _ => usage(),
     }
@@ -27,6 +34,7 @@ fn main() -> ExitCode {
 
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
+    eprintln!("       emerge check [--json] <file.em>");
     eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S]");
     ExitCode::from(2)
 }
@@ -56,6 +64,89 @@ fn fmt(args: &[String]) -> ExitCode {
         eprintln!("{path}: not in canonical form (run `emerge fmt`)");
         ExitCode::FAILURE
     }
+}
+
+/// A diagnostic as `language.md` §14 describes it.
+struct Diagnostic {
+    code: &'static str,
+    severity: &'static str,
+    path: String,
+    line: usize,
+    col: usize,
+    message: String,
+    /// A replacement for the item at `path`.
+    fix: Option<String>,
+}
+
+fn check(args: &[String]) -> ExitCode {
+    let (json, files): (Vec<&String>, Vec<&String>) = args.iter().partition(|a| *a == "--json");
+    let [file_path] = files[..] else { return usage() };
+    let Some(src) = read(file_path) else { return ExitCode::from(2) };
+    let mut out = Vec::new();
+    match emerge_lang::parse(&src) {
+        Err(d) => out.push(Diagnostic { code: d.code, severity: "error", path: String::new(), line: d.line, col: d.col, message: d.message, fix: None }),
+        Ok(file) => {
+            for p in emerge_lang::check::check(&file) {
+                let (line, col) = (p.pos.line, p.pos.col);
+                out.push(Diagnostic { code: p.code, severity: "error", path: p.path, line, col, message: p.message, fix: p.fix });
+            }
+            // Compiling needs a valid chemistry; it stops at its first error.
+            if out.is_empty() {
+                let lineages = emerge_ref::compile::lineage_names(&file);
+                let diag = |e: emerge_ref::compile::Error, severity| Diagnostic {
+                    code: e.code, severity, path: e.path, line: e.pos.line, col: e.pos.col, message: e.message, fix: None,
+                };
+                match emerge_ref::compile::build(&file, &lineages, 1, true) {
+                    Err(e) => out.push(diag(e, "error")),
+                    Ok(c) => out.extend(c.partial.into_iter().map(|e| diag(e, "warning"))),
+                }
+            }
+        }
+    }
+    for d in &out {
+        if json.is_empty() {
+            let at = if d.line > 0 { format!("{}:{}:", d.line, d.col) } else { String::new() };
+            let path = if d.path.is_empty() { String::new() } else { format!(" {}:", d.path) };
+            println!("{file_path}:{at} {}[{}]:{path} {}", d.severity, d.code, d.message);
+            if let Some(fix) = &d.fix {
+                println!("    fix: write it as `{fix}`");
+            }
+        } else {
+            let fixes = match &d.fix {
+                Some(f) => format!(
+                    r#"[{{"title":"write it in canonical form","patch":{{"ops":[{{"op":"replace","path":{},"value":{}}}]}}}}]"#,
+                    quote(&d.path),
+                    quote(f)
+                ),
+                None => "[]".into(),
+            };
+            println!(
+                r#"{{"code":{},"severity":{},"path":{},"span":{{"file":{},"line":{},"col":{}}},"message":{},"fixes":{fixes}}}"#,
+                quote(d.code), quote(d.severity), quote(&d.path), quote(file_path), d.line, d.col, quote(&d.message)
+            );
+        }
+    }
+    if out.iter().any(|d| d.severity == "error") {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// A JSON string literal.
+fn quote(s: &str) -> String {
+    let mut q = String::from('"');
+    for c in s.chars() {
+        match c {
+            '"' => q.push_str("\\\""),
+            '\\' => q.push_str("\\\\"),
+            '\n' => q.push_str("\\n"),
+            c if (c as u32) < 0x20 => q.push_str(&format!("\\u{:04x}", c as u32)),
+            c => q.push(c),
+        }
+    }
+    q.push('"');
+    q
 }
 
 fn run(args: &[String]) -> ExitCode {

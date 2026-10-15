@@ -882,6 +882,27 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E07xx` | routes: payment, overflow, waste, remains, caps |
 | `E08xx` | limits and profiles: capacity |
 | `E09xx` | patches and hot-swaps: stale revisions, missing destinations, unresolved paths |
+| `E10xx`, `W10xx` | the runner: a construct the language allows but the runner cannot run yet |
+
+`emerge check <file>` reports every diagnostic it can find without running the world, in the form `file:line:col: severity[code]: path: message`; `emerge check --json` prints one object per line in the form above (without `id`, and with `fixes` that carry no `base_revision`, because a file has no revision). The position is where the item starts: the declaration, entry, statement or gene. Codes in use:
+
+| Code | Meaning |
+| :-- | :-- |
+| `E0001`–`E0007` | syntax: a missing or unexpected token, chained comparisons, a comment at the end of a block |
+| `E0101`–`E0107` | literals: amounts that are not whole µ, malformed numbers and units |
+| `E0110`–`E0113` | names: keywords, duplicates within a world (`E0111`), signal names that are world names (`E0112`), reserved generated forms (`E0113`) |
+| `E0114` | an unknown name: field, source, sink, substance, reaction, lineage |
+| `E0115` | an unknown setting or block |
+| `E0116` | a required declaration or argument is missing |
+| `E0203`–`E0205` | values: out of their type's range (`E0204`: a fraction above `10_000bp`, an amount that does not fit `f32` exactly, §3.5 of the spec), or of the wrong kind (`E0205`) |
+| `E0301` | an effect not allowed in this context |
+| `E0401`–`E0406` | chemistry |
+| `E0501`, `E0502` | menus: a sense, action or regulation kind not on the world's menu; an argument that is not one of its parameters |
+| `E0601`, `E0602`, `E0605` | genomes: a parameter, input count or weight outside the menu's range; a reaction outside the reaction space's `include` list; a signal read but never written |
+| `E0701`–`E0707` | routes: payment route, `base` above `0mu`, a source emitting what it does not declare, a sink that does not accept, `remains` that does not accept everything, a field that cannot hold a substance, an endowment above a cap |
+| `E0801`–`E0803` | limits: a seed larger than its profile, a population above `max_entities`, positions outside the space |
+| `E1001` | not supported by the runner yet |
+| `E1002`, `W1001` | a part of the world the runner cannot run: an error, or with `--partial` a warning naming what was left out |
 
 ---
 

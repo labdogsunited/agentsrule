@@ -1,6 +1,11 @@
-//! Static checks on a parsed world. So far: chemistry (`language.md` §6.2, §6.5; spec
-//! §3.2, §4.4): every substance has a known composition, and every hand-written reaction
-//! balances its elements, runs downhill by at least `min_drop`, and is in canonical form.
+//! Static checks on a parsed file, reporting every problem found:
+//! - chemistry (`language.md` §6.2, §6.5; spec §3.2, §4.4): every substance has a known
+//!   composition, and every hand-written reaction balances its elements, runs downhill by
+//!   at least `min_drop`, and is in canonical form;
+//! - names (§2.3, §8.3): unique within a world, signal names distinct from the world's,
+//!   generated forms reserved;
+//! - seeds (§8.3, §8.1): every signal read is written, and the seed fits its profile;
+//! - upkeep (§6.6): `base` is above `0mu`.
 
 use std::collections::HashMap;
 
@@ -11,6 +16,8 @@ pub struct Problem {
     pub code: &'static str,
     /// The item's path, such as `Dish.reactions.build`.
     pub path: String,
+    /// Where the item starts.
+    pub pos: Pos,
     pub message: String,
     /// A suggested replacement, where there is one.
     pub fix: Option<String>,
@@ -19,11 +26,163 @@ pub struct Problem {
 pub fn check(file: &File) -> Vec<Problem> {
     let mut out = Vec::new();
     for item in &file.items {
-        if let Item::World(w) = &item.node {
-            chemistry(w, &mut out);
+        match &item.node {
+            Item::World(w) => {
+                names(w, &mut out);
+                chemistry(w, &mut out);
+                upkeep(w, &mut out);
+            }
+            Item::Lineage(l) => {
+                let world = file.items.iter().find_map(|i| match &i.node {
+                    Item::World(w) if w.name == l.world => Some(w),
+                    _ => None,
+                });
+                seed(l, world, &mut out);
+            }
+            _ => {}
         }
     }
     out
+}
+
+/// The name a world declaration introduces, and its path segment.
+fn declared(d: &WDecl) -> Option<(&str, &'static str)> {
+    Some(match d {
+        WDecl::Substance { name, .. } => (name, "substances"),
+        WDecl::Reaction { name, .. } => (name, "reactions"),
+        WDecl::Rule { name, .. } => (name, "rules"),
+        WDecl::Field { name, .. } => (name, "fields"),
+        WDecl::Source { name, .. } => (name, "sources"),
+        WDecl::Sink { name, .. } => (name, "sinks"),
+        _ => return None,
+    })
+}
+
+/// E0111: a name is declared once in a world, across all kinds.
+fn names(w: &World, out: &mut Vec<Problem>) {
+    let mut seen: HashMap<&str, &str> = HashMap::new();
+    for d in &w.decls {
+        let Some((name, kind)) = declared(&d.node) else { continue };
+        if let Some(first) = seen.insert(name, kind) {
+            out.push(Problem {
+                code: "E0111",
+                path: format!("{}.{kind}.{name}", w.name),
+                pos: d.pos,
+                message: format!("`{name}` is already declared in {}.{first}", w.name),
+                fix: None,
+            });
+        }
+    }
+}
+
+/// E0702: upkeep's `base` is above `0mu`, so no entity lives for free.
+fn upkeep(w: &World, out: &mut Vec<Problem>) {
+    for d in &w.decls {
+        let WDecl::Config { name, entries } = &d.node else { continue };
+        if name != "upkeep" {
+            continue;
+        }
+        for e in entries {
+            if e.node.key == "base" && e.node.value == Value::Expr(Expr::Lit(Lit::Amount(0))) {
+                out.push(Problem {
+                    code: "E0702",
+                    path: format!("{}.upkeep.base", w.name),
+                    pos: e.pos,
+                    message: "`base` must be greater than `0mu`, so no entity lives for free".into(),
+                    fix: None,
+                });
+            }
+        }
+    }
+}
+
+/// Signals a gene reads and writes, by name.
+fn signal_use(g: &GeneBody) -> (Vec<&str>, Vec<&str>) {
+    fn source(s: &Option<Source>) -> Vec<&str> {
+        match s {
+            Some(Source::Signal(n)) => vec![n.as_str()],
+            _ => vec![],
+        }
+    }
+    match g {
+        GeneBody::Sense { outs, .. } => (vec![], outs.iter().map(String::as_str).collect()),
+        GeneBody::Regulate { inputs, out, .. } => (inputs.iter().map(|i| i.signal.as_str()).collect(), vec![out.as_str()]),
+        GeneBody::Reaction { source: s, .. } | GeneBody::Action { source: s, .. } => (source(s), vec![]),
+    }
+}
+
+/// Generated names (`s17`, `m3`) are reserved for evolution.
+fn generated(name: &str, prefix: char) -> bool {
+    name.len() > 1 && name.starts_with(prefix) && name[1..].bytes().all(|b| b.is_ascii_digit())
+}
+
+/// E0112, E0113, E0605 and E0801 for a lineage's seed genome.
+fn seed(l: &Lineage, world: Option<&World>, out: &mut Vec<Problem>) {
+    let world_names: Vec<&str> = world.map_or(vec![], |w| w.decls.iter().filter_map(|d| declared(&d.node).map(|(n, _)| n)).collect());
+    for d in &l.decls {
+        let LDecl::Seed { signals, modules } = &d.node else { continue };
+        let mut problem = |code, path: String, pos, message: String| out.push(Problem { code, path, pos, message, fix: None });
+        let mut written: Vec<&str> = signals.iter().map(|s| s.node.0.as_str()).collect();
+        let mut all: Vec<&str> = written.clone();
+        for s in signals {
+            let n = &s.node.0;
+            let path = format!("{}.seed.{n}", l.name);
+            if world_names.contains(&n.as_str()) {
+                problem("E0112", path.clone(), s.pos, format!("signal `{n}` has the name of a declaration in the world"));
+            }
+            if generated(n, 's') {
+                problem("E0113", path, s.pos, format!("`{n}` is reserved for signals that evolution creates"));
+            }
+        }
+        let mut genes = 0;
+        for m in modules {
+            if generated(&m.node.name, 'm') {
+                let message = format!("`{}` is reserved for modules that evolution creates", m.node.name);
+                problem("E0113", format!("{}.seed.{}", l.name, m.node.name), m.pos, message);
+            }
+            for g in &m.node.genes {
+                genes += 1;
+                let (_, writes) = signal_use(&g.node.body);
+                written.extend(writes);
+            }
+        }
+        for m in modules {
+            for g in &m.node.genes {
+                let path = format!("{}.seed.{}{}", l.name, m.node.name, g.node.label.as_ref().map(|x| format!("@{x}")).unwrap_or_default());
+                let (reads, writes) = signal_use(&g.node.body);
+                for n in reads.iter().chain(&writes) {
+                    if !all.contains(n) {
+                        all.push(n);
+                        if world_names.contains(n) {
+                            problem("E0112", path.clone(), g.pos, format!("signal `{n}` has the name of a declaration in the world"));
+                        }
+                        if generated(n, 's') {
+                            problem("E0113", path.clone(), g.pos, format!("`{n}` is reserved for signals that evolution creates"));
+                        }
+                    }
+                }
+                for n in reads {
+                    if !written.contains(&n) {
+                        problem("E0605", path.clone(), g.pos, format!("signal `{n}` is read but no gene writes it"));
+                    }
+                }
+            }
+        }
+        // E0801: the seed fits every profile the lineage declares.
+        for p in &l.decls {
+            let LDecl::Profile { name, entries } = &p.node else { continue };
+            let size = |key: &str| entries.iter().find_map(|e| match (&e.node.key, &e.node.value) {
+                (k, Value::Expr(Expr::Lit(Lit::Int(n)))) if k == key => Some(*n),
+                _ => None,
+            });
+            for (key, used) in [("genes", genes), ("signals", all.len()), ("modules", modules.len())] {
+                if let Some(cap) = size(key).filter(|&cap| used as i64 > cap) {
+                    let message = format!("the seed has {used} {key}, more than profile `{name}` allows ({cap})");
+                    problem("E0801", format!("{}.seed", l.name), d.pos, message);
+                }
+            }
+        }
+    }
 }
 
 fn chemistry(w: &World, out: &mut Vec<Problem>) {
@@ -48,6 +207,7 @@ fn chemistry(w: &World, out: &mut Vec<Problem>) {
                         out.push(Problem {
                             code: "E0405",
                             path: format!("{}.substances.{name}", w.name),
+                            pos: d.pos,
                             message: format!("`{}` is not a declared element", term.name),
                             fix: None,
                         });
@@ -70,7 +230,8 @@ fn chemistry(w: &World, out: &mut Vec<Problem>) {
             .map(|t| t.name.clone())
             .collect();
         if !unknown.is_empty() {
-            out.push(Problem { code: "E0406", path, message: format!("unknown substances: {}", unknown.join(", ")), fix: None });
+            let message = format!("unknown substances: {}", unknown.join(", "));
+            out.push(Problem { code: "E0406", path, pos: d.pos, message, fix: None });
             continue;
         }
         let side = |terms: &[Term], f: &dyn Fn(&str) -> i64| -> i64 {
@@ -84,6 +245,7 @@ fn chemistry(w: &World, out: &mut Vec<Problem>) {
                 out.push(Problem {
                     code: "E0401",
                     path: path.clone(),
+                    pos: d.pos,
                     message: format!("element {e} does not balance: {i} in, {o} out"),
                     fix: None,
                 });
@@ -96,6 +258,7 @@ fn chemistry(w: &World, out: &mut Vec<Problem>) {
             out.push(Problem {
                 code: "E0402",
                 path: path.clone(),
+                pos: d.pos,
                 message: format!("reaction `{name}` is uphill: ΔG = {dg:+}; it must be ≤ −{min_drop}"),
                 fix: None,
             });
@@ -106,6 +269,7 @@ fn chemistry(w: &World, out: &mut Vec<Problem>) {
             out.push(Problem {
                 code: "E0404",
                 path,
+                pos: d.pos,
                 message: format!("reaction `{name}` is not in canonical form"),
                 fix: Some(crate::fmt::formula_text(&canonical)),
             });

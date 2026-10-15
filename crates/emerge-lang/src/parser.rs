@@ -154,10 +154,11 @@ impl Parser {
 
     fn node<T>(&mut self, f: impl FnOnce(&mut Self) -> R<T>) -> R<Node<T>> {
         let t = &self.toks[self.pos];
+        let pos = Pos { line: t.line, col: t.col };
         let mut trivia = Trivia { comments: t.comments.clone(), blank_before: t.blank_before, trailing: None };
         let node = f(self)?;
         trivia.trailing = self.toks[self.pos - 1].trailing.clone();
-        Ok(Node { trivia, node })
+        Ok(Node { trivia, pos, node })
     }
 
     fn sep<T>(&mut self, close: &str, mut f: impl FnMut(&mut Self) -> R<T>) -> R<Vec<T>> {

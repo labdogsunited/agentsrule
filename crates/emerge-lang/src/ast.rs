@@ -8,10 +8,25 @@ pub struct Trivia {
     pub trailing: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// A source position, 1-based. `Pos::default()` (line 0) means unknown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Pos {
+    pub line: usize,
+    pub col: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct Node<T> {
     pub trivia: Trivia,
+    /// Where the node starts. Not part of equality, so formatting a file keeps its AST.
+    pub pos: Pos,
     pub node: T,
+}
+
+impl<T: PartialEq> PartialEq for Node<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.trivia == other.trivia && self.node == other.node
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
