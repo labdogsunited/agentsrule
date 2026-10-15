@@ -3,10 +3,19 @@
 //! Covers what the runner can run: the chemistry, one conserved grid field over
 //! `Continuous2D`, sources and sinks, waste, upkeep, limits, transfer, reaction and
 //! diffusion rules, world genesis, and lineages whose seed genomes use the senses, genes
-//! and actions the runner implements. Declarations the runner has no use for yet (signal
-//! fields and their rules, the generated reaction space, profiles, mutation, rulesets,
-//! views, charts) are skipped and listed in `Compiled::skipped`. A genome or rule that
-//! needs something the runner lacks is an error, never silently dropped.
+//! and actions the runner implements.
+//!
+//! Every name must resolve, every gene parameter must be on the world's menu and within
+//! its declared range, sources emit only what they declare, sinks accept what is sent to
+//! them, and endowments fit their caps. A mistake is always an error, never a skipped item.
+//!
+//! What the runner cannot run is handled in two ways:
+//! - declarations that do not affect a run without mutation (the generated reaction space,
+//!   profiles, mutation settings, rulesets, views, charts, explore blocks, patches) are
+//!   listed in `Compiled::notes`;
+//! - declarations that would change what the world does (signal fields and their rules)
+//!   are an error, unless the caller allows a partial run; then they are listed in
+//!   `Compiled::partial`. A genome that needs a missing feature is always an error.
 
 use std::collections::HashMap;
 
@@ -32,12 +41,16 @@ impl std::fmt::Display for Error {
 
 pub struct Compiled {
     pub world: World,
-    /// What was declared but not compiled, because the runner does not use it yet.
-    pub skipped: Vec<String>,
+    /// Declared, but unused in a run without mutation.
+    pub notes: Vec<String>,
+    /// Declared and part of the world's behaviour, but not run (only with `allow_partial`).
+    pub partial: Vec<String>,
 }
 
 /// Parses and checks `src`, then builds its world seeded with `lineages`, in that order.
-pub fn compile(src: &str, lineages: &[&str], seed: u64) -> Result<Compiled, Error> {
+/// With `allow_partial`, parts of the world the runner cannot run are left out and listed
+/// instead of being an error.
+pub fn compile(src: &str, lineages: &[&str], seed: u64, allow_partial: bool) -> Result<Compiled, Error> {
     let file = emerge_lang::parse(src).map_err(|d| Error { path: format!("{}:{}", d.line, d.col), message: format!("{} {}", d.code, d.message) })?;
     if let Some(p) = emerge_lang::check::check(&file).into_iter().next() {
         return Err(Error { path: p.path, message: format!("{} {}", p.code, p.message) });
@@ -54,11 +67,11 @@ pub fn compile(src: &str, lineages: &[&str], seed: u64) -> Result<Compiled, Erro
     for item in &file.items {
         match &item.node {
             ast::Item::World(_) | ast::Item::Lineage(_) => {}
-            ast::Item::Ruleset(r) => c.skipped.push(format!("ruleset {}", r.name)),
-            ast::Item::View(v) => c.skipped.push(format!("view {}", v.name)),
-            ast::Item::Chart(ch) => c.skipped.push(format!("chart {}", ch.name)),
-            ast::Item::Explore(e) => c.skipped.push(format!("explore {}", e.name)),
-            ast::Item::Patch(p) => c.skipped.push(format!("patch {}", p.target)),
+            ast::Item::Ruleset(r) => c.notes.push(format!("ruleset {}", r.name)),
+            ast::Item::View(v) => c.notes.push(format!("view {}", v.name)),
+            ast::Item::Chart(ch) => c.notes.push(format!("chart {}", ch.name)),
+            ast::Item::Explore(e) => c.notes.push(format!("explore {}", e.name)),
+            ast::Item::Patch(p) => c.notes.push(format!("patch {} base {}", p.target, p.base)),
         }
     }
     for name in lineages {
@@ -72,28 +85,49 @@ pub fn compile(src: &str, lineages: &[&str], seed: u64) -> Result<Compiled, Erro
         }
         c.lineage(l)?;
     }
-    Ok(Compiled { world: c.world, skipped: c.skipped })
+    if !allow_partial && !c.partial.is_empty() {
+        return err(
+            &w.name,
+            format!("emerge-ref cannot run all of this world: {}. Allow a partial run (`--partial`) to leave them out", c.partial.join("; ")),
+        );
+    }
+    Ok(Compiled { world: c.world, notes: c.notes, partial: c.partial })
 }
 
 struct ActionDef {
+    params: Vec<(String, ast::Param)>,
     cost: Mu,
     per_distance: bool,
     requires: Option<(SubstanceId, Mu)>,
 }
 
+struct GeneDef {
+    params: Vec<(String, ast::Param)>,
+    inputs: (i64, i64),
+    weight: Option<(f32, f32)>,
+}
+
 struct Compiler<'a> {
     w: &'a ast::World,
     world: World,
-    skipped: Vec<String>,
+    notes: Vec<String>,
+    partial: Vec<String>,
     substances: HashMap<String, SubstanceId>,
     reactions: HashMap<String, ReactionId>,
     sources: HashMap<String, SourceId>,
+    /// What each source may emit.
+    emits: HashMap<String, Vec<SubstanceId>>,
     sinks: HashMap<String, SinkId>,
     /// The conserved grid field, if any.
     grid: Option<String>,
-    senses: Vec<String>,
+    /// Signal fields: declared, not run.
+    signal_fields: Vec<String>,
+    senses: HashMap<String, Vec<(String, ast::Param)>>,
     actions: HashMap<String, ActionDef>,
-    regulation: Vec<String>,
+    regulation: HashMap<String, GeneDef>,
+    /// The reaction space's rate limit for gene reactions.
+    max_rate: Option<Mu>,
+    included: Option<Vec<ReactionId>>,
 }
 
 fn err<T>(path: impl Into<String>, message: impl Into<String>) -> Result<T, Error> {
@@ -190,20 +224,28 @@ impl<'a> Compiler<'a> {
             (Some(a), Some(b), Some(c)) => (upkeep.pay, upkeep.becomes, upkeep.vent) = (a, b, c),
             _ => return err(p("upkeep"), "upkeep needs `pay`, `becomes` and `vent`"),
         }
+        if let Some(s) = (0..chem.substances.len()).find(|&s| !sinks[remains].accepts(s)) {
+            return err(p("remains"), format!("`{}` must accept every substance; it does not accept `{}`", sinks[remains].name, chem.substances[s].name));
+        }
         let world = World::new(chem, upkeep, sinks, remains).map_err(|e| Error { path: p("upkeep"), message: format!("{e:?}") })?;
 
         let mut c = Compiler {
             w,
             world,
-            skipped: Vec::new(),
+            notes: Vec::new(),
+            partial: Vec::new(),
             substances,
             reactions,
             sources: HashMap::new(),
+            emits: HashMap::new(),
             sinks: sink_ids,
             grid: None,
-            senses: Vec::new(),
+            signal_fields: Vec::new(),
+            senses: HashMap::new(),
             actions: HashMap::new(),
-            regulation: Vec::new(),
+            regulation: HashMap::new(),
+            max_rate: None,
+            included: None,
         };
         c.declarations()?;
         Ok(c)
@@ -248,20 +290,21 @@ impl<'a> Compiler<'a> {
                         }
                     }
                 }
-                WDecl::Config { name, .. } if name == "reaction_space" => {
-                    self.skipped.push(format!("{}.reaction_space (generated reactions are used only by mutation)", w.name));
+                WDecl::Config { name, entries } if name == "reaction_space" => self.reaction_space(entries)?,
+                WDecl::Config { name, .. } if name != "second_law" && name != "upkeep" => {
+                    return err(self.path(name), format!("unknown block `{name}`"));
                 }
                 WDecl::Source { name, emits } => {
-                    for s in emits {
-                        self.substance(s, &self.path("sources"))?;
-                    }
+                    let path = self.path(&format!("sources.{name}"));
+                    let ids = emits.iter().map(|s| self.substance(s, &path)).collect::<Result<_, _>>()?;
                     let id = self.world.add_source(name);
                     self.sources.insert(name.clone(), id);
+                    self.emits.insert(name.clone(), ids);
                 }
                 WDecl::Waste { substance, sink } => {
                     let path = self.path("waste");
                     let s = self.substance(substance, &path)?;
-                    let k = lookup(&self.sinks, sink, &path, "sink")?;
+                    let k = self.accepting_sink(sink, s, &path)?;
                     self.world.waste.push((s, k));
                 }
                 WDecl::Menu { kind, items } => self.menu(kind, items)?,
@@ -281,7 +324,8 @@ impl<'a> Compiler<'a> {
             let WDecl::Field { name, kind, holds } = &d.node else { continue };
             let path = self.path(&format!("fields.{name}"));
             let Some(holds) = holds else {
-                self.skipped.push(format!("{}.fields.{name} (signal fields are not supported by emerge-ref yet)", w.name));
+                self.partial.push(format!("signal field `{name}`"));
+                self.signal_fields.push(name.clone());
                 continue;
             };
             if self.grid.is_some() {
@@ -315,10 +359,29 @@ impl<'a> Compiler<'a> {
     fn menu(&mut self, kind: &str, items: &[ast::Node<MenuItem>]) -> Result<(), Error> {
         for item in items {
             match &item.node {
-                MenuItem::Sense { name, .. } if kind == "senses" => self.senses.push(name.clone()),
-                MenuItem::Gene { name, .. } if kind == "regulation" => self.regulation.push(name.clone()),
-                MenuItem::Action { name, cost, per, requires, .. } if kind == "actions" => {
+                MenuItem::Sense { name, params } if kind == "senses" => {
+                    float_exact(params, None, &self.path(&format!("senses.{name}")))?;
+                    self.senses.insert(name.clone(), params.clone());
+                }
+                MenuItem::Gene { name, params, inputs, weight } if kind == "regulation" => {
+                    let path = self.path(&format!("regulation.{name}"));
+                    let inputs = match inputs {
+                        Lit::Range(a, b) => match (a.as_ref(), b.as_ref()) {
+                            (Lit::Int(a), Lit::Int(b)) => (*a, *b),
+                            _ => return err(path, "`inputs` must be an integer range such as `1..4`"),
+                        },
+                        Lit::Int(n) => (*n, *n),
+                        _ => return err(path, "`inputs` must be an integer or an integer range"),
+                    };
+                    let weight = match weight {
+                        None => None,
+                        Some(l) => Some(float_range(l, &path)?),
+                    };
+                    self.regulation.insert(name.clone(), GeneDef { params: params.clone(), inputs, weight });
+                }
+                MenuItem::Action { name, params, cost, per, requires } if kind == "actions" => {
                     let path = self.path(&format!("actions.{name}"));
+                    float_exact(params, Some(cost), &path)?;
                     let Lit::Amount(cost) = cost else { return err(path, "a cost must be an amount") };
                     let per_distance = match per.as_deref() {
                         None => false,
@@ -330,7 +393,8 @@ impl<'a> Compiler<'a> {
                         Some(Expr::Binary(BinOp::Ge, s, a)) => Some((self.substance(name_of(s, &path)?, &path)?, amount(a, &path)?)),
                         Some(_) => return err(path, "emerge-ref supports `requires <substance> >= <amount>` only"),
                     };
-                    self.actions.insert(name.clone(), ActionDef { cost: mu(*cost, &path)?, per_distance, requires });
+                    let def = ActionDef { params: params.clone(), cost: mu(*cost, &path)?, per_distance, requires };
+                    self.actions.insert(name.clone(), def);
                 }
                 _ => return err(self.path(kind), "menu item does not match its menu"),
             }
@@ -338,11 +402,136 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
+    fn reaction_space(&mut self, entries: &[ast::Node<ast::Entry>]) -> Result<(), Error> {
+        let path = self.path("reaction_space");
+        for e in entries {
+            match e.node.key.as_str() {
+                "include" => {
+                    let Value::Expr(Expr::List(items)) = &e.node.value else { return err(path, "`include` is a list of reactions") };
+                    let ids = items.iter().map(|v| lookup(&self.reactions, name_of(expr(v)?, &path)?, &path, "reaction")).collect::<Result<_, _>>()?;
+                    self.included = Some(ids);
+                }
+                "max_rate" => {
+                    let m = amount(expr(&e.node.value)?, &path)?;
+                    if m > F32_EXACT {
+                        return err(path, "`max_rate` is above 2^24 µ, so gene rates would not convert to f32 exactly (spec §3.5)");
+                    }
+                    self.max_rate = Some(m);
+                }
+                "generate" | "generated_max_rate" | "exclude" => {}
+                k => return err(path, format!("unknown setting `{k}`")),
+            }
+        }
+        self.notes.push(format!("{} (generated reactions are reached only by mutation)", path));
+        Ok(())
+    }
+
+    /// A sink that accepts `s`.
+    fn accepting_sink(&self, sink: &str, s: SubstanceId, path: &str) -> Result<SinkId, Error> {
+        let k = lookup(&self.sinks, sink, path, "sink")?;
+        if !self.world.sinks[k].accepts(s) {
+            return err(path, format!("sink `{sink}` does not accept `{}`", self.world.chem.substances[s].name));
+        }
+        Ok(k)
+    }
+
+    /// A source that declares `s` among what it emits.
+    fn emitting_source(&self, source: &str, s: SubstanceId, path: &str) -> Result<SourceId, Error> {
+        let id = lookup(&self.sources, source, path, "source")?;
+        if !self.emits[source].contains(&s) {
+            return err(path, format!("source `{source}` does not emit `{}`", self.world.chem.substances[s].name));
+        }
+        Ok(id)
+    }
+
+    /// Every argument of a gene call names a parameter on its menu item and lies within the
+    /// parameter's declared range, choices or kind (spec §5.4: the world restricts).
+    fn check_args(&self, c: &ast::Call, params: &[(String, ast::Param)], path: &str) -> Result<(), Error> {
+        for a in &c.args {
+            let Some(key) = &a.name else { return err(path, format!("`{}` takes named arguments", c.name)) };
+            let Some((_, param)) = params.iter().find(|(n, _)| n == key) else {
+                return err(path, format!("`{}` has no parameter `{key}` on the world's menu", c.name));
+            };
+            let v = expr(&a.value)?;
+            let outside = |shown: String, lo: &Lit, hi: &Lit| {
+                err(path, format!("`{key}: {shown}` is outside the menu's range {}..{}", lit_text(lo), lit_text(hi)))
+            };
+            match param {
+                ast::Param::Range(Lit::Range(lo, hi)) => match (lo.as_ref(), hi.as_ref()) {
+                    (Lit::Float(a), Lit::Float(b)) => {
+                        let x = float(v, path)?;
+                        if !(parse_f32(a, path)?..=parse_f32(b, path)?).contains(&x) {
+                            return outside(format!("{x:?}"), lo, hi);
+                        }
+                    }
+                    (Lit::Int(a), Lit::Int(b)) => {
+                        let x = int(v, path)?;
+                        if !(*a..=*b).contains(&x) {
+                            return outside(x.to_string(), lo, hi);
+                        }
+                    }
+                    (Lit::Amount(a), Lit::Amount(b)) => {
+                        let x = amount(v, path)? as u64;
+                        if !(*a..=*b).contains(&x) {
+                            return outside(format!("{x}mu"), lo, hi);
+                        }
+                    }
+                    _ => return err(path, format!("the menu's range for `{key}` mixes kinds")),
+                },
+                ast::Param::Range(_) => return err(path, format!("the menu's range for `{key}` is not a range")),
+                ast::Param::Any(kind) => match kind.as_str() {
+                    "substance" => {
+                        self.substance(name_of(v, path)?, path)?;
+                    }
+                    "quantity" => match v {
+                        Expr::Path(ast::Path { root, segs }) if Some(root.as_str()) == self.grid.as_deref() => {
+                            let [Seg::Field(s)] = &segs[..] else { return err(path, format!("`{key}` must be `{root}.<substance>`")) };
+                            self.held(self.substance(s, path)?, path)?;
+                        }
+                        Expr::Path(ast::Path { root, segs }) if segs.is_empty() && self.signal_fields.contains(root) => {}
+                        _ => return err(path, format!("`{key}` must be a field quantity such as `cells.body`")),
+                    },
+                    "signal" => {
+                        let n = name_of(v, path)?;
+                        if !self.signal_fields.iter().any(|f| f == n) {
+                            return err(path, format!("`{n}` is not a signal field"));
+                        }
+                    }
+                    other => return err(path, format!("parameters of kind `any {other}` are not supported by emerge-ref yet")),
+                },
+                ast::Param::Choices(choices) => {
+                    let n = name_of(v, path)?;
+                    if !choices.iter().any(|c| c == n) {
+                        return err(path, format!("`{key}: {n}` is not one of the menu's choices [{}]", choices.join(", ")));
+                    }
+                }
+                ast::Param::Name(want) => {
+                    if name_of(v, path)? != want {
+                        return err(path, format!("`{key}` must be `{want}`"));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The conserved field can hold `s`.
+    fn held(&self, s: SubstanceId, path: &str) -> Result<SubstanceId, Error> {
+        if self.world.cells.first().is_some_and(|c| c.caps[s] == 0) {
+            let field = self.grid.as_deref().unwrap_or("");
+            return err(path, format!("field `{field}` cannot hold `{}`", self.world.chem.substances[s].name));
+        }
+        Ok(s)
+    }
+
     fn rule(&mut self, name: &str, on: &str, body: &ast::Block) -> Result<(), Error> {
         let path = self.path(&format!("rules.{name}"));
-        if self.grid.as_deref() != Some(on) {
-            self.skipped.push(format!("{path} (on `{on}`, which emerge-ref does not run)"));
+        if self.signal_fields.iter().any(|f| f == on) {
+            self.partial.push(format!("rule `{name}` on signal field `{on}`"));
             return Ok(());
+        }
+        if self.grid.as_deref() != Some(on) {
+            return err(path, format!("unknown field `{on}`"));
         }
         for stmt in body {
             let Stmt::Call { call: c, .. } = &stmt.node else {
@@ -350,28 +539,39 @@ impl<'a> Compiler<'a> {
             };
             let law = match c.name.as_str() {
                 "transfer" => {
-                    let s = self.substance(name_of(subject(c, &path)?, &path)?, &path)?;
+                    only_args(c, &["from", "to", "amount", "overflow"], &path)?;
+                    let s = self.held(self.substance(name_of(subject(c, &path)?, &path)?, &path)?, &path)?;
                     let from = name_of(arg(c, "from", &path)?, &path)?;
-                    let Some(&source) = self.sources.get(from) else {
-                        return err(path, format!("`{from}`: emerge-ref supports transfers from sources only"));
-                    };
+                    if !self.sources.contains_key(from) {
+                        return err(path, format!("`{from}` is not a source; emerge-ref supports rule transfers from sources only"));
+                    }
+                    let source = self.emitting_source(from, s, &path)?;
                     if name_of(arg(c, "to", &path)?, &path)? != "self" {
                         return err(path, "a rule's transfer must go `to: self`");
                     }
                     let overflow = match opt_arg(c, "overflow") {
-                        Some(o) => Some(lookup(&self.sinks, name_of(o, &path)?, &path, "sink")?),
+                        Some(o) => Some(self.accepting_sink(name_of(o, &path)?, s, &path)?),
                         None => None,
                     };
                     Law::Inflow { s, source, amount: amount(arg(c, "amount", &path)?, &path)?, overflow }
                 }
                 "react" => {
+                    only_args(c, &["rate"], &path)?;
                     let r = lookup(&self.reactions, name_of(subject(c, &path)?, &path)?, &path, "reaction")?;
-                    Law::React { reaction: r, rate_bp: rate(arg(c, "rate", &path)?, &path)? }
+                    let rx = &self.world.chem.reactions[r];
+                    for &(s, _) in rx.inputs.iter().chain(&rx.outputs) {
+                        self.held(s, &path)?;
+                    }
+                    Law::React { reaction: r, rate_bp: fraction(arg(c, "rate", &path)?, &path)? }
                 }
                 "diffuse_conserved" => {
+                    only_args(c, &["rate"], &path)?;
                     let Expr::List(items) = subject(c, &path)? else { return err(path, "expected a list of substances") };
-                    let substances = items.iter().map(|v| self.substance(name_of(expr(v)?, &path)?, &path)).collect::<Result<_, _>>()?;
-                    Law::Diffuse { substances, rate_bp: rate(arg(c, "rate", &path)?, &path)? }
+                    let substances = items
+                        .iter()
+                        .map(|v| self.held(self.substance(name_of(expr(v)?, &path)?, &path)?, &path))
+                        .collect::<Result<_, _>>()?;
+                    Law::Diffuse { substances, rate_bp: fraction(arg(c, "rate", &path)?, &path)? }
                 }
                 other => return err(path, format!("`{other}` is not supported by emerge-ref yet")),
             };
@@ -395,13 +595,16 @@ impl<'a> Compiler<'a> {
                 if c.name != "transfer" || name_of(arg(c, "to", &path)?, &path)? != var {
                     return err(path, format!("expected `transfer(..., to: {var}, ...)`"));
                 }
-                let from = name_of(arg(c, "from", &path)?, &path)?;
-                lookup(&self.sources, from, &path, "source")?;
+                only_args(c, &["from", "to", "amount"], &path)?;
                 let s = self.substance(name_of(subject(c, &path)?, &path)?, &path)?;
+                self.emitting_source(name_of(arg(c, "from", &path)?, &path)?, s, &path)?;
                 endow.push((s, amount(arg(c, "amount", &path)?, &path)?));
             }
             for cell in 0..self.world.cells.len() {
                 for &(s, a) in &endow {
+                    if a > self.world.cells[cell].headroom(s) {
+                        return err(path, format!("{a}µ of `{}` does not fit in a cell", self.world.chem.substances[s].name));
+                    }
                     self.world.endow(End::Cell(cell), s, a);
                 }
             }
@@ -413,8 +616,8 @@ impl<'a> Compiler<'a> {
         let mut genome = None;
         for d in &l.decls {
             match &d.node {
-                LDecl::Profile { name, .. } => self.skipped.push(format!("{}.profile.{name} (capacity applies to mutation only)", l.name)),
-                LDecl::Mutation(_) => self.skipped.push(format!("{}.mutation (mutation is not implemented)", l.name)),
+                LDecl::Profile { name, .. } => self.notes.push(format!("{}.profile.{name} (capacity applies to mutation only)", l.name)),
+                LDecl::Mutation(_) => self.notes.push(format!("{}.mutation (the run has mutation off)", l.name)),
                 LDecl::Seed { signals, modules } => genome = Some(self.genome(&l.name, signals, modules)?),
                 LDecl::Genesis(_) => {}
             }
@@ -460,9 +663,10 @@ impl<'a> Compiler<'a> {
                 };
                 let gene = match &g.node.body {
                     GeneBody::Sense { call: c, outs } => {
-                        if !self.senses.contains(&c.name) {
+                        let Some(params) = self.senses.get(&c.name) else {
                             return err(path, format!("sense `{}` is not on the world's menu", c.name));
-                        }
+                        };
+                        self.check_args(c, params, &path)?;
                         let sense = match c.name.as_str() {
                             "inventory" => Sense::Inventory(self.substance(name_of(arg(c, "s", &path)?, &path)?, &path)?),
                             "gradient" => {
@@ -486,8 +690,26 @@ impl<'a> Compiler<'a> {
                         Gene::Sense { sense, out, out2 }
                     }
                     GeneBody::Regulate { call: c, inputs, out } => {
-                        if !self.regulation.contains(&c.name) {
+                        let Some(def) = self.regulation.get(&c.name) else {
                             return err(path, format!("regulation gene `{}` is not on the world's menu", c.name));
+                        };
+                        self.check_args(c, &def.params, &path)?;
+                        let (lo, hi) = def.inputs;
+                        if !(lo..=hi).contains(&(inputs.len() as i64)) {
+                            return err(path, format!("`{}` takes {lo} to {hi} inputs, not {}", c.name, inputs.len()));
+                        }
+                        for i in inputs {
+                            let wt = match &i.weight {
+                                Some(wt) => parse_f32(wt, &path)?,
+                                None => 1.0,
+                            };
+                            match def.weight {
+                                Some((a, b)) if !(a..=b).contains(&wt) => {
+                                    return err(path, format!("weight {wt:?} on `{}` is outside the menu's range {a:?}..{b:?}", i.signal));
+                                }
+                                None if i.weight.is_some() => return err(path, format!("`{}` inputs take no weights", c.name)),
+                                _ => {}
+                            }
                         }
                         match c.name.as_str() {
                             "weigh" => {
@@ -525,13 +747,21 @@ impl<'a> Compiler<'a> {
                     }
                     GeneBody::Reaction { name: r, rate: rt, source: s } => {
                         let reaction = lookup(&self.reactions, r, &path, "reaction")?;
+                        if self.included.as_ref().is_some_and(|inc| !inc.contains(&reaction)) {
+                            return err(path, format!("reaction `{r}` is not in the reaction space's `include` list"));
+                        }
                         let Lit::Amount(rt) = rt else { return err(path, "a reaction rate is an amount") };
-                        Gene::React { reaction, rate: mu(*rt, &path)?, speed: source(s, &mut names, &mut keep)? }
+                        let rate = mu(*rt, &path)?;
+                        if let Some(max) = self.max_rate.filter(|&m| rate > m) {
+                            return err(path, format!("rate {rate}µ is above the reaction space's `max_rate` of {max}µ"));
+                        }
+                        Gene::React { reaction, rate, speed: source(s, &mut names, &mut keep)? }
                     }
                     GeneBody::Action { call: c, source: s, threshold } => {
                         let Some(def) = self.actions.get(&c.name) else {
                             return err(path, format!("action `{}` is not on the world's menu", c.name));
                         };
+                        self.check_args(c, &def.params, &path)?;
                         let src = source(s, &mut names, &mut keep)?;
                         let threshold = match threshold {
                             Some(t) => parse_f32(t, &path)?,
@@ -589,18 +819,30 @@ impl<'a> Compiler<'a> {
                     ranges = Some((range(arg(&c, "x", &path)?, &path)?, range(arg(&c, "y", &path)?, &path)?));
                 }
                 Stmt::Call { call: c, .. } if c.name == "transfer" => {
+                    only_args(c, &["from", "to", "amount"], &path)?;
                     if name_of(arg(c, "to", &path)?, &path)? != "self" {
                         return err(path, "a lineage's genesis transfer must go `to: self`");
                     }
-                    lookup(&self.sources, name_of(arg(c, "from", &path)?, &path)?, &path, "source")?;
                     let s = self.substance(name_of(subject(c, &path)?, &path)?, &path)?;
-                    endow.push((s, amount(arg(c, "amount", &path)?, &path)?));
+                    self.emitting_source(name_of(arg(c, "from", &path)?, &path)?, s, &path)?;
+                    let a = amount(arg(c, "amount", &path)?, &path)?;
+                    if a > self.world.inventory_cap {
+                        return err(path, format!("{a}µ of `{}` is above the inventory cap", self.world.chem.substances[s].name));
+                    }
+                    endow.push((s, a));
                 }
                 _ => return err(path, "unsupported statement in a lineage's genesis"),
             }
         }
         let Some(count) = count else { return err(path, "genesis needs `count`") };
         let Some(((x0, x1), (y0, y1))) = ranges else { return err(path, "genesis needs `position`") };
+        let space = self.world.space.as_ref().expect("the space is built before lineages");
+        if !(0.0 <= x0 && x0 <= x1 && x1 <= space.w && 0.0 <= y0 && y0 <= y1 && y1 <= space.h) {
+            return err(path, format!("`position` must lie within the space, 0.0..{:?} by 0.0..{:?}", space.w, space.h));
+        }
+        if count < 0 || self.world.entities.len() as i64 + count > self.world.max_entities as i64 {
+            return err(path, "`count` must be at least 0 and keep the population within `max_entities`");
+        }
         // Spec §10.2: pass `genesis`, stream = the new entity's ID, draws 0, 1, 2.
         for _ in 0..count {
             let id = self.world.next_id;
@@ -672,6 +914,66 @@ fn lit(e: &Expr) -> Option<(bool, &Lit)> {
         },
         _ => None,
     }
+}
+
+/// Amounts that enter a product with a float must convert to `f32` exactly (spec §3.5).
+const F32_EXACT: Mu = 1 << 24;
+
+/// Checks a menu item's amount ranges and cost against `F32_EXACT`.
+fn float_exact(params: &[(String, ast::Param)], cost: Option<&Lit>, path: &str) -> Result<(), Error> {
+    for (key, p) in params {
+        if let ast::Param::Range(Lit::Range(_, hi)) = p {
+            if matches!(hi.as_ref(), Lit::Amount(m) if *m > F32_EXACT as u64) {
+                return err(path, format!("the range of `{key}` goes above 2^24 µ, so it would not convert to f32 exactly (spec §3.5)"));
+            }
+        }
+    }
+    if matches!(cost, Some(Lit::Amount(m)) if *m > F32_EXACT as u64) {
+        return err(path, "the cost is above 2^24 µ, so it would not convert to f32 exactly (spec §3.5)");
+    }
+    Ok(())
+}
+
+/// Rejects arguments a call does not take, so a misspelled name is never ignored.
+fn only_args(c: &ast::Call, allowed: &[&str], path: &str) -> Result<(), Error> {
+    for a in &c.args {
+        if let Some(n) = &a.name {
+            if !allowed.contains(&n.as_str()) {
+                return err(path, format!("`{}` takes no argument `{n}`", c.name));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn lit_text(l: &Lit) -> String {
+    match l {
+        Lit::Float(s) => s.clone(),
+        Lit::Int(i) => i.to_string(),
+        Lit::Amount(m) => format!("{m}mu"),
+        Lit::Rate(b) => format!("{b}bp"),
+        Lit::Bool(b) => b.to_string(),
+        Lit::Range(a, b) => format!("{}..{}", lit_text(a), lit_text(b)),
+    }
+}
+
+fn float_range(l: &Lit, path: &str) -> Result<(f32, f32), Error> {
+    match l {
+        Lit::Range(a, b) => match (a.as_ref(), b.as_ref()) {
+            (Lit::Float(a), Lit::Float(b)) => Ok((parse_f32(a, path)?, parse_f32(b, path)?)),
+            _ => err(path, "expected a float range such as `-16.0..16.0`"),
+        },
+        _ => err(path, "expected a float range"),
+    }
+}
+
+/// A per-tick fraction of an amount, at most `10_000bp`.
+fn fraction(e: &Expr, path: &str) -> Result<u32, Error> {
+    let r = rate(e, path)?;
+    if r > 10_000 {
+        return err(path, format!("{r}bp is more than the whole amount (10_000bp)"));
+    }
+    Ok(r)
 }
 
 fn parse_f32(s: &str, path: &str) -> Result<f32, Error> {

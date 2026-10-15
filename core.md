@@ -324,14 +324,16 @@ For every base quantity, after every tick:
 - **Deletion needs a route.** When a node or edge is deleted, its conserved contents MUST go somewhere: a law-declared route (`on delete Critter { move all to: at; }`) or a sink. The compiler checks that every conserved slot of every deletable kind has a route.
 - **Splitting divides, never copies.** A `split` divides conserved contents between parent and child. `copying` gives the child nothing; anything it starts with must be moved to it.
 
-### 7.2 Measures that never increase
+### 7.2 Measures that must decrease
 
-A universe may declare a **measure**, a weighted sum of conserved quantities, that no transform may increase:
+A universe may declare a **measure**, a weighted sum of conserved quantities, and require every transform to decrease it by a minimum amount:
 
 ```
 measure potential = 10 * light + 8 * energy + 9 * sugar + 5 * body;
-never increases potential by less than 1;
+every transform decreases potential by at least 1;
 ```
+
+A transform whose outputs have a measure greater than its inputs' measure minus that amount is rejected.
 
 This is the dissipation law of spec v0.7.6 §3.2, now a general mechanism. A world may declare several measures or none.
 
@@ -341,7 +343,7 @@ Everything a world declares, the compiler enforces:
 - the value slots of each kind, and their caps;
 - edge kinds, which node kinds they connect, and their cardinality;
 - which templates each node kind may use, and the owned-rule capacity;
-- which quantities are conserved, and which measures never increase.
+- which quantities are conserved, and which measures every transform must decrease.
 
 A world that declares no edge values gets no edge values; a world that declares none of its node kinds with `owned rules` has no evolution. The language allows; the world restricts.
 

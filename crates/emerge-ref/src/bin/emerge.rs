@@ -3,10 +3,11 @@
 //! `emerge fmt [--check] <file.em>` prints the canonical form of a file. With `--check`,
 //! it prints nothing and fails if the file is not already canonical.
 //!
-//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--seed N] [--ticks N] [--every N] [--flux S]`
+//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S]`
 //! compiles the world, seeds it with the lineages and runs it on the CPU reference runner,
 //! auditing the ledger every `--every` ticks. It prints a CSV row per window and a final
-//! `#` summary line (spec §16, exit criteria 7 and 8). `--flux S` reports the µ of `S`
+//! `#` summary line (spec §16, exit criteria 7 and 8). A world with parts the runner cannot
+//! run yet (signal fields and their rules) is refused unless `--partial` is given. `--flux S` reports the µ of `S`
 //! produced by entity reactions. Mutation is not implemented, so `--mutation on` is refused.
 
 use std::process::ExitCode;
@@ -26,7 +27,7 @@ fn main() -> ExitCode {
 
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--seed N] [--ticks N] [--every N] [--flux S]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S]");
     ExitCode::from(2)
 }
 
@@ -61,10 +62,16 @@ fn run(args: &[String]) -> ExitCode {
     let Some(path) = args.first() else { return usage() };
     let (mut lineages, mut flux_name) = (String::new(), None);
     let (mut seed, mut ticks, mut every) = (1u64, 50_000u64, 1_000u64);
-    for pair in args[1..].chunks(2) {
-        let value = pair.get(1).map(String::as_str).unwrap_or("");
+    let mut partial = false;
+    let mut rest = args[1..].iter();
+    while let Some(flag) = rest.next() {
+        if flag == "--partial" {
+            partial = true;
+            continue;
+        }
+        let value = rest.next().map(String::as_str).unwrap_or("");
         let number = |v: &str| v.parse::<u64>().ok();
-        match (pair[0].as_str(), number(value)) {
+        match (flag.as_str(), number(value)) {
             ("--lineages", _) => lineages = value.to_string(),
             ("--flux", _) => flux_name = Some(value.to_string()),
             ("--mutation", _) if value == "off" => {}
@@ -83,15 +90,18 @@ fn run(args: &[String]) -> ExitCode {
     if names.is_empty() {
         return usage();
     }
-    let compiled = match compile(&src, &names, seed) {
+    let compiled = match compile(&src, &names, seed, partial) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("{path}: {e}");
             return ExitCode::FAILURE;
         }
     };
-    for s in &compiled.skipped {
-        eprintln!("skipped: {s}");
+    for s in &compiled.notes {
+        eprintln!("note: not used in this run: {s}");
+    }
+    for s in &compiled.partial {
+        eprintln!("warning: partial run, left out: {s}");
     }
     let mut w = compiled.world;
     let find = |n: &str| w.chem.substances.iter().position(|s| s.name == n);

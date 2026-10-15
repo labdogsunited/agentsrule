@@ -6,10 +6,6 @@ What building and testing `emerge-ref` shows about the current spec and `core.md
 
 None. Spec v0.7.5 and v0.7.6 settled everything found so far (Appendices F and G).
 
-## Not yet checked by the compiler
-
-- §3.5: every amount that enters a float product (menu ranges, gene rates, costs) is at most `2^24 µ`.
-
 ## Not yet covered by the runner
 
 Senses other than `inventory`, the entity's own cell and `gradient`; `delay` and arithmetic regulation kinds; `give`, `steal`, `emit` and field signals; mutation; derived edges; `charge` laws in their general form (only upkeep); catalysts; the birth log and attribution counters.
