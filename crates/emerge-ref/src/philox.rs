@@ -10,6 +10,8 @@ pub const ARBITRATE_ORIGIN: u32 = 1;
 pub const ARBITRATE_DEST: u32 = 2;
 pub const MUTATE: u32 = 3;
 pub const REWRITE: u32 = 4;
+/// Genesis placement. Not yet in the spec (DISCREPANCIES.md).
+pub const GENESIS: u32 = 5;
 
 /// Stream domains (spec §10.2).
 pub const DOMAIN_ENTITY: u32 = 0;

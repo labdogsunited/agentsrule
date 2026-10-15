@@ -14,7 +14,7 @@ fn expressed(gene: Gene) -> Slot {
 /// take body; divide when ready > 0.5.
 fn reproduce(body: usize) -> Vec<Gene> {
     vec![
-        Gene::Sense { sense: Sense::Inventory(body), out: 0 },
+        Gene::sense(Sense::Inventory(body), 0),
         Gene::Weigh { bias: -10.0, curve: Curve::Step, inputs: vec![(1.0, 0)], out: 1 },
         Gene::take(body, U, 0),
         Gene::Divide { split_bp: 5_000, requires: (body, 10 * U), fee: 0, src: Input::Signal(1), threshold: 0.5 },
@@ -61,7 +61,7 @@ fn keep_sets_how_much_of_a_signal_survives_each_step() {
     let (mut w, d) = dish(0, 0);
     let cell = dish_cell(&mut w, &d);
     let genome = Genome {
-        slots: vec![expressed(Gene::Sense { sense: Sense::Inventory(d.carbon), out: 0 })],
+        slots: vec![expressed(Gene::sense(Sense::Inventory(d.carbon), 0))],
         modules: vec![true],
         keep: vec![0.5],
     };
@@ -160,8 +160,8 @@ fn upkeep_counts_active_genes_signals_in_use_retention_and_carried_units() {
     let genome = Genome {
         slots: vec![
             // Writes s0, which nothing reads: s0 is not in use.
-            expressed(Gene::Sense { sense: Sense::Cell(d.light), out: 0 }),
-            expressed(Gene::Sense { sense: Sense::Inventory(d.body), out: 1 }),
+            expressed(Gene::sense(Sense::Cell(d.light), 0)),
+            expressed(Gene::sense(Sense::Inventory(d.body), 1)),
             expressed(Gene::Weigh { bias: 0.0, curve: Curve::Tanh, inputs: vec![(1.0, 1)], out: 2 }),
             expressed(Gene::Take { s: d.body, max: U, fee: 0, src: Input::Signal(2), threshold: 0.0 }),
             // Dormant gene: free.

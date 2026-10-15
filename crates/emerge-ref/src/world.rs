@@ -1,7 +1,7 @@
 //! A world of cells and entities, run on the four-phase schedule
 //! (`core.md` §6.1, spec §7).
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use crate::arbitrate::pro_rata;
 use crate::chem::{ChemError, Chemistry, Mu, ReactionId, SubstanceId};
@@ -29,15 +29,61 @@ impl Store {
     }
 }
 
+/// `Continuous2D` with one grid of cells laid over it (spec §6.1). Cell `(x, y)` has index
+/// `y × grid_w + x`; its neighbours are N `(x, y − 1)`, E, S, W, in that order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Space {
+    pub w: f32,
+    pub h: f32,
+    pub wrap: bool,
+    pub grid_w: usize,
+    pub grid_h: usize,
+    pub child_offset: f32,
+}
+
+impl Space {
+    pub fn cell_at(&self, p: [f32; 2]) -> usize {
+        let x = ((p[0] * (self.grid_w as f32 / self.w)).floor() as isize).clamp(0, self.grid_w as isize - 1);
+        let y = ((p[1] * (self.grid_h as f32 / self.h)).floor() as isize).clamp(0, self.grid_h as isize - 1);
+        y as usize * self.grid_w + x as usize
+    }
+
+    pub fn place(&self, p: [f32; 2]) -> [f32; 2] {
+        let fit = |v: f32, size: f32| {
+            if self.wrap {
+                let r = v.rem_euclid(size);
+                if r >= size { 0.0 } else { r }
+            } else {
+                v.clamp(0.0, size.next_down())
+            }
+        };
+        [fit(p[0], self.w), fit(p[1], self.h)]
+    }
+
+    /// The neighbour of cell `c` at offset `(dx, dy)`, wrapping or staying at the edge.
+    fn offset(&self, c: usize, dx: isize, dy: isize) -> usize {
+        let (gw, gh) = (self.grid_w as isize, self.grid_h as isize);
+        let (x, y) = ((c % self.grid_w) as isize + dx, (c / self.grid_w) as isize + dy);
+        let (x, y) = if self.wrap {
+            (x.rem_euclid(gw), y.rem_euclid(gh))
+        } else {
+            (x.clamp(0, gw - 1), y.clamp(0, gh - 1))
+        };
+        (y * gw + x) as usize
+    }
+}
+
 /// An action gene's intent, formed in Set (spec §5.5, §7.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Act {
+    Move { distance: f32 },
+    Turn { angle_deg: f32 },
     Take { s: SubstanceId, amount: Mu },
     Drop { s: SubstanceId, amount: Mu },
     Divide,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Intent {
     pub gene: usize,
     pub act: Act,
@@ -57,7 +103,11 @@ pub struct Plan {
 #[derive(Debug, Clone)]
 pub struct Entity {
     pub id: u64,
+    /// The field cell the entity is in, as of the snapshot.
     pub cell: usize,
+    pub pos: [f32; 2],
+    /// A unit vector.
+    pub heading: [f32; 2],
     pub store: Store,
     pub genome: Genome,
     pub signals: Vec<f32>,
@@ -149,6 +199,8 @@ pub struct World {
     pub chem: Chemistry,
     pub cells: Vec<Store>,
     pub neighbours: Vec<Vec<usize>>,
+    /// Set for worlds whose cells are a grid over continuous space.
+    pub space: Option<Space>,
     pub entities: Vec<Entity>,
     pub sources: Vec<String>,
     pub sinks: Vec<Sink>,
@@ -166,7 +218,13 @@ pub struct World {
     /// Cumulative µ per element emitted by sources and absorbed by sinks.
     pub emitted: Vec<u64>,
     pub absorbed: Vec<u64>,
+    /// Births and deaths are always counted; `events` lists them only if `record_events`.
+    pub record_events: bool,
     pub events: Vec<Event>,
+    pub births: u64,
+    pub deaths: u64,
+    /// Cumulative extent of each reaction run by entity genes.
+    pub entity_extent: Vec<u64>,
     /// The transfers of the last tick, in request order.
     pub last_transfers: Vec<Transfer>,
 }
@@ -185,10 +243,12 @@ impl World {
             return Err(ChemError::PaymentRoute { reason: "vent does not accept becomes".into() });
         }
         let n = chem.elements.len();
+        let reactions = chem.reactions.len();
         Ok(World {
             chem,
             cells: Vec::new(),
             neighbours: Vec::new(),
+            space: None,
             entities: Vec::new(),
             sources: Vec::new(),
             sinks,
@@ -205,7 +265,11 @@ impl World {
             next_id: 1,
             emitted: vec![0; n],
             absorbed: vec![0; n],
+            record_events: true,
             events: Vec::new(),
+            births: 0,
+            deaths: 0,
+            entity_extent: vec![0; reactions],
             last_transfers: Vec::new(),
         })
     }
@@ -228,6 +292,26 @@ impl World {
         self.neighbours[b].push(a);
     }
 
+    /// Lays a grid of cells with the given caps over `space`, linked N, E, S, W.
+    /// Must be called before any other cell is added.
+    pub fn grid(&mut self, space: Space, caps: Vec<Mu>) {
+        assert!(self.cells.is_empty());
+        for _ in 0..space.grid_w * space.grid_h {
+            self.add_cell(caps.clone());
+        }
+        for c in 0..self.cells.len() {
+            let mut nbs = Vec::with_capacity(4);
+            for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                let nb = space.offset(c, dx, dy);
+                if nb != c {
+                    nbs.push(nb);
+                }
+            }
+            self.neighbours[c] = nbs;
+        }
+        self.space = Some(space);
+    }
+
     /// Adds an entity with an empty inventory and one module of expressed genes.
     pub fn spawn(&mut self, cell: usize, genes: Vec<Gene>) -> usize {
         self.spawn_genome(cell, Genome::simple(genes))
@@ -237,9 +321,29 @@ impl World {
     pub fn spawn_genome(&mut self, cell: usize, genome: Genome) -> usize {
         let caps = vec![self.inventory_cap; self.chem.substances.len()];
         let signals = vec![0.0; genome.keep.len()];
-        self.entities.push(Entity { id: self.next_id, cell, store: Store::new(caps), genome, signals, age: 0 });
+        self.entities.push(Entity {
+            id: self.next_id,
+            cell,
+            pos: [0.0, 0.0],
+            heading: [1.0, 0.0],
+            store: Store::new(caps),
+            genome,
+            signals,
+            age: 0,
+        });
         self.next_id += 1;
         self.entities.len() - 1
+    }
+
+    /// Adds an entity at a position in space, in the cell under it.
+    pub fn spawn_at(&mut self, pos: [f32; 2], heading: [f32; 2], genome: Genome) -> usize {
+        let space = self.space.as_ref().expect("spawn_at needs a space");
+        let pos = space.place(pos);
+        let cell = space.cell_at(pos);
+        let i = self.spawn_genome(cell, genome);
+        self.entities[i].pos = pos;
+        self.entities[i].heading = heading;
+        i
     }
 
     /// Genesis: moves `amount` from a source into a store, recording it as emitted.
@@ -278,6 +382,12 @@ impl World {
 
     /// Runs one tick: Set, Move, Transform, Restructure. Audits the ledger afterwards.
     pub fn step(&mut self) -> Result<(), LedgerError> {
+        self.run_tick();
+        self.audit()
+    }
+
+    /// Runs one tick without auditing, for long runs that audit every `K` ticks.
+    pub fn run_tick(&mut self) {
         let n = self.entities.len();
 
         // ---- 1 Set ----
@@ -309,7 +419,8 @@ impl World {
             }
         }
         // 2.3 Transfers: entity intents and transfer rules, arbitrated together.
-        let mut requests: Vec<Transfer> = Vec::new();
+        let mut requests = std::mem::take(&mut self.last_transfers);
+        requests.clear();
         let mut request = |origin, dest, s, amount, overflow| {
             if amount > 0 {
                 requests.push(Transfer {
@@ -323,7 +434,7 @@ impl World {
                 match x.act {
                     Act::Take { s, amount } => request(End::Cell(e.cell), End::Entity(i), s, amount, None),
                     Act::Drop { s, amount } => request(End::Entity(i), End::Cell(e.cell), s, amount, None),
-                    Act::Divide => {}
+                    Act::Move { .. } | Act::Turn { .. } | Act::Divide => {}
                 }
             }
         }
@@ -352,7 +463,26 @@ impl World {
         }
         self.arbitrate(&mut requests);
         self.last_transfers = requests;
-        // 2.4 Movement: not in this slice.
+        // 2.4 Movement: paid turns, then paid moves. No repulsion yet (DISCREPANCIES.md).
+        if let Some(space) = &self.space {
+            for (e, plan) in self.entities.iter_mut().zip(&plans) {
+                for x in plan.intents.iter().filter(|x| x.live) {
+                    if let Act::Turn { angle_deg } = x.act {
+                        let (s, c) = angle_deg.to_radians().sin_cos();
+                        let [hx, hy] = e.heading;
+                        let (nx, ny) = (hx * c - hy * s, hx * s + hy * c);
+                        let len = (nx * nx + ny * ny).sqrt();
+                        e.heading = [nx / len, ny / len];
+                    }
+                }
+                for x in plan.intents.iter().filter(|x| x.live) {
+                    if let Act::Move { distance } = x.act {
+                        let p = [e.pos[0] + e.heading[0] * distance, e.pos[1] + e.heading[1] * distance];
+                        e.pos = space.place(p);
+                    }
+                }
+            }
+        }
 
         // ---- 3 Transform ----
         for (i, e) in self.entities.iter_mut().enumerate() {
@@ -373,6 +503,7 @@ impl World {
                         extent = extent.min(e.store.headroom(s) / c);
                     }
                     apply_reaction(&mut e.store, r, extent);
+                    self.entity_extent[reaction] += extent as u64;
                 }
             }
         }
@@ -421,7 +552,10 @@ impl World {
                     add_elements(&mut self.absorbed, &self.chem, s, rest);
                 }
             }
-            self.events.push(Event::Died { tick, id: self.entities[i].id, cause });
+            self.deaths += 1;
+            if self.record_events {
+                self.events.push(Event::Died { tick, id: self.entities[i].id, cause });
+            }
         }
         // 4.2 Division, on the inventory after Transform.
         let mut living = removed.iter().filter(|r| !**r).count();
@@ -447,47 +581,86 @@ impl World {
             }
             let id = self.next_id;
             self.next_id += 1;
-            self.events.push(Event::Born { tick, parent: parent.id, child: id });
+            self.births += 1;
+            if self.record_events {
+                self.events.push(Event::Born { tick, parent: parent.id, child: id });
+            }
+            // The child is placed behind its parent's position after movement (spec §7.5).
+            let (pos, cell) = match &self.space {
+                Some(space) => {
+                    let p = [
+                        parent.pos[0] - parent.heading[0] * space.child_offset,
+                        parent.pos[1] - parent.heading[1] * space.child_offset,
+                    ];
+                    let p = space.place(p);
+                    (p, space.cell_at(p))
+                }
+                None => (parent.pos, parent.cell),
+            };
             let genome = parent.genome.clone();
             let signals = vec![0.0; genome.keep.len()];
-            children.push(Entity { id, cell: parent.cell, store: child, genome, signals, age: 0 });
+            children.push(Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0 });
             living += 1;
         }
-        // 4.3 Survivors age; newborns join at the end of the tick and first act next tick.
+        // 4.3 Survivors age and move to the cell under them; newborns join at the end of the
+        // tick and first act next tick.
         let mut i = 0;
         self.entities.retain(|_| {
             i += 1;
             !removed[i - 1]
         });
-        self.entities.iter_mut().for_each(|e| e.age += 1);
+        for e in &mut self.entities {
+            e.age += 1;
+            if let Some(space) = &self.space {
+                e.cell = space.cell_at(e.pos);
+            }
+        }
         self.entities.extend(children);
-
         self.tick += 1;
-        self.audit()
     }
 
     /// Set for one entity: senses read the snapshot, the mind runs `mind_steps` steps, and
     /// active genes form intents and reaction caps from the resulting signals.
     fn set(&mut self, i: usize) -> Plan {
-        let e = &self.entities[i];
-        let cell = &self.cells[e.cell];
-        // Readings are in units: amount × 0.001, as f32.
-        let readings: Vec<f32> = e.genome.slots.iter().map(|slot| match slot.gene {
-            Gene::Sense { sense: Sense::Inventory(s), .. } => e.store.amounts[s] as f32 * 0.001,
-            Gene::Sense { sense: Sense::Cell(s), .. } => cell.amounts[s] as f32 * 0.001,
-            _ => 0.0,
-        }).map(|r| sanitize(r, READING_LIMIT)).collect();
+        let readings: Vec<[f32; 2]> = {
+            let e = &self.entities[i];
+            e.genome.slots.iter().map(|slot| match slot.gene {
+                Gene::Sense { sense, .. } => {
+                    let [a, b] = self.read(e, sense);
+                    [sanitize(a, READING_LIMIT), sanitize(b, READING_LIMIT)]
+                }
+                _ => [0.0, 0.0],
+            }).collect()
+        };
         let e = &mut self.entities[i];
         think(&e.genome, &mut e.signals, &readings, self.mind_steps);
 
         let e = &self.entities[i];
         let cell = &self.cells[e.cell];
         let mut plan = Plan { intents: Vec::new(), react_caps: vec![0; e.genome.slots.len()] };
-        let mut divides = false;
+        let (mut moves, mut turns, mut divides) = (false, false, false);
         for g in (0..e.genome.slots.len()).filter(|&g| e.genome.active(g)) {
             match e.genome.slots[g].gene {
                 Gene::React { rate, speed, .. } => {
                     plan.react_caps[g] = scale(value(&e.signals, speed), rate);
+                }
+                Gene::Move { speed, fee_per_distance, src, threshold } => {
+                    // Only the first firing move gene counts; the fee is on the requested distance.
+                    let o = value(&e.signals, src);
+                    if o > threshold && !moves {
+                        moves = true;
+                        let distance = o.clamp(0.0, 1.0) * speed;
+                        let fee = (fee_per_distance as f32 * distance).ceil() as Mu;
+                        plan.intents.push(Intent { gene: g, act: Act::Move { distance }, fee, live: true });
+                    }
+                }
+                Gene::Turn { angle_deg, fee, src, threshold } => {
+                    let o = value(&e.signals, src);
+                    if o > threshold && !turns {
+                        turns = true;
+                        let act = Act::Turn { angle_deg: o.clamp(-1.0, 1.0) * angle_deg };
+                        plan.intents.push(Intent { gene: g, act, fee, live: true });
+                    }
                 }
                 Gene::Take { s, max, fee, src, threshold } | Gene::Drop { s, max, fee, src, threshold } => {
                     let o = value(&e.signals, src);
@@ -515,44 +688,91 @@ impl World {
         plan
     }
 
-    /// Two-stage arbitration and commit (spec §7.2 step 3).
-    fn arbitrate(&mut self, reqs: &mut [Transfer]) {
-        // Stage 1, per origin and substance, against the origin's balance.
-        let mut by_origin: BTreeMap<(End, SubstanceId), Vec<usize>> = BTreeMap::new();
-        for (k, r) in reqs.iter().enumerate() {
-            by_origin.entry((r.origin, r.s)).or_default().push(k);
+    /// A sense reading from the snapshot. Amounts are in units: `f32(amount) × 0.001`.
+    fn read(&self, e: &Entity, sense: Sense) -> [f32; 2] {
+        let units = |amount: Mu| amount as f32 * 0.001;
+        match sense {
+            Sense::Inventory(s) => [units(e.store.amounts[s]), 0.0],
+            Sense::Cell(s) => [units(self.cells[e.cell].amounts[s]), 0.0],
+            Sense::Gradient(s) => {
+                let Some(space) = &self.space else { return [0.0, 0.0] };
+                // Central differences over the neighbouring cells, per unit distance.
+                let at = |dx, dy| units(self.cells[space.offset(e.cell, dx, dy)].amounts[s]);
+                let per_distance = space.grid_w as f32 / (2.0 * space.w);
+                let gx = (at(1, 0) - at(-1, 0)) * per_distance;
+                let gy = (at(0, 1) - at(0, -1)) * per_distance;
+                let [hx, hy] = e.heading;
+                [gx * hx + gy * hy, -gx * hy + gy * hx]
+            }
         }
-        for ((origin, s), ks) in &by_origin {
-            let wanted: Vec<u64> = ks.iter().map(|&k| reqs[k].requested as u64).collect();
-            let granted = match self.store(*origin) {
-                Some(store) => {
-                    let draws = self.stream(*origin, *s, philox::ARBITRATE_ORIGIN);
-                    pro_rata(&wanted, store.amounts[*s] as u64, |i| draws.draw(i as u64))
+    }
+
+    /// Two-stage arbitration and commit (spec §7.2 step 3).
+    ///
+    /// Requests are summed per store and substance; only oversubscribed groups are shared
+    /// pro-rata. The result is the same as arbitrating every group.
+    fn arbitrate(&mut self, reqs: &mut [Transfer]) {
+        let ns = self.chem.substances.len();
+        let nc = self.cells.len();
+        let key = |end: End, s: SubstanceId| match end {
+            End::Cell(c) => Some(c * ns + s),
+            End::Entity(e) => Some((nc + e) * ns + s),
+            End::Source(_) | End::Sink(_) => None,
+        };
+        let slots = (nc + self.entities.len()) * ns;
+
+        // Stage 1, per origin and substance, against the origin's balance.
+        let mut sum = vec![0u64; slots];
+        for r in reqs.iter() {
+            if let Some(k) = key(r.origin, r.s) {
+                sum[k] += r.requested as u64;
+            }
+        }
+        let mut over: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (i, r) in reqs.iter_mut().enumerate() {
+            match key(r.origin, r.s) {
+                Some(k) if sum[k] > self.store(r.origin).unwrap().amounts[r.s] as u64 => {
+                    over.entry(k).or_default().push(i)
                 }
-                None => wanted, // a source has no balance
-            };
+                _ => r.stage1 = r.requested,
+            }
+        }
+        for ks in over.values() {
+            let (origin, s) = (reqs[ks[0]].origin, reqs[ks[0]].s);
+            let wanted: Vec<u64> = ks.iter().map(|&k| reqs[k].requested as u64).collect();
+            let draws = self.stream(origin, s, philox::ARBITRATE_ORIGIN);
+            let granted = pro_rata(&wanted, self.store(origin).unwrap().amounts[s] as u64, |i| draws.draw(i as u64));
             for (&k, g) in ks.iter().zip(granted) {
                 reqs[k].stage1 = g as Mu;
             }
         }
+
         // Stage 2, per destination and substance, against headroom at the start of the step.
-        let mut by_dest: BTreeMap<(End, SubstanceId), Vec<usize>> = BTreeMap::new();
-        for (k, r) in reqs.iter().enumerate() {
-            by_dest.entry((r.dest, r.s)).or_default().push(k);
+        sum.iter_mut().for_each(|x| *x = 0);
+        for r in reqs.iter() {
+            if let Some(k) = key(r.dest, r.s) {
+                sum[k] += r.stage1 as u64;
+            }
         }
-        for ((dest, s), ks) in &by_dest {
-            let wanted: Vec<u64> = ks.iter().map(|&k| reqs[k].stage1 as u64).collect();
-            let granted = match self.store(*dest) {
-                Some(store) => {
-                    let draws = self.stream(*dest, *s, philox::ARBITRATE_DEST);
-                    pro_rata(&wanted, store.headroom(*s) as u64, |i| draws.draw(i as u64))
+        over.clear();
+        for (i, r) in reqs.iter_mut().enumerate() {
+            match key(r.dest, r.s) {
+                Some(k) if sum[k] > self.store(r.dest).unwrap().headroom(r.s) as u64 => {
+                    over.entry(k).or_default().push(i)
                 }
-                None => wanted, // a sink has no cap
-            };
+                _ => r.stage2 = r.stage1,
+            }
+        }
+        for ks in over.values() {
+            let (dest, s) = (reqs[ks[0]].dest, reqs[ks[0]].s);
+            let wanted: Vec<u64> = ks.iter().map(|&k| reqs[k].stage1 as u64).collect();
+            let draws = self.stream(dest, s, philox::ARBITRATE_DEST);
+            let granted = pro_rata(&wanted, self.store(dest).unwrap().headroom(s) as u64, |i| draws.draw(i as u64));
             for (&k, g) in ks.iter().zip(granted) {
                 reqs[k].stage2 = g as Mu;
             }
         }
+
         // Commit.
         for r in reqs.iter_mut() {
             r.delivered = r.stage2;

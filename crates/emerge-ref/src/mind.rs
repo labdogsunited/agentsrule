@@ -23,6 +23,9 @@ pub enum Sense {
     Inventory(SubstanceId),
     /// The amount in the entity's cell, in units, from the snapshot.
     Cell(SubstanceId),
+    /// `gradient(q: cells.s)`: the field's gradient in the entity's own frame, in units per
+    /// unit distance. The first output is along the heading, the second to the left.
+    Gradient(SubstanceId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,8 +51,8 @@ impl Curve {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Gene {
-    /// Sense gene: writes a reading of the snapshot into `out`.
-    Sense { sense: Sense, out: usize },
+    /// Sense gene: writes a reading of the snapshot into `out` (and a second one into `out2`).
+    Sense { sense: Sense, out: usize, out2: Option<usize> },
     /// Regulation gene `weigh`: `out ← curve(bias + Σ weight · input)`.
     Weigh { bias: f32, curve: Curve, inputs: Vec<(f32, usize)>, out: usize },
     /// Regulation gene `product`: `out ← a · b`.
@@ -57,6 +60,10 @@ pub enum Gene {
     /// Reaction gene: runs at up to `floor(rate × clamp(speed, 0, 1))` µ of extent.
     React { reaction: ReactionId, rate: Mu, speed: Input },
     /// Action genes fire when their source is above `threshold` (spec §5.5).
+    /// `move`: distance `clamp(o, 0, 1) × speed`; the fee is per unit of requested distance.
+    Move { speed: f32, fee_per_distance: Mu, src: Input, threshold: f32 },
+    /// `turn`: angle `clamp(o, −1, 1) × angle_deg`, positive to the left.
+    Turn { angle_deg: f32, fee: Mu, src: Input, threshold: f32 },
     Take { s: SubstanceId, max: Mu, fee: Mu, src: Input, threshold: f32 },
     Drop { s: SubstanceId, max: Mu, fee: Mu, src: Input, threshold: f32 },
     /// `split_bp` is the child's share in basis points; `requires` is `(substance, amount)`.
@@ -80,11 +87,16 @@ impl Gene {
         Gene::Divide { split_bp, requires, fee, src: ONE, threshold: 0.0 }
     }
 
-    /// The signal this gene writes, if any.
-    pub fn writes(&self) -> Option<usize> {
+    pub fn sense(sense: Sense, out: usize) -> Gene {
+        Gene::Sense { sense, out, out2: None }
+    }
+
+    /// The signals this gene writes.
+    pub fn writes(&self) -> Vec<usize> {
         match *self {
-            Gene::Sense { out, .. } | Gene::Weigh { out, .. } | Gene::Product { out, .. } => Some(out),
-            _ => None,
+            Gene::Sense { out, out2, .. } => std::iter::once(out).chain(out2).collect(),
+            Gene::Weigh { out, .. } | Gene::Product { out, .. } => vec![out],
+            _ => vec![],
         }
     }
 
@@ -99,7 +111,11 @@ impl Gene {
             Gene::Weigh { inputs, .. } => inputs.iter().map(|&(_, s)| s).collect(),
             Gene::Product { a, b, .. } => vec![*a, *b],
             Gene::React { speed, .. } => signal(*speed),
-            Gene::Take { src, .. } | Gene::Drop { src, .. } | Gene::Divide { src, .. } => signal(*src),
+            Gene::Move { src, .. }
+            | Gene::Turn { src, .. }
+            | Gene::Take { src, .. }
+            | Gene::Drop { src, .. }
+            | Gene::Divide { src, .. } => signal(*src),
         }
     }
 }
@@ -149,7 +165,7 @@ impl Genome {
         let mut written = vec![false; self.keep.len()];
         let mut read = vec![false; self.keep.len()];
         for g in (0..self.slots.len()).filter(|&g| self.active(g)) {
-            if let Some(s) = self.slots[g].gene.writes() {
+            for s in self.slots[g].gene.writes() {
                 written[s] = true;
             }
             for s in self.slots[g].gene.reads() {
@@ -171,17 +187,23 @@ pub fn value(signals: &[f32], i: Input) -> f32 {
     }
 }
 
-/// Runs `steps` mind steps (spec §5.4). `readings[g]` is the reading of sense gene `g`.
+/// Runs `steps` mind steps (spec §5.4). `readings[g]` holds the one or two readings of
+/// sense gene `g`.
 ///
 /// In every step, every active regulation gene computes its output from the signals at
 /// the start of the step; then every signal becomes `keep · s` plus the readings and
 /// outputs written to it, summed in gene order, and is sanitized.
-pub fn think(genome: &Genome, signals: &mut [f32], readings: &[f32], steps: u32) {
+pub fn think(genome: &Genome, signals: &mut [f32], readings: &[[f32; 2]], steps: u32) {
     for _ in 0..steps {
         let mut next: Vec<f32> = signals.iter().zip(&genome.keep).map(|(s, k)| k * s).collect();
         for g in (0..genome.slots.len()).filter(|&g| genome.active(g)) {
             match &genome.slots[g].gene {
-                Gene::Sense { out, .. } => next[*out] += readings[g],
+                Gene::Sense { out, out2, .. } => {
+                    next[*out] += readings[g][0];
+                    if let Some(o2) = out2 {
+                        next[*o2] += readings[g][1];
+                    }
+                }
                 Gene::Weigh { bias, curve, inputs, out } => {
                     let x = inputs.iter().fold(*bias, |acc, &(w, s)| acc + w * signals[s]);
                     next[*out] += curve.apply(x);

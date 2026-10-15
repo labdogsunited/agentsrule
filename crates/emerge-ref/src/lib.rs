@@ -11,12 +11,17 @@
 //! modules) driving action sizes, thresholds and reaction speeds; two-stage pro-rata
 //! arbitration of entity and world transfers together, with Philox tie-breaking, overflow
 //! sinks and diffusion; entity reactions in genome order; world reactions after transfers;
-//! waste venting; disposal before division; newborns acting next tick.
+//! waste venting; disposal before division; newborns acting next tick; continuous 2D space
+//! with a grid of cells, `move`, `turn`, the `gradient` sense and child placement.
+//!
+//! `dish` is a hand translation of `examples/dish.em`, and the `dish` binary runs it. Both
+//! go away once the parser can compile the `.em` file.
 //!
 //! Not covered yet: see `DISCREPANCIES.md`.
 
 pub mod arbitrate;
 pub mod chem;
+pub mod dish;
 pub mod mind;
 pub mod philox;
 pub mod world;

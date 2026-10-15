@@ -79,7 +79,7 @@ fn random_worlds_conserve_every_element() {
                 genes.push(match rng.below(6) {
                     0 => Gene::Take { s, max, fee, src, threshold },
                     1 => Gene::Drop { s, max, fee, src, threshold },
-                    4 => Gene::Sense { sense: if rng.below(2) == 0 { Sense::Inventory(s) } else { Sense::Cell(s) }, out: sig },
+                    4 => Gene::sense(if rng.below(2) == 0 { Sense::Inventory(s) } else { Sense::Cell(s) }, sig),
                     5 => Gene::Weigh {
                         bias: rng.below(9) as f32 - 4.0,
                         curve: curves[rng.below(4) as usize],
