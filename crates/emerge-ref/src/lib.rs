@@ -5,18 +5,22 @@
 //! (spec §7). Worlds are built in Rust; there is no parser yet. Tests in `tests/`
 //! state exact expected states, so spec changes have something concrete to keep.
 //!
-//! Covered: element ledger and audits, upkeep and attempt fees through the payment
-//! route, two-stage pro-rata arbitration of entity and world transfers together,
-//! overflow sinks, diffusion, entity reactions in genome order, world reactions after
-//! transfers, waste venting, disposal before division, newborns acting next tick.
+//! Covered: element ledger and audits; upkeep (active genes, signals in use, retention,
+//! carried units) and attempt fees through the payment route; minds (inventory and cell
+//! senses, `weigh` and `product` genes, `keep`, `mind_steps`, expression of genes and
+//! modules) driving action sizes, thresholds and reaction speeds; two-stage pro-rata
+//! arbitration of entity and world transfers together, with Philox tie-breaking, overflow
+//! sinks and diffusion; entity reactions in genome order; world reactions after transfers;
+//! waste venting; disposal before division; newborns acting next tick.
 //!
-//! Not covered yet: minds and signals (every gene fires every tick), senses, movement,
-//! mutation, derived edges.
+//! Not covered yet: see `DISCREPANCIES.md`.
 
 pub mod arbitrate;
 pub mod chem;
+pub mod mind;
 pub mod philox;
 pub mod world;
 
 pub use chem::{Chemistry, Mu, U};
-pub use world::{Cause, End, Entity, Event, Gene, Law, Sink, Store, Transfer, Upkeep, World};
+pub use mind::{Curve, Gene, Genome, Input, Sense, Slot, ONE};
+pub use world::{Cause, End, Entity, Event, Law, Sink, Store, Transfer, Upkeep, World};

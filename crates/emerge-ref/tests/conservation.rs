@@ -3,7 +3,7 @@
 mod common;
 
 use common::{dish, dish_cell};
-use emerge_ref::{End, Event, Gene, Law, U};
+use emerge_ref::{Curve, End, Event, Gene, Input, Law, Sense, U};
 
 /// xorshift64*, so the test needs no dependencies and every seed is reproducible.
 struct Rng(u64);
@@ -27,6 +27,11 @@ fn random_worlds_conserve_every_element() {
     for seed in 1..=40u64 {
         let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
         let (mut w, d) = dish(rng.below(40) as u32, rng.below(6) as u32);
+        w.seed = seed;
+        w.mind_steps = 1 + rng.below(3) as u32;
+        w.upkeep.per_signal = rng.below(3) as u32;
+        w.upkeep.per_signal_keep = rng.below(5) as u32;
+        w.upkeep.per_carried_u = rng.below(2) as u32;
         let subs = [d.light, d.energy, d.heat, d.sugar, d.carbon, d.nitrate, d.body];
         let cell_subs = [d.light, d.sugar, d.carbon, d.nitrate, d.body];
         let reactions = [d.photosynthesis, d.respiration, d.build, d.rot];
@@ -63,15 +68,26 @@ fn random_worlds_conserve_every_element() {
         w.max_entities = 5 + rng.below(60) as usize;
         for _ in 0..rng.below(20) {
             let mut genes = Vec::new();
-            for _ in 0..rng.below(6) {
+            for _ in 0..rng.below(8) {
                 let s = subs[rng.below(7) as usize];
                 let max = rng.below(2 * U as u64) as u32;
                 let fee = rng.below(20) as u32;
-                genes.push(match rng.below(4) {
-                    0 => Gene::Take { s, max, fee },
-                    1 => Gene::Drop { s, max, fee },
-                    2 => Gene::React { reaction: reactions[rng.below(4) as usize], rate: rng.below(2 * U as u64) as u32 },
-                    _ => Gene::Divide { split_bp: rng.below(10_001) as u32, requires: (s, rng.below(20 * U as u64) as u32), fee },
+                let sig = rng.below(4) as usize;
+                let src = if rng.below(2) == 0 { Input::Signal(sig) } else { Input::Const(1.0) };
+                let threshold = rng.below(3) as f32 * 0.25;
+                let curves = [Curve::Linear, Curve::Step, Curve::Sigmoid, Curve::Tanh];
+                genes.push(match rng.below(6) {
+                    0 => Gene::Take { s, max, fee, src, threshold },
+                    1 => Gene::Drop { s, max, fee, src, threshold },
+                    4 => Gene::Sense { sense: if rng.below(2) == 0 { Sense::Inventory(s) } else { Sense::Cell(s) }, out: sig },
+                    5 => Gene::Weigh {
+                        bias: rng.below(9) as f32 - 4.0,
+                        curve: curves[rng.below(4) as usize],
+                        inputs: vec![(rng.below(5) as f32 - 2.0, rng.below(4) as usize)],
+                        out: sig,
+                    },
+                    2 => Gene::react(reactions[rng.below(4) as usize], rng.below(2 * U as u64) as u32),
+                    _ => Gene::divide(rng.below(10_001) as u32, (s, rng.below(20 * U as u64) as u32), fee),
                 });
             }
             let e = w.spawn(rng.below(n as u64) as usize, genes);

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use crate::arbitrate::pro_rata;
 use crate::chem::{ChemError, Chemistry, Mu, ReactionId, SubstanceId};
+use crate::mind::{sanitize, think, value, Gene, Genome, Sense, READING_LIMIT};
 use crate::philox::{self, Stream};
 
 pub type SourceId = usize;
@@ -28,24 +29,29 @@ impl Store {
     }
 }
 
-/// The genes this slice supports. All are always expressed and read the constant `1.0`,
-/// so there are no minds yet: every gene fires every tick (spec §5.2).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Gene {
-    Take { s: SubstanceId, max: Mu, fee: Mu },
-    Drop { s: SubstanceId, max: Mu, fee: Mu },
-    React { reaction: ReactionId, rate: Mu },
-    /// `split_bp` is the child's share in basis points; `requires` is `(substance, amount)`.
-    Divide { split_bp: u32, requires: (SubstanceId, Mu), fee: Mu },
+/// An action gene's intent, formed in Set (spec §5.5, §7.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Act {
+    Take { s: SubstanceId, amount: Mu },
+    Drop { s: SubstanceId, amount: Mu },
+    Divide,
 }
 
-impl Gene {
-    fn fee(&self) -> Mu {
-        match *self {
-            Gene::Take { fee, .. } | Gene::Drop { fee, .. } | Gene::Divide { fee, .. } => fee,
-            Gene::React { .. } => 0,
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Intent {
+    pub gene: usize,
+    pub act: Act,
+    pub fee: Mu,
+    /// Cleared when the entity is dying or cannot pay the fee.
+    pub live: bool,
+}
+
+/// What an entity's mind decided in Set: intents in genome order, and each reaction
+/// gene's extent cap for Transform.
+#[derive(Debug, Clone, Default)]
+pub struct Plan {
+    pub intents: Vec<Intent>,
+    pub react_caps: Vec<Mu>,
 }
 
 #[derive(Debug, Clone)]
@@ -53,7 +59,8 @@ pub struct Entity {
     pub id: u64,
     pub cell: usize,
     pub store: Store,
-    pub genes: Vec<Gene>,
+    pub genome: Genome,
+    pub signals: Vec<f32>,
     /// Ticks completed.
     pub age: u64,
 }
@@ -76,6 +83,9 @@ pub struct Upkeep {
     pub vent: SinkId,
     pub base: Mu,
     pub per_gene: Mu,
+    pub per_signal: Mu,
+    pub per_signal_keep: Mu,
+    pub per_carried_u: Mu,
 }
 
 #[derive(Debug, Clone)]
@@ -148,6 +158,7 @@ pub struct World {
     pub remains: SinkId,
     pub max_age: u64,
     pub max_entities: usize,
+    pub mind_steps: u32,
     pub inventory_cap: Mu,
     pub seed: u64,
     pub tick: u64,
@@ -187,6 +198,7 @@ impl World {
             remains,
             max_age: u64::MAX,
             max_entities: usize::MAX,
+            mind_steps: 1,
             inventory_cap: 100 * crate::chem::U,
             seed: 0,
             tick: 0,
@@ -216,10 +228,16 @@ impl World {
         self.neighbours[b].push(a);
     }
 
-    /// Adds an entity with an empty inventory. It is part of the next tick's snapshot.
+    /// Adds an entity with an empty inventory and one module of expressed genes.
     pub fn spawn(&mut self, cell: usize, genes: Vec<Gene>) -> usize {
+        self.spawn_genome(cell, Genome::simple(genes))
+    }
+
+    /// Adds an entity with an empty inventory. Its signals start at `0.0`.
+    pub fn spawn_genome(&mut self, cell: usize, genome: Genome) -> usize {
         let caps = vec![self.inventory_cap; self.chem.substances.len()];
-        self.entities.push(Entity { id: self.next_id, cell, store: Store::new(caps), genes, age: 0 });
+        let signals = vec![0.0; genome.keep.len()];
+        self.entities.push(Entity { id: self.next_id, cell, store: Store::new(caps), genome, signals, age: 0 });
         self.next_id += 1;
         self.entities.len() - 1
     }
@@ -263,37 +281,30 @@ impl World {
         let n = self.entities.len();
 
         // ---- 1 Set ----
-        // No minds or field signals in this slice: every gene of every entity forms an intent.
-        let mut active: Vec<Vec<bool>> = self.entities.iter().map(|e| vec![true; e.genes.len()]).collect();
+        // Senses read the snapshot, minds run, action genes become intents (spec §7.1).
+        let mut plans: Vec<Plan> = (0..n).map(|i| self.set(i)).collect();
         let mut dying = vec![false; n];
 
         // ---- 2 Move ----
         // 2.1 Upkeep, before anything else.
         for (i, e) in self.entities.iter_mut().enumerate() {
-            let cost = self.upkeep.base + self.upkeep.per_gene * e.genes.len() as Mu;
-            if e.store.amounts[self.upkeep.pay] >= cost {
-                e.store.amounts[self.upkeep.pay] -= cost;
-                add_elements(&mut self.absorbed, &self.chem, self.upkeep.becomes, cost);
+            let cost = upkeep_cost(&self.upkeep, e);
+            if e.store.amounts[self.upkeep.pay] as u64 >= cost {
+                e.store.amounts[self.upkeep.pay] -= cost as Mu;
+                add_elements(&mut self.absorbed, &self.chem, self.upkeep.becomes, cost as Mu);
             } else {
                 dying[i] = true;
-                active[i].iter_mut().for_each(|a| *a = false);
+                plans[i].intents.iter_mut().for_each(|x| x.live = false);
             }
         }
         // 2.2 Attempt fees, in genome order.
-        for (i, e) in self.entities.iter_mut().enumerate() {
-            if dying[i] {
-                continue;
-            }
-            for (g, gene) in e.genes.iter().enumerate() {
-                let fee = gene.fee();
-                if fee == 0 {
-                    continue;
-                }
-                if e.store.amounts[self.upkeep.pay] >= fee {
-                    e.store.amounts[self.upkeep.pay] -= fee;
-                    add_elements(&mut self.absorbed, &self.chem, self.upkeep.becomes, fee);
+        for (e, plan) in self.entities.iter_mut().zip(&mut plans) {
+            for x in plan.intents.iter_mut().filter(|x| x.live && x.fee > 0) {
+                if e.store.amounts[self.upkeep.pay] >= x.fee {
+                    e.store.amounts[self.upkeep.pay] -= x.fee;
+                    add_elements(&mut self.absorbed, &self.chem, self.upkeep.becomes, x.fee);
                 } else {
-                    active[i][g] = false;
+                    x.live = false;
                 }
             }
         }
@@ -307,15 +318,12 @@ impl World {
                 });
             }
         };
-        for (i, e) in self.entities.iter().enumerate() {
-            for (g, gene) in e.genes.iter().enumerate() {
-                if !active[i][g] {
-                    continue;
-                }
-                match *gene {
-                    Gene::Take { s, max, .. } => request(End::Cell(e.cell), End::Entity(i), s, max, None),
-                    Gene::Drop { s, max, .. } => request(End::Entity(i), End::Cell(e.cell), s, max, None),
-                    _ => {}
+        for (i, (e, plan)) in self.entities.iter().zip(&plans).enumerate() {
+            for x in plan.intents.iter().filter(|x| x.live) {
+                match x.act {
+                    Act::Take { s, amount } => request(End::Cell(e.cell), End::Entity(i), s, amount, None),
+                    Act::Drop { s, amount } => request(End::Entity(i), End::Cell(e.cell), s, amount, None),
+                    Act::Divide => {}
                 }
             }
         }
@@ -351,10 +359,13 @@ impl World {
             if dying[i] {
                 continue;
             }
-            for gene in &e.genes {
-                if let Gene::React { reaction, rate } = *gene {
+            for g in 0..e.genome.slots.len() {
+                if !e.genome.active(g) {
+                    continue;
+                }
+                if let Gene::React { reaction, .. } = e.genome.slots[g].gene {
                     let r = &self.chem.reactions[reaction];
-                    let mut extent = rate;
+                    let mut extent = plans[i].react_caps[g];
                     for &(s, c) in &r.inputs {
                         extent = extent.min(e.store.amounts[s] / c);
                     }
@@ -420,9 +431,11 @@ impl World {
                 continue;
             }
             let e = &self.entities[i];
-            let Some(g) = e.genes.iter().position(|g| matches!(g, Gene::Divide { .. })) else { continue };
-            let Gene::Divide { split_bp, requires: (rs, ramount), .. } = e.genes[g] else { unreachable!() };
-            if !active[i][g] || e.store.amounts[rs] < ramount || living >= self.max_entities {
+            let Some(x) = plans[i].intents.iter().find(|x| x.act == Act::Divide) else { continue };
+            let Gene::Divide { split_bp, requires: (rs, ramount), .. } = e.genome.slots[x.gene].gene else {
+                unreachable!()
+            };
+            if !x.live || e.store.amounts[rs] < ramount || living >= self.max_entities {
                 continue;
             }
             let mut child = Store::new(e.store.caps.clone());
@@ -435,7 +448,9 @@ impl World {
             let id = self.next_id;
             self.next_id += 1;
             self.events.push(Event::Born { tick, parent: parent.id, child: id });
-            children.push(Entity { id, cell: parent.cell, store: child, genes: parent.genes.clone(), age: 0 });
+            let genome = parent.genome.clone();
+            let signals = vec![0.0; genome.keep.len()];
+            children.push(Entity { id, cell: parent.cell, store: child, genome, signals, age: 0 });
             living += 1;
         }
         // 4.3 Survivors age; newborns join at the end of the tick and first act next tick.
@@ -449,6 +464,55 @@ impl World {
 
         self.tick += 1;
         self.audit()
+    }
+
+    /// Set for one entity: senses read the snapshot, the mind runs `mind_steps` steps, and
+    /// active genes form intents and reaction caps from the resulting signals.
+    fn set(&mut self, i: usize) -> Plan {
+        let e = &self.entities[i];
+        let cell = &self.cells[e.cell];
+        // Readings are in units: amount × 0.001, as f32.
+        let readings: Vec<f32> = e.genome.slots.iter().map(|slot| match slot.gene {
+            Gene::Sense { sense: Sense::Inventory(s), .. } => e.store.amounts[s] as f32 * 0.001,
+            Gene::Sense { sense: Sense::Cell(s), .. } => cell.amounts[s] as f32 * 0.001,
+            _ => 0.0,
+        }).map(|r| sanitize(r, READING_LIMIT)).collect();
+        let e = &mut self.entities[i];
+        think(&e.genome, &mut e.signals, &readings, self.mind_steps);
+
+        let e = &self.entities[i];
+        let cell = &self.cells[e.cell];
+        let mut plan = Plan { intents: Vec::new(), react_caps: vec![0; e.genome.slots.len()] };
+        let mut divides = false;
+        for g in (0..e.genome.slots.len()).filter(|&g| e.genome.active(g)) {
+            match e.genome.slots[g].gene {
+                Gene::React { rate, speed, .. } => {
+                    plan.react_caps[g] = scale(value(&e.signals, speed), rate);
+                }
+                Gene::Take { s, max, fee, src, threshold } | Gene::Drop { s, max, fee, src, threshold } => {
+                    let o = value(&e.signals, src);
+                    // No target: a cell that cannot hold the substance. Dropped, no fee.
+                    if o > threshold && cell.caps[s] > 0 {
+                        let amount = scale(o, max);
+                        let act = if matches!(e.genome.slots[g].gene, Gene::Take { .. }) {
+                            Act::Take { s, amount }
+                        } else {
+                            Act::Drop { s, amount }
+                        };
+                        plan.intents.push(Intent { gene: g, act, fee, live: true });
+                    }
+                }
+                Gene::Divide { fee, src, threshold, .. } => {
+                    // Only the first firing divide gene counts; later ones pay nothing.
+                    if value(&e.signals, src) > threshold && !divides {
+                        divides = true;
+                        plan.intents.push(Intent { gene: g, act: Act::Divide, fee, live: true });
+                    }
+                }
+                Gene::Sense { .. } | Gene::Weigh { .. } | Gene::Product { .. } => {}
+            }
+        }
+        plan
     }
 
     /// Two-stage arbitration and commit (spec §7.2 step 3).
@@ -534,6 +598,24 @@ impl World {
             End::Source(_) | End::Sink(_) => unreachable!("not a store"),
         }
     }
+}
+
+/// `floor(clamp(o, 0, 1) × max)` µ, computed in f32 as a GPU would (spec §5.2, §5.5).
+fn scale(o: f32, max: Mu) -> Mu {
+    (o.clamp(0.0, 1.0) * max as f32).floor() as Mu
+}
+
+/// Upkeep for one entity (spec §3.3), in u64.
+fn upkeep_cost(u: &Upkeep, e: &Entity) -> u64 {
+    let g = &e.genome;
+    let in_use = g.signals_in_use();
+    let keep: u64 = in_use.iter().map(|&s| (u.per_signal_keep as f32 * g.keep[s]).ceil() as u64).sum();
+    let carried: u64 = e.store.amounts.iter().map(|&a| a as u64).sum::<u64>() / 1_000;
+    u.base as u64
+        + u.per_gene as u64 * g.active_genes() as u64
+        + u.per_signal as u64 * in_use.len() as u64
+        + keep
+        + u.per_carried_u as u64 * carried
 }
 
 fn apply_reaction(store: &mut Store, r: &crate::chem::Reaction, extent: Mu) {

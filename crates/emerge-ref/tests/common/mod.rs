@@ -41,7 +41,7 @@ pub fn dish(base: Mu, per_gene: Mu) -> (World, Dish) {
         .unwrap();
     let rot = c.reaction("rot", &[(body, 1)], &[(carbon, 1), (nitrate, 1)]).unwrap();
     let void = 0;
-    let upkeep = Upkeep { pay: energy, becomes: heat, vent: void, base, per_gene };
+    let upkeep = Upkeep { pay: energy, becomes: heat, vent: void, base, per_gene, per_signal: 0, per_signal_keep: 0, per_carried_u: 0 };
     let mut w = World::new(c, upkeep, vec![Sink { name: "void".into(), accepts: None }], void).unwrap();
     w.waste.push((heat, void));
     let sun = w.add_source("sun");

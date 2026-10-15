@@ -59,8 +59,8 @@ fn dying_entity_does_nothing_else() {
     let e = w.spawn(
         cell,
         vec![
-            Gene::Take { s: d.carbon, max: U, fee: 0 },
-            Gene::Divide { split_bp: 5_000, requires: (d.body, 0), fee: 0 },
+            Gene::take(d.carbon, U, 0),
+            Gene::divide(5_000, (d.body, 0), 0),
         ],
     );
     w.endow(End::Entity(e), d.energy, 19);
@@ -82,8 +82,8 @@ fn fees_are_paid_in_genome_order_and_unaffordable_intents_are_dropped() {
     let e = w.spawn(
         cell,
         vec![
-            Gene::Take { s: d.carbon, max: U, fee: 5 },
-            Gene::Take { s: d.nitrate, max: U, fee: 10 },
+            Gene::take(d.carbon, U, 5),
+            Gene::take(d.nitrate, U, 10),
         ],
     );
     w.endow(End::Entity(e), d.energy, 30); // 20 upkeep, 5 for the first fee, 5 left
@@ -102,7 +102,7 @@ fn takes_from_one_cell_are_shared_pro_rata_with_exact_remainders() {
     let cell = dish_cell(&mut w, &d);
     w.endow(End::Cell(cell), d.carbon, 1_000);
     for _ in 0..3 {
-        w.spawn(cell, vec![Gene::Take { s: d.carbon, max: 700, fee: 0 }]);
+        w.spawn(cell, vec![Gene::take(d.carbon, 700, 0)]);
     }
     w.step().unwrap();
     let got: Vec<_> = w.entities.iter().map(|e| e.store.amounts[d.carbon]).collect();
@@ -125,7 +125,7 @@ fn remainder_ties_do_not_favour_low_ids() {
         let cell = dish_cell(&mut w, &d);
         w.endow(End::Cell(cell), d.carbon, 1_000);
         for _ in 0..3 {
-            w.spawn(cell, vec![Gene::Take { s: d.carbon, max: 700, fee: 0 }]);
+            w.spawn(cell, vec![Gene::take(d.carbon, 700, 0)]);
         }
         w.step().unwrap();
         let i = w.entities.iter().position(|e| e.store.amounts[d.carbon] == 334).unwrap();
@@ -161,7 +161,7 @@ fn without_an_overflow_sink_the_excess_stays_at_its_origin() {
     let (mut w, d) = dish(0, 0);
     let cell = dish_cell(&mut w, &d);
     w.endow(End::Cell(cell), d.carbon, 5 * U);
-    let e = w.spawn(cell, vec![Gene::Take { s: d.carbon, max: 2 * U, fee: 0 }]);
+    let e = w.spawn(cell, vec![Gene::take(d.carbon, 2 * U, 0)]);
     w.endow(End::Entity(e), d.carbon, 99 * U);
     w.step().unwrap();
     assert_eq!(w.entities[0].store.amounts[d.carbon], 100 * U);
@@ -176,7 +176,7 @@ fn world_and_entity_transfers_share_one_arbitration() {
     let cell = dish_cell(&mut w, &d);
     w.endow(End::Cell(cell), d.light, 2_000 * U);
     w.laws.push(Law::Inflow { s: d.light, source: d.sun, amount: 2 * U, overflow: Some(d.void) });
-    w.spawn(cell, vec![Gene::Take { s: d.light, max: U, fee: 0 }]);
+    w.spawn(cell, vec![Gene::take(d.light, U, 0)]);
     w.step().unwrap();
     assert_eq!(w.cells[cell].amounts[d.light], 1_999 * U);
     let sun = &w.last_transfers[1];
@@ -202,7 +202,7 @@ fn a_seed_shares_a_cell_with_diffusion() {
     }
     w.endow(End::Cell(centre), d.body, 200);
     w.laws.push(Law::Diffuse { substances: vec![d.body], rate_bp: 300 });
-    w.spawn(centre, vec![Gene::Take { s: d.body, max: U, fee: 0 }]);
+    w.spawn(centre, vec![Gene::take(d.body, U, 0)]);
     w.step().unwrap();
     assert_eq!(w.entities[0].store.amounts[d.body], 200);
     let to_neighbours: u32 = (1..5).map(|c| w.cells[c].amounts[d.body]).sum();
@@ -219,8 +219,8 @@ fn reactions_chain_in_genome_order_within_a_tick() {
     let e = w.spawn(
         cell,
         vec![
-            Gene::React { reaction: d.photosynthesis, rate: U },
-            Gene::React { reaction: d.respiration, rate: U },
+            Gene::react(d.photosynthesis, U),
+            Gene::react(d.respiration, U),
         ],
     );
     w.endow(End::Entity(e), d.light, U);
@@ -237,8 +237,8 @@ fn reversed_order_delays_the_chain_by_a_tick() {
     let e = w.spawn(
         cell,
         vec![
-            Gene::React { reaction: d.respiration, rate: U },
-            Gene::React { reaction: d.photosynthesis, rate: U },
+            Gene::react(d.respiration, U),
+            Gene::react(d.photosynthesis, U),
         ],
     );
     w.endow(End::Entity(e), d.light, U);
@@ -280,8 +280,8 @@ fn division_checks_the_inventory_after_transform() {
     let cell = dish_cell(&mut w, &d);
     w.endow(End::Cell(cell), d.body, 100 * U);
     let genes = vec![
-        Gene::Take { s: d.body, max: U, fee: 0 },
-        Gene::Divide { split_bp: 5_000, requires: (d.body, 10 * U), fee: 0 },
+        Gene::take(d.body, U, 0),
+        Gene::divide(5_000, (d.body, 10 * U), 0),
     ];
     let e = w.spawn(cell, genes);
     w.endow(End::Entity(e), d.body, 9_500);
@@ -302,8 +302,8 @@ fn newborns_first_act_in_the_next_tick() {
     let e = w.spawn(
         cell,
         vec![
-            Gene::Take { s: d.body, max: U, fee: 0 },
-            Gene::Divide { split_bp: 5_000, requires: (d.body, 20 * U), fee: 0 },
+            Gene::take(d.body, U, 0),
+            Gene::divide(5_000, (d.body, 20 * U), 0),
         ],
     );
     w.endow(End::Entity(e), d.body, 19 * U);
@@ -322,7 +322,7 @@ fn newborns_first_act_in_the_next_tick() {
 fn division_is_blocked_at_max_entities_and_by_an_unpaid_fee() {
     let (mut w, d) = dish(0, 0);
     let cell = dish_cell(&mut w, &d);
-    let divide = |fee| vec![Gene::Divide { split_bp: 5_000, requires: (d.body, U), fee }];
+    let divide = |fee| vec![Gene::divide(5_000, (d.body, U), fee)];
     let a = w.spawn(cell, divide(0));
     let b = w.spawn(cell, divide(10));
     w.endow(End::Entity(a), d.body, 2 * U);
@@ -342,7 +342,7 @@ fn disposal_comes_before_division_and_fills_the_cell_first() {
     let (mut w, d) = dish(0, 0);
     let cell = dish_cell(&mut w, &d);
     w.endow(End::Cell(cell), d.body, 1_999 * U);
-    let e = w.spawn(cell, vec![Gene::Divide { split_bp: 5_000, requires: (d.body, U), fee: 0 }]);
+    let e = w.spawn(cell, vec![Gene::divide(5_000, (d.body, U), 0)]);
     w.endow(End::Entity(e), d.body, 3 * U);
     w.endow(End::Entity(e), d.energy, 2 * U);
     w.max_age = 1;
