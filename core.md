@@ -2,7 +2,7 @@
 
 **Core specification — draft v0.1**
 
-Status: first draft. This document defines the **core** of the language: what a program is made of and how it runs, independent of any application. Evolving creatures (`spec-v0.7.md`) become one application written in this core, using a standard library. Syntax here is provisional and will be merged into `language.md`.
+Status: first draft. This document defines the **core** of the language: what a program is made of and how it runs, independent of any application. Evolving creatures (`spec-v0.7.1.md`) become one application written in this core, using a standard library. Syntax here is provisional and will be merged into `language.md`.
 
 Conventions:
 - **MUST** / **MUST NOT** mark normative requirements.
@@ -100,7 +100,7 @@ A generator is ordinary core code. The engine recognises the regular structure a
 - **Free values written by several rules** in one phase are combined by the slot's declared **combine** operator: `sum` (default), `max`, `min` or `any` (for `bool`). The order of combination is fixed (§6.3), so results are deterministic.
 - **Dynamic free values.** A node kind with owned rules has a growable table of private free values (its **signals**), which its owned rules create and use (§5.3).
 
-Units and the numeric contract (saturating integers, defined rounding, sanitised floats) carry over from spec v0.7 §3.5 and §10.1.
+Units and the numeric contract (saturating integers, defined rounding, sanitised floats) carry over from spec v0.7.1 §3.5 and §10.1.
 
 ---
 
@@ -219,7 +219,7 @@ rules Seed for Critter {
 
 ### 5.3 Signals
 
-Signals are the node's private, growable table of free values that its owned rules read and write. Each has an evolvable **keep** factor (how much survives each step), and is private to a module or part of its interface depending on which instances use it. These are the internal signals of spec v0.7 §5.1, now a core feature of any node kind that owns rules.
+Signals are the node's private, growable table of free values that its owned rules read and write. Each has an evolvable **keep** factor (how much survives each step), and is private to a module or part of its interface depending on which instances use it. These are the internal signals of spec v0.7.1 §5.1, now a core feature of any node kind that owns rules.
 
 ### 5.4 Built-in operations on rules
 
@@ -231,7 +231,7 @@ Signals are the node's private, growable table of free values that its owned rul
 | `mutate(rules, M)` | The node's rules, changed by mutation settings `M` | inside the above, or as a rule effect on the node's own rules, or by a law on any node |
 | `copy(rules)` | The node's rules, unchanged | as `mutate` |
 
-**Mutation settings** are a declared value listing operator rates. The operators are built in: point changes to parameters and choices, rewiring of inputs and outputs, expression flips, and growth (duplicate, insert, delete instances; duplicate, delete, split, merge modules), as in spec v0.7 §8.1. New material starts unexpressed.
+**Mutation settings** are a declared value listing operator rates. The operators are built in: point changes to parameters and choices, rewiring of inputs and outputs, expression flips, and growth (duplicate, insert, delete instances; duplicate, delete, split, merge modules), as in spec v0.7.1 §8.1. New material starts unexpressed.
 
 ```
 mutation Drift {
@@ -254,7 +254,7 @@ The compiler guarantees that mutation only ever produces valid rule sets: instan
 The universe advances in lockstep **ticks**. Every rule, law or owned, reads the snapshot and contributes effects. Effects are applied in four phases:
 
 1. **Set:** all free-value writes are combined (§3) and applied.
-2. **Move:** all move requests, from laws and owned rules alike, are arbitrated together in two stages (by origin, then by destination capacity) and applied, as in spec v0.7 §7.2.
+2. **Move:** all move requests, from laws and owned rules alike, are arbitrated together in two stages (by origin, then by destination capacity) and applied, as in spec v0.7.1 §7.2.
 3. **Transform:** in each node and edge, transforms run in a fixed order (laws in declaration order, then owned instances in rule-set order), each limited by its inputs and by output capacity.
 4. **Restructure and rewrite:** graph changes and rule rewrites are applied, with conflicts settled as in §6.3. New nodes join the graph at the end of the tick.
 
@@ -296,7 +296,7 @@ For every base quantity, after every tick:
 ```
 
 - **Boundaries.** Sources emit and sinks absorb. Only laws may use them.
-- **Transforms balance.** A transform MUST conserve every base quantity, and is put into canonical form before use (spec v0.7 §4.4).
+- **Transforms balance.** A transform MUST conserve every base quantity, and is put into canonical form before use (spec v0.7.1 §4.4).
 - **Deletion needs a route.** When a node or edge is deleted, its conserved contents MUST go somewhere: a law-declared route (`on delete Critter { move all to: at; }`) or a sink. The compiler checks that every conserved slot of every deletable kind has a route.
 - **Splitting divides, never copies.** A `split` divides conserved contents between parent and child. `copying` gives the child nothing; anything it starts with must be moved to it.
 
@@ -309,7 +309,7 @@ measure potential = 10 * light + 8 * energy + 9 * sugar + 5 * body;
 never increases potential by less than 1;
 ```
 
-This is the dissipation law of spec v0.7 §3.2, now a general mechanism. A world may declare several measures or none.
+This is the dissipation law of spec v0.7.1 §3.2, now a general mechanism. A world may declare several measures or none.
 
 ### 7.3 Declared restrictions
 
@@ -325,7 +325,7 @@ A world that declares no edge values gets no edge values; a world that declares 
 
 ## 8. What moves out of the core
 
-| Today (spec v0.7) | Becomes |
+| Today (spec v0.7.1) | Becomes |
 | :-- | :-- |
 | Fields | Standard library: a grid of nodes with values |
 | Continuous 2D space and positions | Standard library: node values for position, plus "nearby" edges maintained by a law |
@@ -341,7 +341,7 @@ A world that declares no edge values gets no edge values; a world that declares 
 ## 9. Open questions
 
 - **Performance of general graphs.** Arbitrary rewiring and creation are hard to run fast on a GPU. The engine will need fast paths for regular graphs and for kinds whose structure rarely changes. The 100k-entity target should be re-examined once a first engine exists.
-- **Read depth.** How far along edges a rule may read before matching becomes too costly, and whether laws may match general **subgraph patterns** (for example "two Critters joined by a bond, both on the same Cell") or only nodes and edges with a fixed read depth.
+- **Read depth.** How far along edges a rule may read before matching becomes too costly, and whether laws may match general **subgraph patterns** (for example "two Critters joined by a bond, both on the same Cell") or only nodes and edges with a fixed read depth. Kappa, a rule-based language for rewriting site graphs, is the closest prior art for pattern-matching laws and for how they can be run efficiently.
 - **Moves between distant nodes.** Moves currently follow one edge. Multi-edge moves (through a pipe of several edges) may be needed, or may be better built from repeated single moves.
 - **Layout for views.** A general graph has no positions. Views need either position values on nodes or a layout algorithm. Grids and spatial worlds have natural positions.
 - **Author-defined templates and the GPU.** Templates compile to code, so a universe with many templates produces many code paths. Binning by template sequence may be enough.
