@@ -45,6 +45,8 @@ pub struct Space {
     pub grid_w: usize,
     pub grid_h: usize,
     pub child_offset: f32,
+    /// `max_interaction_radius`: how far contact senses, `give` and `steal` reach.
+    pub radius: f32,
 }
 
 impl Space {
@@ -67,6 +69,14 @@ impl Space {
     }
 
     /// The neighbour of cell `c` at offset `(dx, dy)`, wrapping or staying at the edge.
+    /// The cell under the point `dist` from `p` along `heading` turned `angle_deg` left.
+    fn cell_ahead(&self, p: [f32; 2], heading: [f32; 2], angle_deg: f32, dist: f32) -> usize {
+        let (s, c) = angle_deg.to_radians().sin_cos();
+        let [hx, hy] = heading;
+        let d = [hx * c - hy * s, hx * s + hy * c];
+        self.cell_at(self.place([p[0] + d[0] * dist, p[1] + d[1] * dist]))
+    }
+
     fn offset(&self, c: usize, dx: isize, dy: isize) -> usize {
         let (gw, gh) = (self.grid_w as isize, self.grid_h as isize);
         let (x, y) = ((c % self.grid_w) as isize + dx, (c / self.grid_w) as isize + dy);
@@ -86,6 +96,9 @@ pub enum Act {
     Turn { angle_deg: f32 },
     Take { s: SubstanceId, amount: Mu },
     Drop { s: SubstanceId, amount: Mu },
+    /// To or from the entity at this index (the nearest in range, in the snapshot).
+    Give { s: SubstanceId, amount: Mu, other: usize },
+    Steal { s: SubstanceId, amount: Mu, other: usize },
     Divide,
 }
 
@@ -203,6 +216,8 @@ struct Req {
     /// `u16::MAX` for none.
     overflow: u16,
     requested: Mu,
+    /// From a `steal` intent, for `World::stolen`.
+    steal: bool,
 }
 
 const TAG_SHIFT: u32 = 30;
@@ -268,6 +283,8 @@ pub struct World {
     pub deaths: u64,
     /// Cumulative extent of each reaction run by entity genes.
     pub entity_extent: Vec<u64>,
+    /// Cumulative µ delivered by `steal`, over all substances.
+    pub stolen: u64,
     /// The transfers of the last tick, in request order, if `record_transfers`.
     pub record_transfers: bool,
     pub last_transfers: Vec<Transfer>,
@@ -283,6 +300,10 @@ pub struct World {
     stage1: Vec<Mu>,
     stage2: Vec<Mu>,
     over: Vec<(usize, u32)>,
+    /// The snapshot's positions and IDs, binned for contact (spec §5.5).
+    near: crate::near::Index,
+    snap_pos: Vec<[f32; 2]>,
+    snap_ids: Vec<u64>,
 }
 
 impl World {
@@ -326,6 +347,7 @@ impl World {
             births: 0,
             deaths: 0,
             entity_extent: vec![0; reactions],
+            stolen: 0,
             record_transfers: true,
             last_transfers: Vec::new(),
             mutation: false,
@@ -336,6 +358,9 @@ impl World {
             stage1: Vec::new(),
             stage2: Vec::new(),
             over: Vec::new(),
+            near: crate::near::Index::default(),
+            snap_pos: Vec::new(),
+            snap_ids: Vec::new(),
         })
     }
 
@@ -455,6 +480,13 @@ impl World {
     /// Runs one tick without auditing, for long runs that audit every `K` ticks.
     pub fn run_tick(&mut self) {
         let n = self.entities.len();
+        if let Some(space) = &self.space {
+            self.snap_pos.clear();
+            self.snap_pos.extend(self.entities.iter().map(|e| e.pos));
+            self.snap_ids.clear();
+            self.snap_ids.extend(self.entities.iter().map(|e| e.id));
+            self.near = crate::near::Index::build(space, self.snap_pos.iter().copied());
+        }
 
         // ---- 1 Set ----
         // Senses read the snapshot, minds run, action genes become intents (spec §7.1).
@@ -487,18 +519,21 @@ impl World {
         // 2.3 Transfers: entity intents and transfer rules, arbitrated together.
         let mut requests = std::mem::take(&mut self.requests);
         requests.clear();
-        let mut request = |origin: End, dest: End, s: SubstanceId, amount: Mu, overflow: Option<SinkId>| {
+        let mut request = |origin: End, dest: End, s: SubstanceId, amount: Mu, overflow: Option<SinkId>, steal: bool| {
             if amount > 0 {
                 let overflow = overflow.map_or(u16::MAX, |o| o as u16);
-                requests.push(Req { origin: pack(origin), dest: pack(dest), s: s as u16, overflow, requested: amount });
+                requests.push(Req { origin: pack(origin), dest: pack(dest), s: s as u16, overflow, requested: amount, steal });
             }
         };
         for (i, (e, plan)) in self.entities.iter().zip(&plans).enumerate() {
             for x in plan.intents.iter().filter(|x| x.live) {
                 match x.act {
-                    Act::Take { s, amount } => request(End::Cell(e.cell), End::Entity(i), s, amount, None),
-                    Act::Drop { s, amount } => request(End::Entity(i), End::Cell(e.cell), s, amount, None),
-                    Act::Move { .. } | Act::Turn { .. } | Act::Divide => {}
+                    Act::Take { s, amount } => request(End::Cell(e.cell), End::Entity(i), s, amount, None, false),
+                    Act::Drop { s, amount } => request(End::Entity(i), End::Cell(e.cell), s, amount, None, false),
+                    // A dying entity takes part in no transfer, as origin or destination.
+                    Act::Give { s, amount, other } if !dying[other] => request(End::Entity(i), End::Entity(other), s, amount, None, false),
+                    Act::Steal { s, amount, other } if !dying[other] => request(End::Entity(other), End::Entity(i), s, amount, None, true),
+                    Act::Give { .. } | Act::Steal { .. } | Act::Move { .. } | Act::Turn { .. } | Act::Divide => {}
                 }
             }
         }
@@ -506,7 +541,7 @@ impl World {
             for c in 0..self.cells.len() {
                 match law {
                     Law::Inflow { s, source, amount, overflow } => {
-                        request(End::Source(*source), End::Cell(c), *s, *amount, *overflow)
+                        request(End::Source(*source), End::Cell(c), *s, *amount, *overflow, false)
                     }
                     Law::Diffuse { substances, rate_bp } => {
                         let nbs = &self.neighbours[c];
@@ -517,7 +552,7 @@ impl World {
                             let offer = (self.cells[c].amounts[s] as u64 * *rate_bp as u64 / 10_000) as Mu;
                             let each = offer / nbs.len() as Mu;
                             for &nb in nbs {
-                                request(End::Cell(c), End::Cell(nb), s, each, None);
+                                request(End::Cell(c), End::Cell(nb), s, each, None, false);
                             }
                         }
                     }
@@ -700,11 +735,19 @@ impl World {
     /// Set for one entity: senses read the snapshot, the mind runs `mind_steps` steps, and
     /// active genes form intents and reaction caps from the resulting signals.
     fn set(&mut self, i: usize) -> Plan {
+        // Others in range, nearest first, if an active gene needs them.
+        let mut near = Vec::new();
+        let needs = |g: &Gene| matches!(g, Gene::Sense { sense: Sense::Neighbour { .. }, .. } | Gene::Give { .. } | Gene::Steal { .. });
+        let e = &self.entities[i];
+        if let Some(space) = &self.space {
+            if (0..e.genome.slots.len()).any(|g| e.genome.active(g) && needs(&e.genome.slots[g].gene)) {
+                self.near.within(space, &self.snap_ids, &self.snap_pos, i, space.radius, &mut near);
+            }
+        }
         let readings: Vec<[f32; 2]> = {
-            let e = &self.entities[i];
-            e.genome.slots.iter().map(|slot| match slot.gene {
-                Gene::Sense { sense, .. } => {
-                    let [a, b] = self.read(e, sense);
+            e.genome.slots.iter().enumerate().map(|(g, slot)| match slot.gene {
+                Gene::Sense { sense, .. } if e.genome.active(g) => {
+                    let [a, b] = self.read(i, sense, &near);
                     [sanitize(a, READING_LIMIT), sanitize(b, READING_LIMIT)]
                 }
                 _ => [0.0, 0.0],
@@ -753,6 +796,19 @@ impl World {
                         plan.intents.push(Intent { gene: g, act, fee, live: true });
                     }
                 }
+                Gene::Give { s, max, fee, src, threshold } | Gene::Steal { s, max, fee, src, threshold } => {
+                    let o = value(&e.signals, src);
+                    // No target: no other entity in range. Dropped, no fee.
+                    if let (true, Some(&(_, _, other))) = (o > threshold, near.first()) {
+                        let amount = scale(o, max);
+                        let act = if matches!(e.genome.slots[g].gene, Gene::Give { .. }) {
+                            Act::Give { s, amount, other }
+                        } else {
+                            Act::Steal { s, amount, other }
+                        };
+                        plan.intents.push(Intent { gene: g, act, fee, live: true });
+                    }
+                }
                 Gene::Divide { fee, src, threshold, .. } => {
                     // Only the first firing divide gene counts; later ones pay nothing.
                     if value(&e.signals, src) > threshold && !divides {
@@ -767,9 +823,26 @@ impl World {
     }
 
     /// A sense reading from the snapshot. Amounts are in units: `f32(amount) × 0.001`.
-    fn read(&self, e: &Entity, sense: Sense) -> [f32; 2] {
+    /// `near` lists the others in range, nearest first, if a gene needs them.
+    fn read(&self, i: usize, sense: Sense, near: &[crate::near::Near]) -> [f32; 2] {
         let units = |amount: Mu| amount as f32 * 0.001;
+        let e = &self.entities[i];
         match sense {
+            Sense::Neighbour { s, rank } => [near.get(rank as usize).map_or(0.0, |&(_, _, j)| units(self.entities[j].store.amounts[s])), 0.0],
+            Sense::Crowd { radius } => {
+                let Some(space) = &self.space else { return [0.0, 0.0] };
+                let mut found = Vec::new();
+                self.near.within(space, &self.snap_ids, &self.snap_pos, i, radius, &mut found);
+                [found.len() as f32, 0.0]
+            }
+            Sense::Probe { s, angle_deg, dist } => {
+                let Some(space) = &self.space else { return [0.0, 0.0] };
+                [units(self.cells[space.cell_ahead(e.pos, e.heading, angle_deg, dist)].amounts[s]), 0.0]
+            }
+            Sense::Clock { period } => {
+                let phase = (self.tick % period as u64) as f32 / period as f32;
+                [(std::f32::consts::TAU * phase).sin(), 0.0]
+            }
             Sense::Inventory(s) => [units(e.store.amounts[s]), 0.0],
             Sense::Cell(s) => [units(self.cells[e.cell].amounts[s]), 0.0],
             Sense::Gradient(s) => {
@@ -893,6 +966,9 @@ impl World {
             }
             if overflowed > 0 {
                 add_elements(&mut self.absorbed, &self.chem, s, overflowed);
+            }
+            if r.steal {
+                self.stolen += delivered as u64;
             }
             if self.record_transfers {
                 self.last_transfers.push(Transfer {

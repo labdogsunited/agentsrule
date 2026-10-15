@@ -13,7 +13,9 @@
 //! arbitration of entity and world transfers together, with Philox tie-breaking, overflow
 //! sinks and diffusion; entity reactions in genome order; world reactions after transfers;
 //! waste venting; disposal before division; newborns acting next tick; continuous 2D space
-//! with a grid of cells, `move`, `turn`, the `gradient` sense and child placement; variation at
+//! with a grid of cells, `move`, `turn`, the `gradient`, `probe` and `clock` senses and child
+//! placement; contact within the interaction radius (`crowd` and `neighbour` senses, `give`
+//! and `steal`); variation at
 //! division (point, wiring and growth mutations) within the world's menus, the generated
 //! reaction space and each lineage's profile.
 //!
@@ -26,6 +28,7 @@ pub mod chem;
 pub mod compile;
 pub mod mind;
 pub mod mutate;
+pub mod near;
 pub mod philox;
 pub mod world;
 

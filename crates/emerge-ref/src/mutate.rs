@@ -53,6 +53,13 @@ pub struct Menus {
     pub field: Vec<SubstanceId>,
     pub inventory: bool,
     pub gradient: bool,
+    /// `probe`: angle and distance ranges, over the field's substances.
+    pub probe: Option<((f32, f32), (f32, f32))>,
+    /// `crowd`: radius range. `neighbour`: rank range. Both need an interaction radius.
+    pub crowd: Option<(f32, f32)>,
+    pub neighbour: Option<(f32, f32)>,
+    /// `clock`: period range.
+    pub clock: Option<(f32, f32)>,
     /// `weigh`: bias range, curves, input counts and weight range.
     pub weigh: Option<WeighMenu>,
     pub product: bool,
@@ -61,6 +68,8 @@ pub struct Menus {
     /// `take` and `drop` ranges are amounts, stored as `f32` µ.
     pub take: Option<ActionMenu>,
     pub drop: Option<ActionMenu>,
+    pub give: Option<ActionMenu>,
+    pub steal: Option<ActionMenu>,
     pub divide: Option<(ActionMenu, (SubstanceId, Mu))>,
     /// The reaction space in mutation order, with each reaction's maximum gene rate.
     pub reactions: Vec<(ReactionId, Mu)>,
@@ -167,6 +176,8 @@ fn signals_mut(g: &mut Gene) -> Vec<&mut usize> {
         | Gene::Turn { src: i, .. }
         | Gene::Take { src: i, .. }
         | Gene::Drop { src: i, .. }
+        | Gene::Give { src: i, .. }
+        | Gene::Steal { src: i, .. }
         | Gene::Divide { src: i, .. } => src(i).into_iter().collect(),
     }
 }
@@ -209,6 +220,26 @@ fn point(d: &mut Draws, g: &mut Gene, menus: &Menus, sigma: f32) {
         Gene::Sense { sense, .. } => match sense {
             Sense::Inventory(s) | Sense::Cell(s) => *s = pick(d, &menus.substances).unwrap_or(*s),
             Sense::Gradient(s) => *s = pick(d, &menus.field).unwrap_or(*s),
+            Sense::Probe { s, angle_deg, dist } => match (&menus.probe, d.below(3)) {
+                (_, 0) => *s = pick(d, &menus.field).unwrap_or(*s),
+                (Some((a, _)), 1) => *angle_deg = perturb(d, *angle_deg, *a, sigma),
+                (Some((_, r)), _) => *dist = perturb(d, *dist, *r, sigma),
+                (None, _) => {}
+            },
+            Sense::Crowd { radius } => {
+                if let Some(r) = menus.crowd {
+                    *radius = perturb(d, *radius, r, sigma);
+                }
+            }
+            Sense::Neighbour { s, rank } => match (menus.neighbour, d.chance(0.5)) {
+                (Some(r), true) => *rank = perturb(d, *rank as f32, r, sigma).round() as u32,
+                _ => *s = pick(d, &menus.substances).unwrap_or(*s),
+            },
+            Sense::Clock { period } => {
+                if let Some(r) = menus.clock {
+                    *period = perturb(d, *period as f32, r, sigma).round().max(1.0) as u32;
+                }
+            }
         },
         Gene::Weigh { bias, curve, inputs, .. } => {
             let Some(m) = &menus.weigh else { return };
@@ -236,6 +267,8 @@ fn point(d: &mut Draws, g: &mut Gene, menus: &Menus, sigma: f32) {
         },
         Gene::Take { s, max, threshold: t, .. } => substance_action(d, menus, &menus.take, s, max, t, sigma),
         Gene::Drop { s, max, threshold: t, .. } => substance_action(d, menus, &menus.drop, s, max, t, sigma),
+        Gene::Give { s, max, threshold: t, .. } => substance_action(d, menus, &menus.give, s, max, t, sigma),
+        Gene::Steal { s, max, threshold: t, .. } => substance_action(d, menus, &menus.steal, s, max, t, sigma),
         Gene::Divide { split_bp, threshold: t, .. } => match (&menus.divide, d.chance(0.5)) {
             (Some((m, _)), true) => {
                 let split = perturb(d, *split_bp as f32 / 10_000.0, m.range, sigma);
@@ -279,13 +312,27 @@ fn random_gene(d: &mut Draws, m: &mut Modules, menus: &Menus, cap: &Capacity) ->
     if !menus.reactions.is_empty() {
         kinds.push(4);
     }
-    for (k, on) in [(5, menus.moves.is_some()), (6, menus.turn.is_some()), (7, menus.take.is_some()), (8, menus.drop.is_some()), (9, menus.divide.is_some())] {
+    for (k, on) in [
+        (5, menus.moves.is_some()),
+        (6, menus.turn.is_some()),
+        (7, menus.take.is_some()),
+        (8, menus.drop.is_some()),
+        (9, menus.divide.is_some()),
+        (10, menus.probe.is_some() && !menus.field.is_empty()),
+        (11, menus.crowd.is_some()),
+        (12, menus.neighbour.is_some()),
+        (13, menus.clock.is_some()),
+        (14, menus.give.is_some()),
+        (15, menus.steal.is_some()),
+    ] {
         if on {
             kinds.push(k);
         }
     }
+    let whole = |d: &mut Draws, (lo, hi): (f32, f32)| lo.ceil() as u32 + d.below((hi.floor() - lo.ceil()) as usize + 1) as u32;
     let existing = m.keep.len();
-    Some(match pick(d, &kinds)? {
+    let k = pick(d, &kinds)?;
+    Some(match k {
         0 => {
             let s = pick(d, &menus.substances)?;
             Gene::Sense { sense: Sense::Inventory(s), out: m.fresh(cap)?, out2: None }
@@ -327,10 +374,32 @@ fn random_gene(d: &mut Draws, m: &mut Modules, menus: &Menus, cap: &Capacity) ->
             let s = pick(d, &menus.substances)?;
             Gene::Drop { s, max: uniform(d, a.range).round() as Mu, fee: a.fee, src: ONE, threshold: 0.0 }
         }
-        _ => {
+        9 => {
             let (a, requires) = menus.divide.clone()?;
             let split_bp = (uniform(d, a.range) * 10_000.0).round() as u32;
             Gene::Divide { split_bp, requires, fee: a.fee, src: ONE, threshold: 0.0 }
+        }
+        10 => {
+            let (angle, dist) = menus.probe?;
+            let s = pick(d, &menus.field)?;
+            Gene::Sense { sense: Sense::Probe { s, angle_deg: uniform(d, angle), dist: uniform(d, dist) }, out: m.fresh(cap)?, out2: None }
+        }
+        11 => Gene::Sense { sense: Sense::Crowd { radius: uniform(d, menus.crowd?) }, out: m.fresh(cap)?, out2: None },
+        12 => {
+            let rank = whole(d, menus.neighbour?);
+            let s = pick(d, &menus.substances)?;
+            Gene::Sense { sense: Sense::Neighbour { s, rank }, out: m.fresh(cap)?, out2: None }
+        }
+        13 => Gene::Sense { sense: Sense::Clock { period: whole(d, menus.clock?).max(1) }, out: m.fresh(cap)?, out2: None },
+        _ => {
+            let a = if k == 14 { menus.give.clone()? } else { menus.steal.clone()? };
+            let s = pick(d, &menus.substances)?;
+            let max = uniform(d, a.range).round() as Mu;
+            if k == 14 {
+                Gene::Give { s, max, fee: a.fee, src: ONE, threshold: 0.0 }
+            } else {
+                Gene::Steal { s, max, fee: a.fee, src: ONE, threshold: 0.0 }
+            }
         }
     })
 }
@@ -413,6 +482,8 @@ pub fn mutate(parent: &Genome, rates: &Rates, cap: &Capacity, menus: &Menus, d: 
                     | Gene::Turn { src, .. }
                     | Gene::Take { src, .. }
                     | Gene::Drop { src, .. }
+                    | Gene::Give { src, .. }
+                    | Gene::Steal { src, .. }
                     | Gene::Divide { src, .. } => {
                         let to = d.below(n + 1);
                         *src = if to == n { ONE } else { Input::Signal(to) };
@@ -543,6 +614,16 @@ pub fn validate(g: &Genome, cap: &Capacity, menus: &Menus) -> Result<(), String>
         let ok = match &slot.gene {
             Gene::Sense { sense: Sense::Inventory(s) | Sense::Cell(s), .. } => menus.inventory && menus.substances.contains(s),
             Gene::Sense { sense: Sense::Gradient(s), out2, .. } => menus.gradient && menus.field.contains(s) && out2.is_some(),
+            Gene::Sense { sense: Sense::Probe { s, angle_deg, dist }, out2, .. } => {
+                menus.probe.is_some_and(|(a, r)| within(*angle_deg, a) && within(*dist, r)) && menus.field.contains(s) && out2.is_none()
+            }
+            Gene::Sense { sense: Sense::Crowd { radius }, out2, .. } => menus.crowd.is_some_and(|r| within(*radius, r)) && out2.is_none(),
+            Gene::Sense { sense: Sense::Neighbour { s, rank }, out2, .. } => {
+                menus.neighbour.is_some_and(|r| within(*rank as f32, r)) && menus.substances.contains(s) && out2.is_none()
+            }
+            Gene::Sense { sense: Sense::Clock { period }, out2, .. } => {
+                menus.clock.is_some_and(|r| within(*period as f32, r)) && *period >= 1 && out2.is_none()
+            }
             Gene::Weigh { bias, curve, inputs, .. } => menus.weigh.as_ref().is_some_and(|w| {
                 within(*bias, w.bias)
                     && w.curves.contains(curve)
@@ -558,6 +639,12 @@ pub fn validate(g: &Genome, cap: &Capacity, menus: &Menus) -> Result<(), String>
             }
             Gene::Drop { s, max, threshold, .. } => {
                 menus.drop.as_ref().is_some_and(|a| within(*max as f32, a.range)) && menus.substances.contains(s) && t_ok(*threshold)
+            }
+            Gene::Give { s, max, threshold, .. } => {
+                menus.give.as_ref().is_some_and(|a| within(*max as f32, a.range)) && menus.substances.contains(s) && t_ok(*threshold)
+            }
+            Gene::Steal { s, max, threshold, .. } => {
+                menus.steal.as_ref().is_some_and(|a| within(*max as f32, a.range)) && menus.substances.contains(s) && t_ok(*threshold)
             }
             Gene::Divide { split_bp, threshold, .. } => {
                 menus.divide.as_ref().is_some_and(|(a, _)| within(*split_bp as f32 / 10_000.0, a.range)) && t_ok(*threshold)

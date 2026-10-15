@@ -10,7 +10,7 @@ use emerge_ref::{End, Gene, Genome, Input, Sense, World, ONE, U};
 /// An 8 × 8 wrapping space with a 4 × 4 grid: cells are 2 × 2, as in Dish.
 fn small(w: &mut World) {
     let caps = vec![2_000 * U; w.chem.substances.len()];
-    w.grid(Space { w: 8.0, h: 8.0, wrap: true, grid_w: 4, grid_h: 4, child_offset: 0.5 }, caps);
+    w.grid(Space { w: 8.0, h: 8.0, wrap: true, grid_w: 4, grid_h: 4, child_offset: 0.5, radius: 2.0 }, caps);
 }
 
 fn mover(src: Input) -> Gene {

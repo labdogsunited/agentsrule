@@ -17,7 +17,7 @@ pub enum Input {
 /// The default source: genes that read nothing read `1.0` (spec §5.2).
 pub const ONE: Input = Input::Const(1.0);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Sense {
     /// `inventory(s)`: the entity's own amount, in units.
     Inventory(SubstanceId),
@@ -26,6 +26,16 @@ pub enum Sense {
     /// `gradient(q: cells.s)`: the field's gradient in the entity's own frame, in units per
     /// unit distance. The first output is along the heading, the second to the left.
     Gradient(SubstanceId),
+    /// `probe(q: cells.s, angle_deg, dist)`: the amount in the cell under the point `dist`
+    /// ahead of the entity, turned `angle_deg` to the left of its heading, in units.
+    Probe { s: SubstanceId, angle_deg: f32, dist: f32 },
+    /// `crowd(radius)`: how many other entities are within `radius`.
+    Crowd { radius: f32 },
+    /// `neighbour(s, rank)`: the amount of `s` carried by the `rank`-th nearest other
+    /// entity within the interaction radius (0 is the nearest), in units; 0 if none.
+    Neighbour { s: SubstanceId, rank: u32 },
+    /// `clock(period)`: `sin(2π × (tick mod period) / period)`.
+    Clock { period: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,6 +76,10 @@ pub enum Gene {
     Turn { angle_deg: f32, fee: Mu, src: Input, threshold: f32 },
     Take { s: SubstanceId, max: Mu, fee: Mu, src: Input, threshold: f32 },
     Drop { s: SubstanceId, max: Mu, fee: Mu, src: Input, threshold: f32 },
+    /// `give(s, max, to: neighbour)`: moves `s` to the nearest other entity in range.
+    Give { s: SubstanceId, max: Mu, fee: Mu, src: Input, threshold: f32 },
+    /// `steal(s, max, from: neighbour)`: moves `s` from the nearest other entity in range.
+    Steal { s: SubstanceId, max: Mu, fee: Mu, src: Input, threshold: f32 },
     /// `split_bp` is the child's share in basis points; `requires` is `(substance, amount)`.
     Divide { split_bp: u32, requires: (SubstanceId, Mu), fee: Mu, src: Input, threshold: f32 },
 }
@@ -115,6 +129,8 @@ impl Gene {
             | Gene::Turn { src, .. }
             | Gene::Take { src, .. }
             | Gene::Drop { src, .. }
+            | Gene::Give { src, .. }
+            | Gene::Steal { src, .. }
             | Gene::Divide { src, .. } => signal(*src),
         }
     }

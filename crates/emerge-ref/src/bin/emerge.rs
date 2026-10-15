@@ -16,8 +16,9 @@
 //! `--mutation off`. With `--flux S`, `carriers` is the fraction of entities with an active
 //! reaction gene that makes `S`, and the summary's `sustained_at` is the first tick at which
 //! flux has been above zero with at least 10% carriers for 10_000 ticks (exit test 9);
-//! `--stop-when-sustained` ends the run there. A world with parts the runner cannot
-//! run yet (signal fields and their rules) is refused unless `--partial` is given. `--flux S` reports the µ of `S`
+//! `--stop-when-sustained` ends the run there. `stolen_mu` is the µ moved by `steal` in the
+//! window, and `thieves` the fraction of entities with an active `steal` gene. A world with parts the runner cannot
+//! run yet (signal fields and their rules, menu items it does not implement) is refused unless `--partial` is given. `--flux S` reports the µ of `S`
 //! produced by entity reactions.
 
 use std::process::ExitCode;
@@ -212,8 +213,8 @@ fn run(args: &[String]) -> ExitCode {
     w.record_transfers = false;
 
     let (pay_name, flux_label) = (&w.chem.substances[pay].name, flux_name.as_deref().unwrap_or("none"));
-    println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,carriers,mean_active_genes,ms_per_tick");
-    let (mut births, mut deaths, mut made) = (0, 0, 0);
+    println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,carriers,mean_active_genes,stolen_mu,thieves,ms_per_tick");
+    let (mut births, mut deaths, mut made, mut stolen) = (0, 0, 0, 0);
     let (mut windows, mut with_births, mut with_flux) = (0, 0, 0);
     // Exit test 9: flux above zero, carried by at least 10% of the population, for 10_000
     // ticks in a row. `sustained` is the first tick at which that holds.
@@ -238,10 +239,11 @@ fn run(args: &[String]) -> ExitCode {
             };
             let carriers = flux.map_or(0.0, |s| w.entities.iter().filter(|e| makes(&w, e, s)).count() as f64 / pop);
             let genes = w.entities.iter().map(|e| e.genome.active_genes()).sum::<usize>() as f64 / pop;
+            let thieves = w.entities.iter().filter(|e| steals(e)).count() as f64 / pop;
             println!(
-                "{},{},{},{},{},{:.2},{:.2},{:.3},{:.4},{:.2},{:.1}",
+                "{},{},{},{},{},{:.2},{:.2},{:.3},{:.4},{:.2},{},{:.4},{:.1}",
                 w.tick, w.entities.len(), w.births - births, w.deaths - deaths, now - made,
-                mean(pay), mean_flux, cell_flux, carriers, genes,
+                mean(pay), mean_flux, cell_flux, carriers, genes, w.stolen - stolen, thieves,
                 clock.elapsed().as_secs_f64() * 1_000.0 / every as f64,
             );
             windows += 1;
@@ -251,7 +253,7 @@ fn run(args: &[String]) -> ExitCode {
             if streak >= 10_000 && sustained.is_none() {
                 sustained = Some(w.tick);
             }
-            (births, deaths, made) = (w.births, w.deaths, now);
+            (births, deaths, made, stolen) = (w.births, w.deaths, now, w.stolen);
             clock = Instant::now();
             if stop && sustained.is_some() {
                 break;
@@ -273,6 +275,11 @@ fn makes(w: &World, e: &emerge_ref::Entity, s: usize) -> bool {
     e.genome.slots.iter().enumerate().any(|(g, slot)| {
         e.genome.active(g) && matches!(slot.gene, Gene::React { reaction, .. } if w.chem.reactions[reaction].outputs.iter().any(|o| o.0 == s))
     })
+}
+
+/// Whether an entity has an active `steal` gene.
+fn steals(e: &emerge_ref::Entity) -> bool {
+    e.genome.slots.iter().enumerate().any(|(g, slot)| e.genome.active(g) && matches!(slot.gene, Gene::Steal { .. }))
 }
 
 /// µ of `s` produced by entity reactions so far.

@@ -145,6 +145,7 @@ fn build_at(file: &ast::File, lineages: &[&str], options: Options, at: &Cell<Pos
         }
         c.lineage(l)?;
     }
+    c.partial.sort_by_key(|e| (e.pos.line, e.pos.col));
     if !options.allow_partial && !c.partial.is_empty() {
         at.set(item.pos);
         return err(
@@ -349,6 +350,25 @@ impl<'a> Compiler<'a> {
         Ok(c)
     }
 
+    /// `q` as a substance of the conserved field: `<field>.<substance>`.
+    fn field_substance(&self, q: &Expr, sense: &str, path: &str) -> Result<SubstanceId, Error> {
+        match q {
+            Expr::Path(ast::Path { root, segs }) if Some(root.as_str()) == self.grid.as_deref() && segs.len() == 1 => {
+                let Seg::Field(s) = &segs[0] else { return err("E0205", path, "expected `<field>.<substance>`") };
+                self.substance(s, path)
+            }
+            _ => err("E1001", path, format!("emerge-ref supports `{sense}` of the conserved field only")),
+        }
+    }
+
+    /// Contact needs a space with an interaction radius.
+    fn reach(&self, what: &str, path: &str) -> Result<(), Error> {
+        if self.world.space.as_ref().is_some_and(|s| s.radius > 0.0) {
+            return Ok(());
+        }
+        err("E0116", path, format!("`{what}` needs a space with `max_interaction_radius`"))
+    }
+
     fn left_out(&mut self, path: String, message: String) {
         self.partial.push(Error { code: "W1001", pos: self.at.get(), path, message });
     }
@@ -427,6 +447,10 @@ impl<'a> Compiler<'a> {
         let sp = self.path("space");
         let (sw, sh) = (float(arg(&space, "w", &sp)?, &sp)?, float(arg(&space, "h", &sp)?, &sp)?);
         let wrap = boolean(arg(&space, "wrap", &sp)?, &sp)?;
+        let radius = match opt_arg(&space, "max_interaction_radius") {
+            Some(r) => float(r, &sp)?,
+            None => 0.0,
+        };
         for d in &w.decls {
             self.at.set(d.pos);
             let WDecl::Field { name, kind, holds, .. } = &d.node else { continue };
@@ -448,7 +472,7 @@ impl<'a> Compiler<'a> {
                 let Lit::Amount(m) = cap else { return err("E0205", path, format!("the cap of `{s}` must be an amount")) };
                 caps[self.substance(s, &path)?] = mu(*m, &path)?;
             }
-            let space = Space { w: sw, h: sh, wrap, grid_w: gw as usize, grid_h: gh as usize, child_offset };
+            let space = Space { w: sw, h: sh, wrap, grid_w: gw as usize, grid_h: gh as usize, child_offset, radius };
             self.world.grid(space, caps);
             self.grid = Some(name.clone());
         }
@@ -521,17 +545,31 @@ impl<'a> Compiler<'a> {
         };
         let caps = self.world.cells.first().map(|c| c.caps).unwrap_or_default();
         let n = self.world.chem.substances.len();
+        let sense = |name: &str, keys: &[&str]| -> Result<Option<Vec<(f32, f32)>>, Error> {
+            match self.senses.get(name) {
+                Some(params) => Ok(Some(keys.iter().map(|k| range(params, k)).collect::<Result<_, _>>()?)),
+                None => Ok(None),
+            }
+        };
+        let contact = self.world.space.as_ref().is_some_and(|s| s.radius > 0.0);
+        let field = self.grid.is_some();
         Ok(Menus {
             substances: (0..n).collect(),
             field: (0..n).filter(|&s| caps[s] > 0).collect(),
             inventory: self.senses.contains_key("inventory"),
             gradient: self.senses.contains_key("gradient") && self.grid.is_some(),
+            probe: sense("probe", &["angle_deg", "dist"])?.filter(|_| field).map(|r| (r[0], r[1])),
+            crowd: sense("crowd", &["radius"])?.filter(|_| contact).map(|r| r[0]),
+            neighbour: sense("neighbour", &["rank"])?.filter(|_| contact).map(|r| r[0]),
+            clock: sense("clock", &["period"])?.map(|r| r[0]),
             weigh,
             product: self.regulation.contains_key("product"),
             moves: action("move", "speed")?,
             turn: action("turn", "angle_deg")?,
             take: action("take", "max")?,
             drop: action("drop", "max")?,
+            give: action("give", "max")?.filter(|_| contact),
+            steal: action("steal", "max")?.filter(|_| contact),
             divide,
             reactions: self.space.clone(),
         })
@@ -542,11 +580,18 @@ impl<'a> Compiler<'a> {
             self.at.set(item.pos);
             match &item.node {
                 MenuItem::Sense { name, params } if kind == "senses" => {
-                    float_exact(params, None, &self.path(&format!("senses.{name}")))?;
+                    let path = self.path(&format!("senses.{name}"));
+                    float_exact(params, None, &path)?;
+                    if !SENSES.contains(&name.as_str()) {
+                        self.left_out(path, format!("sense `{name}` is not run: no gene can use it, and mutation does not produce it"));
+                    }
                     self.senses.insert(name.clone(), params.clone());
                 }
                 MenuItem::Gene { name, params, inputs, weight } if kind == "regulation" => {
                     let path = self.path(&format!("regulation.{name}"));
+                    if !REGULATION.contains(&name.as_str()) {
+                        self.left_out(path.clone(), format!("regulation gene `{name}` is not run: no gene can use it, and mutation does not produce it"));
+                    }
                     let inputs = match inputs {
                         Lit::Range(a, b) => match (a.as_ref(), b.as_ref()) {
                             (Lit::Int(a), Lit::Int(b)) => (*a, *b),
@@ -564,6 +609,9 @@ impl<'a> Compiler<'a> {
                 MenuItem::Action { name, params, cost, per, requires } if kind == "actions" => {
                     let path = self.path(&format!("actions.{name}"));
                     float_exact(params, Some(cost), &path)?;
+                    if !ACTIONS.contains(&name.as_str()) {
+                        self.left_out(path.clone(), format!("action `{name}` is not run: no gene can use it, and mutation does not produce it"));
+                    }
                     let Lit::Amount(cost) = cost else { return err("E0205", path, "a cost must be an amount") };
                     let per_distance = match per.as_deref() {
                         None => false,
@@ -927,18 +975,23 @@ impl<'a> Compiler<'a> {
                         self.check_args(c, params, &path)?;
                         let sense = match c.name.as_str() {
                             "inventory" => Sense::Inventory(self.substance(name_of(arg(c, "s", &path)?, &path)?, &path)?),
-                            "gradient" => {
-                                let q = arg(c, "q", &path)?;
-                                match q {
-                                    Expr::Path(ast::Path { root, segs }) if Some(root.as_str()) == self.grid.as_deref() && segs.len() == 1 => {
-                                        let Seg::Field(s) = &segs[0] else { return err("E0205", path, "expected `<field>.<substance>`") };
-                                        Sense::Gradient(self.substance(s, &path)?)
-                                    }
-                                    _ => return err("E1001", path, "emerge-ref supports `gradient` of the conserved field only"),
-                                }
-                            }
+                            "gradient" => Sense::Gradient(self.field_substance(arg(c, "q", &path)?, "gradient", &path)?),
+                            "probe" => Sense::Probe {
+                                s: self.field_substance(arg(c, "q", &path)?, "probe", &path)?,
+                                angle_deg: float(arg(c, "angle_deg", &path)?, &path)?,
+                                dist: float(arg(c, "dist", &path)?, &path)?,
+                            },
+                            "crowd" => Sense::Crowd { radius: float(arg(c, "radius", &path)?, &path)? },
+                            "neighbour" => Sense::Neighbour {
+                                s: self.substance(name_of(arg(c, "s", &path)?, &path)?, &path)?,
+                                rank: int(arg(c, "rank", &path)?, &path)? as u32,
+                            },
+                            "clock" => Sense::Clock { period: int(arg(c, "period", &path)?, &path)?.max(1) as u32 },
                             other => return err("E1001", path, format!("sense `{other}` is not supported by emerge-ref yet")),
                         };
+                        if matches!(sense, Sense::Crowd { .. } | Sense::Neighbour { .. }) {
+                            self.reach(&c.name, &path)?;
+                        }
                         let want = if matches!(sense, Sense::Gradient(_)) { 2 } else { 1 };
                         if outs.len() != want {
                             return err("E0601", path, format!("`{}` writes {want} signal(s)", c.name));
@@ -1032,13 +1085,17 @@ impl<'a> Compiler<'a> {
                         match c.name.as_str() {
                             "move" => Gene::Move { speed: float(arg(c, "speed", &path)?, &path)?, fee_per_distance: fee, src, threshold },
                             "turn" => Gene::Turn { angle_deg: float(arg(c, "angle_deg", &path)?, &path)?, fee, src, threshold },
-                            "take" | "drop" => {
+                            "take" | "drop" | "give" | "steal" => {
+                                if matches!(c.name.as_str(), "give" | "steal") {
+                                    self.reach(&c.name, &path)?;
+                                }
                                 let s = self.substance(name_of(arg(c, "s", &path)?, &path)?, &path)?;
                                 let max = amount(arg(c, "max", &path)?, &path)?;
-                                if c.name == "take" {
-                                    Gene::Take { s, max, fee, src, threshold }
-                                } else {
-                                    Gene::Drop { s, max, fee, src, threshold }
+                                match c.name.as_str() {
+                                    "take" => Gene::Take { s, max, fee, src, threshold },
+                                    "drop" => Gene::Drop { s, max, fee, src, threshold },
+                                    "give" => Gene::Give { s, max, fee, src, threshold },
+                                    _ => Gene::Steal { s, max, fee, src, threshold },
                                 }
                             }
                             "divide" => {
@@ -1261,6 +1318,11 @@ fn call(e: &Expr, path: &str) -> Result<ast::Call, Error> {
         _ => err("E0205", path, "expected a call"),
     }
 }
+
+/// Menu items emerge-ref runs. Other items are left out of a partial run.
+const SENSES: &[&str] = &["inventory", "gradient", "probe", "crowd", "neighbour", "clock"];
+const REGULATION: &[&str] = &["weigh", "product"];
+const ACTIONS: &[&str] = &["move", "turn", "take", "drop", "give", "steal", "divide"];
 
 fn opt_arg<'c>(c: &'c ast::Call, key: &str) -> Option<&'c Expr> {
     c.args.iter().find(|a| a.name.as_deref() == Some(key)).and_then(|a| match &a.value {

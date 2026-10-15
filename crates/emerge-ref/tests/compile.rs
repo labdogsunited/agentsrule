@@ -45,11 +45,16 @@ fn builder_runs_as_recorded() {
 #[test]
 fn a_partial_run_must_be_allowed() {
     let e = compile(DISH, &["Drifter"], Options { seed: 1, allow_partial: false, mutation: false }).err().expect("scent and smell are not run");
-    assert!(e.message.contains("signal field `scent`") && e.message.contains("rule `smell`"), "{e}");
+    assert!(e.message.contains("signal field `scent`") && e.message.contains("rule `smell`") && e.message.contains("action `emit`"), "{e}");
 
     let c = compile(DISH, &["Drifter"], Options { seed: 1, allow_partial: true, mutation: false }).unwrap();
     let partial: Vec<_> = c.partial.iter().map(|e| (e.code, e.path.as_str(), e.pos.line)).collect();
-    assert_eq!(partial, [("W1001", "Dish.fields.scent", line_of("field scent")), ("W1001", "Dish.rules.smell", line_of("rule smell"))]);
+    let expected = [
+        ("W1001", "Dish.fields.scent", line_of("field scent")),
+        ("W1001", "Dish.actions.emit", line_of("action emit")),
+        ("W1001", "Dish.rules.smell", line_of("rule smell")),
+    ];
+    assert_eq!(partial, expected);
     for s in ["Dish.reaction_space", "Drifter.mutation", "ruleset Tinker", "view Main", "chart Health"] {
         assert!(c.notes.iter().any(|x| x.starts_with(s)), "{s} not in {:?}", c.notes);
     }
