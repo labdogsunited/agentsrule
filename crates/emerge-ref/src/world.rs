@@ -1,7 +1,6 @@
 //! A world of cells and entities, run on the four-phase schedule
 //! (`core.md` §6.1, spec §7).
 
-use std::collections::HashMap;
 
 use crate::arbitrate::pro_rata;
 use crate::chem::{ChemError, Chemistry, Mu, ReactionId, SubstanceId};
@@ -275,6 +274,7 @@ pub struct World {
     sums: Vec<u64>,
     stage1: Vec<Mu>,
     stage2: Vec<Mu>,
+    over: Vec<(usize, u32)>,
 }
 
 impl World {
@@ -324,6 +324,7 @@ impl World {
             sums: Vec::new(),
             stage1: Vec::new(),
             stage2: Vec::new(),
+            over: Vec::new(),
         })
     }
 
@@ -783,21 +784,31 @@ impl World {
                 sum[k] += r.requested as u64;
             }
         }
-        let mut over: HashMap<usize, Vec<usize>> = HashMap::new();
+        // Oversubscribed groups as (slot, request) pairs; sorting keeps each group's
+        // requests in request order, which the tie draws are indexed by.
+        let mut over = std::mem::take(&mut self.over);
+        over.clear();
         for (i, r) in reqs.iter().enumerate() {
             if let Some(k) = key(r.origin, r.s) {
                 if sum[k] > self.balance(r.origin, r.s) as u64 {
-                    over.entry(k).or_default().push(i);
+                    over.push((k, i as u32));
                 }
             }
         }
-        for ks in over.values() {
-            let (origin, s) = (reqs[ks[0]].origin, reqs[ks[0]].s);
-            let wanted: Vec<u64> = ks.iter().map(|&k| reqs[k].requested as u64).collect();
+        over.sort_unstable();
+        for group in over.chunk_by(|a, b| a.0 == b.0) {
+            let (origin, s) = (reqs[group[0].1 as usize].origin, reqs[group[0].1 as usize].s);
+            let available = self.balance(origin, s);
+            if let [(_, k)] = group {
+                // One request over its origin's balance gets all of it; no remainder, no draw.
+                stage1[*k as usize] = available;
+                continue;
+            }
+            let wanted: Vec<u64> = group.iter().map(|&(_, k)| reqs[k as usize].requested as u64).collect();
             let draws = self.stream(unpack(origin), s as usize, philox::ARBITRATE_ORIGIN);
-            let granted = pro_rata(&wanted, self.balance(origin, s) as u64, |i| draws.draw(i as u64));
-            for (&k, g) in ks.iter().zip(granted) {
-                stage1[k] = g as Mu;
+            let granted = pro_rata(&wanted, available as u64, |i| draws.draw(i as u64));
+            for (&(_, k), g) in group.iter().zip(granted) {
+                stage1[k as usize] = g as Mu;
             }
         }
 
@@ -815,17 +826,23 @@ impl World {
         for (i, r) in reqs.iter().enumerate() {
             if let Some(k) = key(r.dest, r.s) {
                 if sum[k] > self.headroom(r.dest, r.s) as u64 {
-                    over.entry(k).or_default().push(i);
+                    over.push((k, i as u32));
                 }
             }
         }
-        for ks in over.values() {
-            let (dest, s) = (reqs[ks[0]].dest, reqs[ks[0]].s);
-            let wanted: Vec<u64> = ks.iter().map(|&k| stage1[k] as u64).collect();
+        over.sort_unstable();
+        for group in over.chunk_by(|a, b| a.0 == b.0) {
+            let (dest, s) = (reqs[group[0].1 as usize].dest, reqs[group[0].1 as usize].s);
+            let available = self.headroom(dest, s);
+            if let [(_, k)] = group {
+                stage2[*k as usize] = available;
+                continue;
+            }
+            let wanted: Vec<u64> = group.iter().map(|&(_, k)| stage1[k as usize] as u64).collect();
             let draws = self.stream(unpack(dest), s as usize, philox::ARBITRATE_DEST);
-            let granted = pro_rata(&wanted, self.headroom(dest, s) as u64, |i| draws.draw(i as u64));
-            for (&k, g) in ks.iter().zip(granted) {
-                stage2[k] = g as Mu;
+            let granted = pro_rata(&wanted, available as u64, |i| draws.draw(i as u64));
+            for (&(_, k), g) in group.iter().zip(granted) {
+                stage2[k as usize] = g as Mu;
             }
         }
 
@@ -865,7 +882,7 @@ impl World {
                 });
             }
         }
-        (self.sums, self.stage1, self.stage2) = (sum, stage1, stage2);
+        (self.sums, self.stage1, self.stage2, self.over) = (sum, stage1, stage2, over);
     }
 
     fn balance(&self, p: u32, s: u16) -> Mu {
