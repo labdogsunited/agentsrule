@@ -1,0 +1,8 @@
+[package]
+name = "emerge-ref"
+version = "0.1.0"
+edition = "2021"
+description = "CPU reference runner for the Emergent core schedule (Set, Move, Transform, Restructure)"
+publish = false
+
+[dependencies]
