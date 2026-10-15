@@ -16,6 +16,16 @@ What building and testing `emerge-ref` shows about the current spec and `core.md
 5. **Repulsion is unspecified (spec §7.2 step 4).** Movement includes "a soft repulsion force", with no formula, range or strength. The runner has none.
 6. **Genesis randomness (spec §10.2).** Lineage genesis draws positions and headings, but no pass is defined for it. The runner uses pass `genesis = 5`, stream = the new entity's ID, draws 0 and 1 for `x` and `y` and draw 2 for the heading angle, each as `(draw >> 8) × 2^−24`.
 
+## From the parser (`crates/emerge-lang`)
+
+Fixed in `examples/dish.em` and `language.md`; the spec still needs the same edits in its next release:
+
+7. **Non-canonical reactions.** `dish.em` wrote `photosynthesis`, `respiration` and `build` with terms out of declaration order, which the compiler rejects (`E0404`). Canonical: `light + carbon -> sugar`, `sugar -> energy + carbon`, `energy + carbon + nitrate -> heat + body`. Spec §4.2 and §4.5 have the old order.
+8. **Zero fees.** `0` is a whole number of units, so it prints as `0u`; `dish.em` had `cost 0mu`. Spec §5.5's menu has the old spelling.
+9. **Digit grouping.** `language.md` §2.2 said "above `9_999`" while `dish.em` grouped `2_000`; it now says four digits or more.
+10. **Declaration order.** `dish.em` had `child_offset` and `mind_steps` before the elements; `language.md` §6 puts them after `max_age`. `language.md` §6 also gains: rules come after menus and before genesis.
+11. **One-line config blocks.** `language.md` §2.2 now states the rule `dish.em` follows: a config block with one entry is written on one line if it fits.
+
 ## Not yet covered by the runner
 
 Senses other than `inventory`, the entity's own cell and `gradient`; `delay` and arithmetic regulation kinds; repulsion; `give`, `steal`, `emit` and field signals; mutation; derived edges; `charge` laws in their general form (only upkeep); catalysts; the birth log and attribution counters.

@@ -44,7 +44,7 @@ Negative numbers outside ranges are written with unary minus (`-1.0`), which the
 
 **Rules for literals:**
 - An amount MUST be a whole number of µ: `0.5u` is `500mu` and allowed; `0.0005u` is an error (`E0101`).
-- `emerge fmt` prints amounts in `u` when they are whole units and in `mu` otherwise, and groups digits in threes above `9_999`.
+- `emerge fmt` prints amounts in `u` when they are whole units (including `0u`) and in `mu` otherwise, and groups digits in threes in every number of four digits or more (`2_000`, `20_000`), including the integer part of a float (`5_000.0`).
 - Floats MUST contain a `.` or an exponent. Where an `f32` is expected, an integer is an error (`E0104`), so there is one spelling.
 
 **Separators:**
@@ -61,6 +61,7 @@ Negative numbers outside ranges are written with unary minus (`-1.0`), which the
 - **No column alignment.** Consecutive declarations are never padded to line up. This keeps diffs small when a name changes length.
 - **Line width:** 100 columns. If a line is longer, the formatter breaks one bracketed group (`(...)` or `[...]`) on it: among the **outermost** groups on that line (those not inside another group on the line), the one with the **most characters** inside, the first one on a tie. Each item goes on its own line, indented one level deeper, and the closing bracket goes on its own line at the original indentation. It repeats until every line fits or no group is left to break. There is no trailing comma.
 - **Blank lines:** preserved between declarations and statements, collapsed to at most one. None at the start or end of a block.
+- **Blocks:** every block opens on its header line and closes on its own line, with one item per line in between. The exception is a config block (`second_law`, `reaction_space`, `upkeep`, `limits`) with exactly one entry and no comments, which is written on one line if it fits: `second_law { min_drop: 1; }`.
 - **Comments:** kept in place. A trailing comment has one space before `//`.
 - **Order:** declarations in a world are sorted into the order of §6 (§6, first paragraph).
 
@@ -198,7 +199,7 @@ The most important consequences:
 
 ## 6. World declarations
 
-A world body holds declarations and rules. `emerge fmt` sorts declarations into the order of this section, but keeps the relative order of substances, reactions and rules, because substance order defines canonical reactions and rule order is execution order.
+A world body holds declarations and rules. `emerge fmt` sorts declarations into the order of this section, with world rules (§7) after the menus and before genesis. It keeps the relative order of substances, reactions and rules, because substance order defines canonical reactions and the order of reaction rules is execution order.
 
 ### 6.1 Space
 
@@ -246,7 +247,7 @@ remains: void; // where a dead entity's unplaceable substances go
 ### 6.5 Reactions and the reaction space
 
 ```
-reaction respiration : sugar -> carbon + energy;
+reaction respiration : sugar -> energy + carbon;
 reaction burn : 2 sugar + oxygen -> 2 carbon + 2 energy + heat;
 
 reaction_space {
@@ -259,7 +260,7 @@ reaction_space {
 ```
 
 - `generate: none;` disables generation. Formulas inside `exclude` use the reaction syntax without a name.
-- **Catalysts** [P1] follow the formula: `reaction build : carbon + nitrate + energy -> body + heat catalyze iron(half: 100mu, boost: 10.0);`. The catalyst is not part of the formula, its canonical form or its `ΔG` (spec §4.5).
+- **Catalysts** [P1] follow the formula: `reaction build : energy + carbon + nitrate -> heat + body catalyze iron(half: 100mu, boost: 10.0);`. The catalyst is not part of the formula, its canonical form or its `ΔG` (spec §4.5).
 - A hand-written reaction MUST be in canonical form (spec §4.4): no substance on both sides, no repeated terms, coefficients without a common factor, terms in substance declaration order. Otherwise it is `E0404`, with the canonical form as a suggested fix.
 - The compiler reports, for each reaction, its element balance, canonical form and `ΔG`, and rejects any reaction that is unbalanced (`E0401`) or not downhill by at least `min_drop` (`E0402`).
 
@@ -309,10 +310,10 @@ actions {
     action move(speed: 0.0..2.0) cost 20mu per distance;
     action turn(angle_deg: 0.0..30.0) cost 10mu;
     action take(s: any substance, max: 0u..10u) cost 5mu;
-    action drop(s: any substance, max: 0u..10u) cost 0mu;
+    action drop(s: any substance, max: 0u..10u) cost 0u;
     action give(s: any substance, max: 0u..10u, to: neighbour) cost 5mu;
     action emit(sig: scent, max: 0.0..10.0) cost 2mu;
-    action divide(split: 0.0..1.0) cost 0mu requires body >= 10u;
+    action divide(split: 0.0..1.0) cost 0u requires body >= 10u;
 }
 ```
 
@@ -329,7 +330,7 @@ regulation {
 ```
 
 - Sense, action and regulation kind names are fixed by the engine; a menu chooses which ones exist in the world and narrows their parameter ranges. An unknown name is `E0501`.
-- Every action states its fee, including `0mu`. Fees are paid in the upkeep `pay` substance (spec §3.3), so the fee has no substance name.
+- Every action states its fee, including `0u`. Fees are paid in the upkeep `pay` substance (spec §3.3), so the fee has no substance name.
 - `per distance` is the only fee modifier in P0.
 - `requires` is an expression in the Requirement context (§5).
 
@@ -865,7 +866,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
     { "title": "couple it to energy", "patch": {
       "base_revision": 41,
       "ops": [ { "op": "replace", "path": "Dish.reactions.shortcut",
-                 "value": "carbon + nitrate + energy -> body + heat" } ] } }
+                 "value": "energy + carbon + nitrate -> heat + body" } ] } }
   ]
 }
 ```

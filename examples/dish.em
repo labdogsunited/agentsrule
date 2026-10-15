@@ -9,8 +9,6 @@
 
 world Dish {
     space: Continuous2D(w: 512.0, h: 512.0, wrap: true, max_interaction_radius: 4.0);
-    child_offset: 0.5;
-    mind_steps: 1;
 
     element C;
     element N;
@@ -43,9 +41,9 @@ world Dish {
     waste heat -> void;
     remains: void;
 
-    reaction photosynthesis : carbon + light -> sugar;
-    reaction respiration : sugar -> carbon + energy;
-    reaction build : carbon + nitrate + energy -> body + heat;
+    reaction photosynthesis : light + carbon -> sugar;
+    reaction respiration : sugar -> energy + carbon;
+    reaction build : energy + carbon + nitrate -> heat + body;
     reaction rot : body -> carbon + nitrate;
 
     reaction_space {
@@ -73,6 +71,8 @@ world Dish {
     }
 
     max_age: 20_000;
+    child_offset: 0.5;
+    mind_steps: 1;
 
     senses {
         sense probe(q: any quantity, angle_deg: -180.0..180.0, dist: 0.0..8.0);
@@ -87,11 +87,11 @@ world Dish {
         action move(speed: 0.0..2.0) cost 20mu per distance;
         action turn(angle_deg: 0.0..30.0) cost 10mu;
         action take(s: any substance, max: 0u..10u) cost 5mu;
-        action drop(s: any substance, max: 0u..10u) cost 0mu;
+        action drop(s: any substance, max: 0u..10u) cost 0u;
         action give(s: any substance, max: 0u..10u, to: neighbour) cost 5mu;
         action steal(s: any substance, max: 0u..10u, from: neighbour) cost 30mu;
         action emit(sig: scent, max: 0.0..10.0) cost 2mu;
-        action divide(split: 0.0..1.0) cost 0mu requires body >= 10u;
+        action divide(split: 0.0..1.0) cost 0u requires body >= 10u;
     }
 
     regulation {

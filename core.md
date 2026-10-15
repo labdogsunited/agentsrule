@@ -152,7 +152,7 @@ There are exactly five kinds of effect:
 | :-- | :-- | :-- |
 | **Set** a free value | `alive = 1.0;` | 1 |
 | **Move** a conserved quantity along an edge, or between a node and an edge | `move food * 10% along neighbour;` | 2 |
-| **Transform** conserved quantities inside one node or edge | `transform carbon + light -> sugar, rate: 1u;` | 3 |
+| **Transform** conserved quantities inside one node or edge | `transform light + carbon -> sugar, rate: 1u;` | 3 |
 | **Restructure** the graph: create or delete nodes and edges, rewire an edge's end | `rewire at to: argmax(at.neighbour.food);` | 4 |
 | **Rewrite rules**: copy rule sets into new nodes, mutate a node's owned rules | `create Critter copying self with mutate(rules, Drift);` | 4 |
 

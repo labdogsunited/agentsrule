@@ -1,0 +1,8 @@
+[package]
+name = "emerge-lang"
+version = "0.1.0"
+edition = "2021"
+description = "Parser and formatter for the Emergent .em language (language.md)"
+publish = false
+
+[dependencies]
