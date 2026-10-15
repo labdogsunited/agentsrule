@@ -19,7 +19,8 @@
 //! division (point, wiring and growth mutations) within the world's menus, the generated
 //! reaction space and each lineage's profile.
 //!
-//! The `emerge` binary formats `.em` files (`emerge fmt`) and runs them (`emerge run`).
+//! The `emerge` binary formats `.em` files (`emerge fmt`) and runs them (`emerge run`);
+//! `print` shows evolved genomes in `.em` syntax.
 //!
 //! Not covered yet: see `DISCREPANCIES.md`.
 
@@ -30,6 +31,7 @@ pub mod mind;
 pub mod mutate;
 pub mod near;
 pub mod philox;
+pub mod print;
 pub mod world;
 
 pub use chem::{Chemistry, Mu, U};

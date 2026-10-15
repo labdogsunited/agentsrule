@@ -9,14 +9,18 @@
 //! item's path (`language.md` §14); `--json` prints one JSON object per line. It exits with
 //! 1 if there is an error.
 //!
-//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained]`
+//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--producers F] [--census N]`
 //! compiles the world, seeds it with the lineages and runs it on the CPU reference runner,
 //! auditing the ledger every `--every` ticks. It prints a CSV row per window and a final
 //! `#` summary line (spec §16, exit criteria 7–9). Children mutate (spec §8.1) unless
 //! `--mutation off`. With `--flux S`, `carriers` is the fraction of entities with an active
-//! reaction gene that makes `S`, and the summary's `sustained_at` is the first tick at which
-//! flux has been above zero with at least 10% carriers for 10_000 ticks (exit test 9);
-//! `--stop-when-sustained` ends the run there. `stolen_mu` is the µ moved by `steal` in the
+//! reaction gene that makes `S`, and `producers` the fraction whose reactions made some `S`
+//! in the window. The summary's `sustained_at` is the first tick at which flux has been
+//! above zero with at least `--producers F` producers (default `0.02`) in every window
+//! for 10_000 ticks (exit test 9);
+//! `--stop-when-sustained` ends the run there. `--census N` prints the `N` most common
+//! genomes at the end, and the most common one that makes the `--flux` substance, in
+//! `.em` syntax on `#` lines. `stolen_mu` is the µ moved by `steal` in the
 //! window, and `thieves` the fraction of entities with an active `steal` gene. A world with parts the runner cannot
 //! run yet (signal fields and their rules, menu items it does not implement) is refused unless `--partial` is given. `--flux S` reports the µ of `S`
 //! produced by entity reactions.
@@ -41,7 +45,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--producers F] [--census N]");
     ExitCode::from(2)
 }
 
@@ -161,6 +165,7 @@ fn run(args: &[String]) -> ExitCode {
     let (mut lineages, mut flux_name) = (String::new(), None);
     let (mut seed, mut ticks, mut every) = (1u64, 50_000u64, 1_000u64);
     let (mut partial, mut mutation, mut stop) = (false, true, false);
+    let (mut census, mut threshold) = (0, 0.02);
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
         if flag == "--partial" || flag == "--stop-when-sustained" {
@@ -177,6 +182,8 @@ fn run(args: &[String]) -> ExitCode {
             ("--seed", Some(n)) => seed = n,
             ("--ticks", Some(n)) => ticks = n,
             ("--every", Some(n)) if n > 0 => every = n,
+            ("--census", Some(n)) => census = n as usize,
+            ("--producers", _) if value.parse::<f64>().is_ok_and(|f| (0.0..=1.0).contains(&f)) => threshold = value.parse().unwrap(),
             _ => return usage(),
         }
     }
@@ -198,6 +205,7 @@ fn run(args: &[String]) -> ExitCode {
     for s in &compiled.partial {
         eprintln!("left out of this partial run: {s}");
     }
+    let field = compiled.field.unwrap_or_default();
     let mut w = compiled.world;
     let find = |n: &str| w.chem.substances.iter().position(|s| s.name == n);
     let flux = match flux_name.as_deref().map(|n| (n, find(n))) {
@@ -210,14 +218,15 @@ fn run(args: &[String]) -> ExitCode {
     };
     let pay = w.upkeep.pay;
     w.record_events = false;
+    w.track = flux;
     w.record_transfers = false;
 
     let (pay_name, flux_label) = (&w.chem.substances[pay].name, flux_name.as_deref().unwrap_or("none"));
-    println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,carriers,mean_active_genes,stolen_mu,thieves,ms_per_tick");
+    println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,carriers,producers,mean_active_genes,stolen_mu,thieves,ms_per_tick");
     let (mut births, mut deaths, mut made, mut stolen) = (0, 0, 0, 0);
     let (mut windows, mut with_births, mut with_flux) = (0, 0, 0);
-    // Exit test 9: flux above zero, carried by at least 10% of the population, for 10_000
-    // ticks in a row. `sustained` is the first tick at which that holds.
+    // Exit test 9: flux above zero, made by at least `threshold` of the population in every
+    // window, for 10_000 ticks in a row. `sustained` is the first tick at which that holds.
     let (mut streak, mut sustained) = (0u64, None);
     let mut clock = Instant::now();
     while w.tick < ticks && !w.entities.is_empty() {
@@ -238,22 +247,25 @@ fn run(args: &[String]) -> ExitCode {
                 None => (0, 0.0, 0.0),
             };
             let carriers = flux.map_or(0.0, |s| w.entities.iter().filter(|e| makes(&w, e, s)).count() as f64 / pop);
+            // Producers: entities alive now whose reactions made some of `S` in this window.
+            let producers = w.entities.iter().filter(|e| e.made > 0).count() as f64 / pop;
             let genes = w.entities.iter().map(|e| e.genome.active_genes()).sum::<usize>() as f64 / pop;
             let thieves = w.entities.iter().filter(|e| steals(e)).count() as f64 / pop;
             println!(
-                "{},{},{},{},{},{:.2},{:.2},{:.3},{:.4},{:.2},{},{:.4},{:.1}",
+                "{},{},{},{},{},{:.2},{:.2},{:.3},{:.4},{:.4},{:.2},{},{:.4},{:.1}",
                 w.tick, w.entities.len(), w.births - births, w.deaths - deaths, now - made,
-                mean(pay), mean_flux, cell_flux, carriers, genes, w.stolen - stolen, thieves,
+                mean(pay), mean_flux, cell_flux, carriers, producers, genes, w.stolen - stolen, thieves,
                 clock.elapsed().as_secs_f64() * 1_000.0 / every as f64,
             );
             windows += 1;
             with_births += (w.births > births) as u64;
             with_flux += (now > made) as u64;
-            streak = if now > made && carriers >= 0.10 { streak + every } else { 0 };
+            streak = if now > made && producers >= threshold { streak + every } else { 0 };
             if streak >= 10_000 && sustained.is_none() {
                 sustained = Some(w.tick);
             }
             (births, deaths, made, stolen) = (w.births, w.deaths, now, w.stolen);
+            w.entities.iter_mut().for_each(|e| e.made = 0);
             clock = Instant::now();
             if stop && sustained.is_some() {
                 break;
@@ -267,7 +279,38 @@ fn run(args: &[String]) -> ExitCode {
         if mutation { "on" } else { "off" },
         w.tick
     );
+    if census > 0 {
+        print_census(&w, &field, census, flux);
+    }
     ExitCode::SUCCESS
+}
+
+/// The `n` most common genomes, and the most common one that makes `flux`, as `#` lines.
+fn print_census(w: &World, field: &str, n: usize, flux: Option<usize>) {
+    let mut count: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+    for (i, e) in w.entities.iter().enumerate() {
+        count.entry(format!("{:?}", e.genome)).or_insert((0, i)).0 += 1;
+    }
+    let mut ranked: Vec<(usize, usize)> = count.into_values().collect();
+    ranked.sort_by_key(|&(c, i)| (std::cmp::Reverse(c), w.entities[i].id));
+    let pop = w.entities.len().max(1) as f64;
+    let show = |title: String, i: usize| {
+        println!("# {title}");
+        for line in emerge_ref::print::genome(w, &w.entities[i].genome, field).lines() {
+            println!("#   {line}");
+        }
+    };
+    println!("# census: {} distinct genomes among {} entities", ranked.len(), w.entities.len());
+    for (rank, &(c, i)) in ranked.iter().take(n).enumerate() {
+        show(format!("#{} of {}: {c} entities ({:.1}%)", rank + 1, ranked.len(), c as f64 / pop * 100.0), i);
+    }
+    if let Some(s) = flux {
+        let name = &w.chem.substances[s].name;
+        match ranked.iter().find(|&&(_, i)| makes(w, &w.entities[i], s)) {
+            Some(&(c, i)) => show(format!("most common genome that makes {name}: {c} entities ({:.1}%)", c as f64 / pop * 100.0), i),
+            None => println!("# no genome makes {name}"),
+        }
+    }
 }
 
 /// Whether an entity has an active reaction gene that produces `s`.

@@ -134,6 +134,9 @@ pub struct Entity {
     pub age: u64,
     /// Index into `World::variation`; children inherit it.
     pub lineage: usize,
+    /// µ of `World::track` its reaction genes have produced since this was last reset.
+    /// Children start at `0`.
+    pub made: u64,
 }
 
 /// World rules. Each runs on every cell; its kind sets its phase (spec §7.4).
@@ -285,6 +288,8 @@ pub struct World {
     pub entity_extent: Vec<u64>,
     /// Cumulative µ delivered by `steal`, over all substances.
     pub stolen: u64,
+    /// The substance whose production each entity counts in `Entity::made`.
+    pub track: Option<SubstanceId>,
     /// The transfers of the last tick, in request order, if `record_transfers`.
     pub record_transfers: bool,
     pub last_transfers: Vec<Transfer>,
@@ -348,6 +353,7 @@ impl World {
             deaths: 0,
             entity_extent: vec![0; reactions],
             stolen: 0,
+            track: None,
             record_transfers: true,
             last_transfers: Vec::new(),
             mutation: false,
@@ -421,6 +427,7 @@ impl World {
             signals,
             age: 0,
             lineage: 0,
+            made: 0,
         });
         self.next_id += 1;
         self.entities.len() - 1
@@ -562,7 +569,7 @@ impl World {
         }
         self.arbitrate(&requests);
         self.requests = requests;
-        // 2.4 Movement: paid turns, then paid moves. No repulsion yet (DISCREPANCIES.md).
+        // 2.4 Movement: paid turns, then paid moves. No repulsion in P0 (spec §7.2).
         if let Some(space) = &self.space {
             for (e, plan) in self.entities.iter_mut().zip(&plans) {
                 for x in plan.intents.iter().filter(|x| x.live) {
@@ -603,6 +610,9 @@ impl World {
                     }
                     apply_reaction(&mut e.store, r, extent);
                     self.entity_extent[reaction] += extent as u64;
+                    if let Some(t) = self.track {
+                        e.made += r.outputs.iter().filter(|o| o.0 == t).map(|o| o.1 as u64 * extent as u64).sum::<u64>();
+                    }
                 }
             }
         }
@@ -712,7 +722,7 @@ impl World {
             };
             let signals = vec![0.0; genome.keep.len()];
             let lineage = parent.lineage;
-            children.push(Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0, lineage });
+            children.push(Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0, lineage, made: 0 });
             living += 1;
         }
         // 4.3 Survivors age and move to the cell under them; newborns join at the end of the

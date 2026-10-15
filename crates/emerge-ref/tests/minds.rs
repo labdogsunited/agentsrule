@@ -34,7 +34,7 @@ fn each_regulation_gene_adds_one_mind_step_of_delay() {
     w.step().unwrap();
     w.step().unwrap();
     assert!(w.events.is_empty());
-    // Readings are amount × 0.001 in f32, so 10.5u reads as 10.500001 (DISCREPANCIES.md).
+    // Readings are amount × 0.001 in f32, so 10.5u reads as 10.500001 (spec §3.5).
     assert_eq!(w.entities[0].signals, vec![10_500.0 * 0.001, 0.0]);
     w.step().unwrap();
     assert_eq!(w.events, vec![Event::Born { tick: 2, parent: 1, child: 2 }]);

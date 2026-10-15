@@ -61,6 +61,8 @@ pub struct Compiled {
     /// Declared and part of the world's behaviour, but not run (only with `allow_partial`),
     /// as warnings with code `W1001`.
     pub partial: Vec<Error>,
+    /// The conserved field's name, if any.
+    pub field: Option<String>,
 }
 
 /// How to build a world.
@@ -157,7 +159,7 @@ fn build_at(file: &ast::File, lineages: &[&str], options: Options, at: &Cell<Pos
             ),
         );
     }
-    Ok(Compiled { world: c.world, notes: c.notes, partial: c.partial })
+    Ok(Compiled { world: c.world, notes: c.notes, partial: c.partial, field: c.grid })
 }
 
 struct ActionDef {
@@ -1104,7 +1106,7 @@ impl<'a> Compiler<'a> {
                                 if !(0.0..=1.0).contains(&split) {
                                     return err("E0601", path, "`split` must be in 0.0..1.0");
                                 }
-                                // The child's share in whole basis points (DISCREPANCIES.md).
+                                // The child's share in whole basis points (spec §7.5).
                                 let split_bp = (split * 10_000.0).round() as u32;
                                 Gene::Divide { split_bp, requires, fee, src, threshold }
                             }

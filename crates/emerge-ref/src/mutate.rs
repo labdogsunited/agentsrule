@@ -1,8 +1,8 @@
 //! Variation at division (spec §8.1): point, wiring and growth mutations of a child's
 //! genome, within the world's menus and the lineage's profile.
 //!
-//! Choices the spec leaves open are listed in `DISCREPANCIES.md`: how draws are numbered,
-//! how a parameter is perturbed, what an inserted gene looks like, and how a reaction ID
+//! The operators follow spec §8.1 "Exact operators": how draws are numbered, how a
+//! parameter is perturbed, what an inserted gene looks like; and §4.3 for how a reaction ID
 //! moves through the reaction space.
 
 use crate::chem::{Mu, ReactionId, SubstanceId};

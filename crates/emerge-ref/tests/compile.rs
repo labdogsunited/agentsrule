@@ -138,3 +138,27 @@ fn unsupported_or_unknown_things_are_errors() {
     let e = compile(DISH, &["Nobody"], Options { seed: 1, allow_partial: true, mutation: false }).err().unwrap();
     assert_eq!(e.message, "no such lineage");
 }
+
+#[test]
+fn entities_count_what_their_own_reactions_make() {
+    let mut w = compile(DISH, &["Builder"], Options { seed: 7, allow_partial: true, mutation: false }).unwrap().world;
+    let body = w.chem.substances.iter().position(|s| s.name == "body").unwrap();
+    for _ in 0..5 {
+        w.step().unwrap();
+    }
+    assert!(w.entities.iter().all(|e| e.made == 0), "nothing is counted without a tracked substance");
+    w.track = Some(body);
+    let before = w.entity_extent.clone();
+    w.step().unwrap();
+    // Each µ of body is counted by the entity that made it. Entities that reached
+    // `max_age` this tick made some and were removed, so the survivors count at most that.
+    let made: u64 = w.entities.iter().map(|e| e.made).sum();
+    let produced: u64 = w
+        .chem
+        .reactions
+        .iter()
+        .enumerate()
+        .map(|(r, rx)| rx.outputs.iter().filter(|o| o.0 == body).map(|o| o.1 as u64).sum::<u64>() * (w.entity_extent[r] - before[r]))
+        .sum();
+    assert!(made > 0 && made <= produced, "made {made}, produced {produced}");
+}

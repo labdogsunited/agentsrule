@@ -62,7 +62,7 @@ fn turning_is_to_the_left_by_the_signal_times_the_angle() {
 #[test]
 fn a_negative_signal_does_not_fire_a_turn_with_the_default_threshold() {
     // Dish's seeds read `steer` with threshold 0.0, so they turn left toward food but never
-    // right (DISCREPANCIES.md). A negative signal does not fire: no turn and no fee.
+    // right (spec §15, Appendix F). A negative signal does not fire: no turn and no fee.
     let (mut w, d) = dish(0, 0);
     small(&mut w);
     let e = w.spawn_at([1.0, 1.0], [1.0, 0.0], Genome::simple(vec![turner(Input::Const(-0.5))]));

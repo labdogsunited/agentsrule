@@ -1,8 +1,8 @@
 # The `.em` Language
 
-**Language reference — draft, companion to spec v0.7.7**
+**Language reference — draft, companion to spec v0.7.8**
 
-This document defines the syntax and static rules of `.em` files. `spec-v0.7.7.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
+This document defines the syntax and static rules of `.em` files. `spec-v0.7.8.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
 
 > **Being restructured.** `core.md` now defines the core language. This document's syntax will be rewritten around it; until then, `core.md`'s examples are provisional and this document remains the syntax reference for the creatures application.
 
@@ -291,6 +291,8 @@ mind_steps: 1;
 ```
 
 `child_offset` is the distance, in space units, behind its parent at which a child is placed (spec §7.5). It defaults to `0.5`. `mind_steps` is how many times per tick every mind updates its signals (spec §5.4). It defaults to `1`.
+
+[P1] `rounds: 3;` sets how many rounds a tick has (default `1`, at most `16`); a profile's `rounds: k;` sets how many of them its lineage acts in, and `per_round` in `upkeep` charges for each round an entity acts in (spec §7, `core.md` §6.5). A world rule may add `rounds k` or `every N ticks` after its field: `rule seasons on cells every 100 ticks { … }`. The parser does not accept these yet.
 
 `per_signal_keep` (optional, default `0mu`) adds `ceil(per_signal_keep × keep)` for each signal in use: a cost of passive retention. Memory kept by recurrent genes is not charged by it (spec §3.3).
 
