@@ -1,3 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["crates/emerge-lang", "crates/emerge-ref"]
+
+[profile.release]
+debug = "line-tables-only"

@@ -11,17 +11,24 @@ use crate::philox::{self, Stream};
 pub type SourceId = usize;
 pub type SinkId = usize;
 
+/// The most substances a world may declare. Stores are fixed-size arrays, so a world's
+/// cells sit in one contiguous block.
+pub const MAX_SUBSTANCES: usize = 16;
+
 /// Conserved amounts and caps, one slot per substance. A cap of `0` means the store
-/// cannot hold that substance.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// cannot hold that substance; slots past the world's substances stay at `0`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Store {
-    pub amounts: Vec<Mu>,
-    pub caps: Vec<Mu>,
+    pub amounts: [Mu; MAX_SUBSTANCES],
+    pub caps: [Mu; MAX_SUBSTANCES],
 }
 
 impl Store {
     pub fn new(caps: Vec<Mu>) -> Self {
-        Store { amounts: vec![0; caps.len()], caps }
+        assert!(caps.len() <= MAX_SUBSTANCES, "at most {MAX_SUBSTANCES} substances");
+        let mut c = [0; MAX_SUBSTANCES];
+        c[..caps.len()].copy_from_slice(&caps);
+        Store { amounts: [0; MAX_SUBSTANCES], caps: c }
     }
 
     pub fn headroom(&self, s: SubstanceId) -> Mu {
@@ -186,6 +193,41 @@ pub struct Transfer {
     pub overflowed: Mu,
 }
 
+/// A transfer request packed for arbitration: endpoints are tagged `u32`s (`pack`).
+#[derive(Debug, Clone, Copy)]
+struct Req {
+    origin: u32,
+    dest: u32,
+    s: u16,
+    /// `u16::MAX` for none.
+    overflow: u16,
+    requested: Mu,
+}
+
+const TAG_SHIFT: u32 = 30;
+const INDEX: u32 = (1 << TAG_SHIFT) - 1;
+
+fn pack(end: End) -> u32 {
+    let (tag, i) = match end {
+        End::Cell(i) => (0, i),
+        End::Entity(i) => (1, i),
+        End::Source(i) => (2, i),
+        End::Sink(i) => (3, i),
+    };
+    debug_assert!(i as u32 <= INDEX);
+    (tag << TAG_SHIFT) | i as u32
+}
+
+fn unpack(p: u32) -> End {
+    let i = (p & INDEX) as usize;
+    match p >> TAG_SHIFT {
+        0 => End::Cell(i),
+        1 => End::Entity(i),
+        2 => End::Source(i),
+        _ => End::Sink(i),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LedgerError {
     pub tick: u64,
@@ -225,8 +267,14 @@ pub struct World {
     pub deaths: u64,
     /// Cumulative extent of each reaction run by entity genes.
     pub entity_extent: Vec<u64>,
-    /// The transfers of the last tick, in request order.
+    /// The transfers of the last tick, in request order, if `record_transfers`.
+    pub record_transfers: bool,
     pub last_transfers: Vec<Transfer>,
+    /// Buffers reused from tick to tick, so long runs do not allocate megabytes per tick.
+    requests: Vec<Req>,
+    sums: Vec<u64>,
+    stage1: Vec<Mu>,
+    stage2: Vec<Mu>,
 }
 
 impl World {
@@ -270,7 +318,12 @@ impl World {
             births: 0,
             deaths: 0,
             entity_extent: vec![0; reactions],
+            record_transfers: true,
             last_transfers: Vec::new(),
+            requests: Vec::new(),
+            sums: Vec::new(),
+            stage1: Vec::new(),
+            stage2: Vec::new(),
         })
     }
 
@@ -368,7 +421,7 @@ impl World {
             let mut total: i128 = 0;
             let stores = self.cells.iter().chain(self.entities.iter().map(|x| &x.store));
             for store in stores {
-                for (s, &amount) in store.amounts.iter().enumerate() {
+                for (s, &amount) in store.amounts[..self.chem.substances.len()].iter().enumerate() {
                     total += amount as i128 * self.chem.substances[s].comp[e] as i128;
                 }
             }
@@ -419,14 +472,12 @@ impl World {
             }
         }
         // 2.3 Transfers: entity intents and transfer rules, arbitrated together.
-        let mut requests = std::mem::take(&mut self.last_transfers);
+        let mut requests = std::mem::take(&mut self.requests);
         requests.clear();
-        let mut request = |origin, dest, s, amount, overflow| {
+        let mut request = |origin: End, dest: End, s: SubstanceId, amount: Mu, overflow: Option<SinkId>| {
             if amount > 0 {
-                requests.push(Transfer {
-                    origin, dest, s, requested: amount, overflow,
-                    stage1: 0, stage2: 0, delivered: 0, overflowed: 0,
-                });
+                let overflow = overflow.map_or(u16::MAX, |o| o as u16);
+                requests.push(Req { origin: pack(origin), dest: pack(dest), s: s as u16, overflow, requested: amount });
             }
         };
         for (i, (e, plan)) in self.entities.iter().zip(&plans).enumerate() {
@@ -461,8 +512,8 @@ impl World {
                 }
             }
         }
-        self.arbitrate(&mut requests);
-        self.last_transfers = requests;
+        self.arbitrate(&requests);
+        self.requests = requests;
         // 2.4 Movement: paid turns, then paid moves. No repulsion yet (DISCREPANCIES.md).
         if let Some(space) = &self.space {
             for (e, plan) in self.entities.iter_mut().zip(&plans) {
@@ -572,7 +623,7 @@ impl World {
             if !x.live || e.store.amounts[rs] < ramount || living >= self.max_entities {
                 continue;
             }
-            let mut child = Store::new(e.store.caps.clone());
+            let mut child = Store { amounts: [0; MAX_SUBSTANCES], caps: e.store.caps };
             let parent = &mut self.entities[i];
             for s in 0..child.amounts.len() {
                 let share = (parent.store.amounts[s] as u64 * split_bp as u64 / 10_000) as Mu;
@@ -711,86 +762,119 @@ impl World {
     ///
     /// Requests are summed per store and substance; only oversubscribed groups are shared
     /// pro-rata. The result is the same as arbitrating every group.
-    fn arbitrate(&mut self, reqs: &mut [Transfer]) {
+    fn arbitrate(&mut self, reqs: &[Req]) {
         let ns = self.chem.substances.len();
         let nc = self.cells.len();
-        let key = |end: End, s: SubstanceId| match end {
-            End::Cell(c) => Some(c * ns + s),
-            End::Entity(e) => Some((nc + e) * ns + s),
-            End::Source(_) | End::Sink(_) => None,
+        let key = |p: u32, s: u16| match p >> TAG_SHIFT {
+            0 => Some((p & INDEX) as usize * ns + s as usize),
+            1 => Some((nc + (p & INDEX) as usize) * ns + s as usize),
+            _ => None,
         };
         let slots = (nc + self.entities.len()) * ns;
+        let mut stage1 = std::mem::take(&mut self.stage1);
+        stage1.clear();
+        stage1.extend(reqs.iter().map(|r| r.requested));
 
         // Stage 1, per origin and substance, against the origin's balance.
-        let mut sum = vec![0u64; slots];
-        for r in reqs.iter() {
+        let mut sum = std::mem::take(&mut self.sums);
+        sum.clear();
+        sum.resize(slots, 0);
+        for r in reqs {
             if let Some(k) = key(r.origin, r.s) {
                 sum[k] += r.requested as u64;
             }
         }
         let mut over: HashMap<usize, Vec<usize>> = HashMap::new();
-        for (i, r) in reqs.iter_mut().enumerate() {
-            match key(r.origin, r.s) {
-                Some(k) if sum[k] > self.store(r.origin).unwrap().amounts[r.s] as u64 => {
-                    over.entry(k).or_default().push(i)
+        for (i, r) in reqs.iter().enumerate() {
+            if let Some(k) = key(r.origin, r.s) {
+                if sum[k] > self.balance(r.origin, r.s) as u64 {
+                    over.entry(k).or_default().push(i);
                 }
-                _ => r.stage1 = r.requested,
             }
         }
         for ks in over.values() {
             let (origin, s) = (reqs[ks[0]].origin, reqs[ks[0]].s);
             let wanted: Vec<u64> = ks.iter().map(|&k| reqs[k].requested as u64).collect();
-            let draws = self.stream(origin, s, philox::ARBITRATE_ORIGIN);
-            let granted = pro_rata(&wanted, self.store(origin).unwrap().amounts[s] as u64, |i| draws.draw(i as u64));
+            let draws = self.stream(unpack(origin), s as usize, philox::ARBITRATE_ORIGIN);
+            let granted = pro_rata(&wanted, self.balance(origin, s) as u64, |i| draws.draw(i as u64));
             for (&k, g) in ks.iter().zip(granted) {
-                reqs[k].stage1 = g as Mu;
+                stage1[k] = g as Mu;
             }
         }
 
         // Stage 2, per destination and substance, against headroom at the start of the step.
+        let mut stage2 = std::mem::take(&mut self.stage2);
+        stage2.clear();
+        stage2.extend_from_slice(&stage1);
         sum.iter_mut().for_each(|x| *x = 0);
-        for r in reqs.iter() {
+        for (r, &g) in reqs.iter().zip(&stage1) {
             if let Some(k) = key(r.dest, r.s) {
-                sum[k] += r.stage1 as u64;
+                sum[k] += g as u64;
             }
         }
         over.clear();
-        for (i, r) in reqs.iter_mut().enumerate() {
-            match key(r.dest, r.s) {
-                Some(k) if sum[k] > self.store(r.dest).unwrap().headroom(r.s) as u64 => {
-                    over.entry(k).or_default().push(i)
+        for (i, r) in reqs.iter().enumerate() {
+            if let Some(k) = key(r.dest, r.s) {
+                if sum[k] > self.headroom(r.dest, r.s) as u64 {
+                    over.entry(k).or_default().push(i);
                 }
-                _ => r.stage2 = r.stage1,
             }
         }
         for ks in over.values() {
             let (dest, s) = (reqs[ks[0]].dest, reqs[ks[0]].s);
-            let wanted: Vec<u64> = ks.iter().map(|&k| reqs[k].stage1 as u64).collect();
-            let draws = self.stream(dest, s, philox::ARBITRATE_DEST);
-            let granted = pro_rata(&wanted, self.store(dest).unwrap().headroom(s) as u64, |i| draws.draw(i as u64));
+            let wanted: Vec<u64> = ks.iter().map(|&k| stage1[k] as u64).collect();
+            let draws = self.stream(unpack(dest), s as usize, philox::ARBITRATE_DEST);
+            let granted = pro_rata(&wanted, self.headroom(dest, s) as u64, |i| draws.draw(i as u64));
             for (&k, g) in ks.iter().zip(granted) {
-                reqs[k].stage2 = g as Mu;
+                stage2[k] = g as Mu;
             }
         }
 
         // Commit.
-        for r in reqs.iter_mut() {
-            r.delivered = r.stage2;
-            r.overflowed = match r.overflow {
-                Some(sink) if self.sinks[sink].accepts(r.s) => r.stage1 - r.stage2,
+        self.last_transfers.clear();
+        for (k, r) in reqs.iter().enumerate() {
+            let s = r.s as usize;
+            let delivered = stage2[k];
+            let overflowed = match r.overflow {
+                u16::MAX => 0,
+                sink if self.sinks[sink as usize].accepts(s) => stage1[k] - stage2[k],
                 _ => 0,
             };
-            let debit = r.delivered + r.overflowed;
-            match r.origin {
-                End::Source(_) => add_elements(&mut self.emitted, &self.chem, r.s, debit),
-                o => self.store_mut(o).amounts[r.s] -= debit,
+            let debit = delivered + overflowed;
+            match unpack(r.origin) {
+                End::Source(_) => add_elements(&mut self.emitted, &self.chem, s, debit),
+                o => self.store_mut(o).amounts[s] -= debit,
             }
-            match r.dest {
-                End::Sink(_) => add_elements(&mut self.absorbed, &self.chem, r.s, r.delivered),
-                d => self.store_mut(d).amounts[r.s] += r.delivered,
+            match unpack(r.dest) {
+                End::Sink(_) => add_elements(&mut self.absorbed, &self.chem, s, delivered),
+                d => self.store_mut(d).amounts[s] += delivered,
             }
-            add_elements(&mut self.absorbed, &self.chem, r.s, r.overflowed);
+            if overflowed > 0 {
+                add_elements(&mut self.absorbed, &self.chem, s, overflowed);
+            }
+            if self.record_transfers {
+                self.last_transfers.push(Transfer {
+                    origin: unpack(r.origin),
+                    dest: unpack(r.dest),
+                    s,
+                    requested: r.requested,
+                    overflow: (r.overflow != u16::MAX).then_some(r.overflow as usize),
+                    stage1: stage1[k],
+                    stage2: stage2[k],
+                    delivered,
+                    overflowed,
+                });
+            }
         }
+        (self.sums, self.stage1, self.stage2) = (sum, stage1, stage2);
+    }
+
+    fn balance(&self, p: u32, s: u16) -> Mu {
+        self.store(unpack(p)).map_or(0, |st| st.amounts[s as usize])
+    }
+
+    fn headroom(&self, p: u32, s: u16) -> Mu {
+        self.store(unpack(p)).map_or(Mu::MAX, |st| st.headroom(s as usize))
     }
 
     /// The Philox stream for arbitrating one store's requests for one substance (spec §10.2).

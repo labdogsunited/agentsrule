@@ -25,6 +25,7 @@ fn main() {
 
     let mut w = dish::world(lineage, seed);
     w.record_events = false;
+    w.record_transfers = false;
     println!("tick,population,births,deaths,body_synthesis_mu,mean_energy_u,mean_body_u,cell_body_u,ms_per_tick");
     let (mut births, mut deaths, mut body) = (0, 0, 0);
     let (mut windows, mut with_births, mut with_flux) = (0, 0, 0);
