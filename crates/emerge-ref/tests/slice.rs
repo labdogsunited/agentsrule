@@ -4,6 +4,7 @@ mod common;
 
 use common::{dish, dish_cell};
 use emerge_ref::chem::ChemError;
+use emerge_ref::philox::{Stream, ARBITRATE_ORIGIN, DOMAIN_CELL};
 use emerge_ref::{Cause, End, Event, Gene, Law, U};
 
 // ---------- chemistry (spec §3.2, §4.4) ----------
@@ -105,9 +106,32 @@ fn takes_from_one_cell_are_shared_pro_rata_with_exact_remainders() {
     }
     w.step().unwrap();
     let got: Vec<_> = w.entities.iter().map(|e| e.store.amounts[d.carbon]).collect();
-    // 1_000 × 700/2_100 = 333.33 each; the leftover µ goes to the first by ID.
-    assert_eq!(got, vec![334, 333, 333]);
+    // 1_000 × 700/2_100 = 333.33 each. The fractions are equal, so the leftover µ goes to
+    // the request with the smallest draw from the cell's stage-1 stream (spec §7.2).
+    let draws = Stream { seed: 0, tick: 0, stream: cell as u32, domain: DOMAIN_CELL, aux: d.carbon as u32, pass: ARBITRATE_ORIGIN };
+    let winner = (0..3).min_by_key(|&i| draws.draw(i)).unwrap() as usize;
+    let mut expected = vec![333, 333, 333];
+    expected[winner] = 334;
+    assert_eq!(got, expected);
     assert_eq!(w.cells[cell].amounts[d.carbon], 0);
+}
+
+#[test]
+fn remainder_ties_do_not_favour_low_ids() {
+    let mut wins = [0; 3];
+    for seed in 0..60 {
+        let (mut w, d) = dish(0, 0);
+        w.seed = seed;
+        let cell = dish_cell(&mut w, &d);
+        w.endow(End::Cell(cell), d.carbon, 1_000);
+        for _ in 0..3 {
+            w.spawn(cell, vec![Gene::Take { s: d.carbon, max: 700, fee: 0 }]);
+        }
+        w.step().unwrap();
+        let i = w.entities.iter().position(|e| e.store.amounts[d.carbon] == 334).unwrap();
+        wins[i] += 1;
+    }
+    assert!(wins.iter().all(|&n| n >= 10), "wins by position: {wins:?}");
 }
 
 #[test]

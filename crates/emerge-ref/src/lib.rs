@@ -11,10 +11,11 @@
 //! transfers, waste venting, disposal before division, newborns acting next tick.
 //!
 //! Not covered yet: minds and signals (every gene fires every tick), senses, movement,
-//! mutation, Philox tie-breaking, derived edges.
+//! mutation, derived edges.
 
 pub mod arbitrate;
 pub mod chem;
+pub mod philox;
 pub mod world;
 
 pub use chem::{Chemistry, Mu, U};

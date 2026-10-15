@@ -1,4 +1,4 @@
-// Reference world for Phase 0 (spec v0.7.3 §15).
+// Reference world for Phase 0 (spec v0.7.4 §15).
 // Also the parser fixture: parse -> fmt -> parse must give the same AST,
 // and `emerge fmt` must leave this file unchanged.
 //

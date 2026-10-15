@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use crate::arbitrate::pro_rata;
 use crate::chem::{ChemError, Chemistry, Mu, ReactionId, SubstanceId};
+use crate::philox::{self, Stream};
 
 pub type SourceId = usize;
 pub type SinkId = usize;
@@ -148,6 +149,7 @@ pub struct World {
     pub max_age: u64,
     pub max_entities: usize,
     pub inventory_cap: Mu,
+    pub seed: u64,
     pub tick: u64,
     pub next_id: u64,
     /// Cumulative µ per element emitted by sources and absorbed by sinks.
@@ -186,6 +188,7 @@ impl World {
             max_age: u64::MAX,
             max_entities: usize::MAX,
             inventory_cap: 100 * crate::chem::U,
+            seed: 0,
             tick: 0,
             next_id: 1,
             emitted: vec![0; n],
@@ -458,7 +461,10 @@ impl World {
         for ((origin, s), ks) in &by_origin {
             let wanted: Vec<u64> = ks.iter().map(|&k| reqs[k].requested as u64).collect();
             let granted = match self.store(*origin) {
-                Some(store) => pro_rata(&wanted, store.amounts[*s] as u64),
+                Some(store) => {
+                    let draws = self.stream(*origin, *s, philox::ARBITRATE_ORIGIN);
+                    pro_rata(&wanted, store.amounts[*s] as u64, |i| draws.draw(i as u64))
+                }
                 None => wanted, // a source has no balance
             };
             for (&k, g) in ks.iter().zip(granted) {
@@ -473,7 +479,10 @@ impl World {
         for ((dest, s), ks) in &by_dest {
             let wanted: Vec<u64> = ks.iter().map(|&k| reqs[k].stage1 as u64).collect();
             let granted = match self.store(*dest) {
-                Some(store) => pro_rata(&wanted, store.headroom(*s) as u64),
+                Some(store) => {
+                    let draws = self.stream(*dest, *s, philox::ARBITRATE_DEST);
+                    pro_rata(&wanted, store.headroom(*s) as u64, |i| draws.draw(i as u64))
+                }
                 None => wanted, // a sink has no cap
             };
             for (&k, g) in ks.iter().zip(granted) {
@@ -498,6 +507,16 @@ impl World {
             }
             add_elements(&mut self.absorbed, &self.chem, r.s, r.overflowed);
         }
+    }
+
+    /// The Philox stream for arbitrating one store's requests for one substance (spec §10.2).
+    fn stream(&self, end: End, s: SubstanceId, pass: u32) -> Stream {
+        let (stream, domain) = match end {
+            End::Cell(c) => (c as u32, philox::DOMAIN_CELL),
+            End::Entity(e) => (self.entities[e].id as u32, philox::DOMAIN_ENTITY),
+            End::Source(_) | End::Sink(_) => unreachable!("not a store"),
+        };
+        Stream { seed: self.seed, tick: self.tick as u32, stream, domain, aux: s as u32, pass }
     }
 
     fn store(&self, end: End) -> Option<&Store> {
