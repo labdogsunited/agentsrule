@@ -1,4 +1,4 @@
-// Reference world for Phase 0 (spec v0.7.2 §15).
+// Reference world for Phase 0 (spec v0.7.3 §15).
 // Also the parser fixture: parse -> fmt -> parse must give the same AST,
 // and `emerge fmt` must leave this file unchanged.
 //
@@ -101,7 +101,7 @@ world Dish {
         ) inputs 1..4 weight -16.0..16.0;
     }
 
-    // World rules run in this order. Each rule holds one kind of effect.
+    // World rules. Each holds one kind of effect, which sets its phase (spec §7.4).
     rule sunlight on cells {
         transfer(light, from: sun, to: self, amount: 2u, overflow: void) @transfer_light;
     }

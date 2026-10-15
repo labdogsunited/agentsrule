@@ -1,8 +1,8 @@
 # The `.em` Language
 
-**Language reference — draft, companion to spec v0.7.2**
+**Language reference — draft, companion to spec v0.7.3**
 
-This document defines the syntax and static rules of `.em` files. `spec-v0.7.2.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
+This document defines the syntax and static rules of `.em` files. `spec-v0.7.3.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
 
 > **Being restructured.** `core.md` now defines the core language. This document's syntax will be rewritten around it; until then, `core.md`'s examples are provisional and this document remains the syntax reference for the creatures application.
 
@@ -239,7 +239,7 @@ source rock : [carbon, nitrate, body];
 sink void : any;
 sink vent : [heat];
 
-waste heat -> void; // vented from every inventory after React
+waste heat -> void; // vented from every inventory after Transform
 remains: void; // where a dead entity's unplaceable substances go
 ```
 
@@ -289,7 +289,7 @@ mind_steps: 1;
 
 `child_offset` is the distance, in space units, behind its parent at which a child is placed (spec §7.5). It defaults to `0.5`. `mind_steps` is how many times per tick every mind updates its signals (spec §5.4). It defaults to `1`.
 
-`per_signal_keep` (optional, default `0mu`) adds `ceil(per_signal_keep × keep)` for each signal in use, so long memory can be made to cost more than reflexes (spec §3.3).
+`per_signal_keep` (optional, default `0mu`) adds `ceil(per_signal_keep × keep)` for each signal in use: a cost of passive retention. Memory kept by recurrent genes is not charged by it (spec §3.3).
 
 `pay` and `becomes` MUST have the same composition, `pay → becomes` MUST be downhill, `vent` MUST accept `becomes` (`E0701`), and `base` MUST be greater than `0mu` (`E0702`).
 
@@ -353,7 +353,7 @@ genesis {
 rule NAME on FIELD { statements }
 ```
 
-A rule runs once per cell of `FIELD`, every tick, in declaration order with the other rules. It reads the state left by the previous rule, and all its effects are committed before the next rule runs (spec §7.4).
+A rule runs once per cell of `FIELD`, every tick. Its kind decides the phase it runs in (spec §7.4): signal rules in Set, transfer rules in Move, reaction rules in Transform. Every rule reads the start-of-tick snapshot for its conditions and signal values, so rules do not see each other's effects within a tick.
 
 ### 7.1 Reading
 
@@ -369,11 +369,11 @@ A rule runs once per cell of `FIELD`, every tick, in declaration order with the 
 | `cap(carbon)` | the rule's field cap for `carbon` |
 | `tick` | the current tick, as `int` |
 
-All reads in a rule see the state at the start of the rule.
+All reads in a rule see the snapshot: the state at the start of the tick.
 
 ### 7.2 The three kinds of rule
 
-**Transfer rules** move substances. All transfers of all cells are arbitrated together (spec §7.2), so statement order inside the rule does not matter.
+**Transfer rules** move substances. All transfers of all cells and all rules, and all entity transfers, are arbitrated together (spec §7.2), so the order of statements and of transfer rules does not matter.
 
 ```
 rule weather on cells {
@@ -388,7 +388,7 @@ rule spread on cells {
 }
 ```
 
-**Reaction rules** run reactions. In each cell they run in statement order, each limited by inputs and output headroom.
+**Reaction rules** run reactions, after all transfers. In each cell they run in declaration order of rules and then of statements, each limited by inputs and output headroom.
 
 ```
 rule rotting on cells {
@@ -396,7 +396,7 @@ rule rotting on cells {
 }
 ```
 
-**Signal rules** assign the field's signal. Every cell reads values from the start of the rule.
+**Signal rules** assign the field's signal. Every cell reads values from the snapshot.
 
 ```
 rule smell on scent {
