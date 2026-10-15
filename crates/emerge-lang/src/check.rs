@@ -5,7 +5,8 @@
 //! - names (§2.3, §8.3): unique within a world, signal names distinct from the world's,
 //!   generated forms reserved;
 //! - seeds (§8.3, §8.1): every signal read is written, and the seed fits its profile;
-//! - upkeep (§6.6): `base` is above `0mu`.
+//! - upkeep (§6.6): `base` is above `0mu`;
+//! - writers (§6.3): a signal field written by several rules declares how writes combine.
 
 use std::collections::HashMap;
 
@@ -29,6 +30,7 @@ pub fn check(file: &File) -> Vec<Problem> {
         match &item.node {
             Item::World(w) => {
                 names(w, &mut out);
+                writers(w, &mut out);
                 chemistry(w, &mut out);
                 upkeep(w, &mut out);
             }
@@ -69,6 +71,40 @@ fn names(w: &World, out: &mut Vec<Problem>) {
                 path: format!("{}.{kind}.{name}", w.name),
                 pos: d.pos,
                 message: format!("`{name}` is already declared in {}.{first}", w.name),
+                fix: None,
+            });
+        }
+    }
+}
+
+/// Whether a block assigns `self.value`, anywhere.
+fn assigns_value(block: &Block) -> bool {
+    block.iter().any(|s| match &s.node {
+        Stmt::Assign { target, .. } => target.root == "self" && target.segs == [Seg::Field("value".into())],
+        Stmt::When { then, otherwise, .. } => assigns_value(then) || otherwise.as_ref().is_some_and(assigns_value),
+        Stmt::For { body, .. } => assigns_value(body),
+        _ => false,
+    })
+}
+
+/// E0305: a signal field that several rules write declares how their writes combine, with
+/// an operator that applies to `f32` values (core.md §3).
+fn writers(w: &World, out: &mut Vec<Problem>) {
+    for d in &w.decls {
+        let WDecl::Field { name, holds: None, combine, .. } = &d.node else { continue };
+        let path = format!("{}.fields.{name}", w.name);
+        if let Some(c) = combine.as_deref().filter(|c| !["sum", "max", "min"].contains(c)) {
+            let message = format!("`combine {c}` does not apply to a signal field; use `sum`, `max` or `min`");
+            out.push(Problem { code: "E0305", path: path.clone(), pos: d.pos, message, fix: None });
+        }
+        let rules: Vec<_> = w.decls.iter().filter(|r| matches!(&r.node, WDecl::Rule { on, body, .. } if on == name && assigns_value(body))).collect();
+        if combine.is_none() && rules.len() > 1 {
+            let WDecl::Rule { name: second, .. } = &rules[1].node else { unreachable!() };
+            out.push(Problem {
+                code: "E0305",
+                path: format!("{}.rules.{second}", w.name),
+                pos: rules[1].pos,
+                message: format!("`{name}` is already written by another rule; declare how writes combine: `field {name} : ... signal combine max;`"),
                 fix: None,
             });
         }

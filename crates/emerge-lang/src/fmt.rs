@@ -217,7 +217,7 @@ fn wdecl(out: &mut Out, i: usize, d: &WDecl) {
             i,
             line(vec![t(format!("substance {name} = {} potential {}", terms(comp), int(*potential)))]),
         ),
-        WDecl::Field { name, kind, holds } => {
+        WDecl::Field { name, kind, holds, combine } => {
             let mut pieces = vec![t(format!("field {name} : "))];
             pieces.extend(call(kind));
             match holds {
@@ -225,7 +225,10 @@ fn wdecl(out: &mut Out, i: usize, d: &WDecl) {
                     pieces.push(t(" holds "));
                     pieces.push(P::G("[", "]", h.iter().map(|(s, a)| vec![t(format!("{s}: {}", lit(a)))]).collect()));
                 }
-                None => pieces.push(t(" signal")),
+                None => pieces.push(t(match combine {
+                    Some(c) => format!(" signal combine {c}"),
+                    None => " signal".into(),
+                })),
             }
             out.layout(i, line(pieces));
         }

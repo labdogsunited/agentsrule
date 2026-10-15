@@ -294,18 +294,19 @@ impl Parser {
                 let name = self.ident()?;
                 self.expect(":")?;
                 let kind = self.call()?;
-                let holds = if self.eat_word("holds") {
+                let (holds, combine) = if self.eat_word("holds") {
                     self.expect("[")?;
-                    Some(self.sep("]", |p| {
+                    let holds = self.sep("]", |p| {
                         let s = p.ident()?;
                         p.expect(":")?;
                         Ok((s, p.amount()?))
-                    })?)
+                    })?;
+                    (Some(holds), None)
                 } else {
                     self.expect_word("signal")?;
-                    None
+                    (None, if self.eat_word("combine") { Some(self.ident()?) } else { None })
                 };
-                WDecl::Field { name, kind, holds }
+                WDecl::Field { name, kind, holds, combine }
             }
             "source" => {
                 let name = self.ident()?;

@@ -77,3 +77,17 @@ fn every_problem_is_reported_not_only_the_first() {
     let codes: Vec<_> = p.iter().map(|p| p.code).collect();
     assert_eq!(codes, ["E0702", "E0605", "E0801"]);
 }
+
+#[test]
+fn a_signal_field_with_several_writers_declares_how_they_combine() {
+    let second = ("rule smell on scent {", "rule wind on scent {\n        self.value = 0.0;\n    }\n\n    rule smell on scent {");
+    let p = problems(&[second]);
+    assert_eq!(p.len(), 1, "{p:?}");
+    assert_eq!((p[0].code, p[0].path.as_str()), ("E0305", "Dish.rules.smell"));
+
+    let combined = ("field scent : Grid(w: 256, h: 256) signal;", "field scent : Grid(w: 256, h: 256) signal combine max;");
+    assert_eq!(problems(&[second, combined]), []);
+
+    let wrong = ("field scent : Grid(w: 256, h: 256) signal;", "field scent : Grid(w: 256, h: 256) signal combine any;");
+    assert_eq!(problems(&[wrong])[0].code, "E0305");
+}

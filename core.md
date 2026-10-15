@@ -2,7 +2,7 @@
 
 **Core specification — draft v0.1**
 
-Status: first draft. This document defines the **core** of the language: what a program is made of and how it runs, independent of any application. Evolving creatures (`spec-v0.7.6.md`) become one application written in this core, using a standard library. Syntax here is provisional and will be merged into `language.md`.
+Status: first draft. This document defines the **core** of the language: what a program is made of and how it runs, independent of any application. Evolving creatures (`spec-v0.7.7.md`) become one application written in this core, using a standard library. Syntax here is provisional and will be merged into `language.md`.
 
 Conventions:
 - **MUST** / **MUST NOT** mark normative requirements.
@@ -114,10 +114,12 @@ derived edge nearby : Critter -- Critter
 - **Base quantities** are declared once per universe: `quantity C; quantity N; quantity E;`. Each has its own ledger.
 - **Compound quantities** are declared as compositions of base quantities: `compound sugar = C + E;`. A conserved slot holds either kind.
 - A slot's **cap** is declared with the slot (`conserved food cap 2_000u;`), at most `2^31 µ`.
-- **Free values written by several rules** in one phase are combined by the slot's declared **combine** operator: `sum` (default), `max`, `min` or `any` (for `bool`). The order of combination is fixed (§6.3), so results are deterministic.
+- **One writer, unless declared.** In a tick, a free value of a node or edge has at most one writer: one rule that contains an assignment to it, anywhere, even inside a `when`. A value that several rules may write declares how their writes combine: `free alive: f32 combine max;`, with `sum`, `max` or `min` for numbers and `any` or `all` for `bool`. A second possible writer without `combine` is a compile error (`E0305`). Writes are combined in a fixed order (laws before owned rules, then by persistent ID), so a `sum` of floats is deterministic. There is no `last`, because it would make declaration order matter.
+- **No write, no change.** A free value that no rule writes in a tick keeps its value. A rule that wants a value reset each tick writes the reset itself.
+- **Signals follow their own rule.** Signals (§5.3) are written by many instances by design: each step a signal becomes `keep × old + Σ contributions`, summed in rule-set order (spec §5.4). This is part of what a signal is, not a default for other free values.
 - **Dynamic free values.** A node kind with owned rules has a growable table of private free values (its **signals**), which its owned rules create and use (§5.3).
 
-Units and the numeric contract (saturating integers, defined rounding, sanitised floats) carry over from spec v0.7.6 §3.5 and §10.1.
+Units and the numeric contract (saturating integers, defined rounding, sanitised floats) carry over from spec v0.7.7 §3.5 and §10.1.
 
 ---
 
@@ -135,14 +137,14 @@ Units and the numeric contract (saturating integers, defined rounding, sanitised
 
 ### 4.2 What a rule reads
 
-Every rule reads the **snapshot** taken at the start of the tick (or at the start of the substep, §6.2):
+Every rule reads the **snapshot** taken at the start of the tick (signals: at the start of the substep, §6.3):
 
 - the values of the node or edge it runs on;
 - along edges: the values of incident edges and of the nodes at their other end, following edge kinds, up to a depth the rule declares (default `1`);
 - reductions over what it reaches: `sum`, `min`, `max`, `mean`, `count`, `argmin`, `argmax`;
 - the tick number.
 
-A rule never reads values written by another rule in the same phase.
+A rule never reads values written by another rule in the same phase, with the exceptions §6.2 lists exactly: signals between substeps, balances while charges, fees and transforms are settled in their fixed orders, and a node's own values in Restructure's conditions.
 
 ### 4.3 What a rule does
 
@@ -236,7 +238,7 @@ rules Seed for Critter {
 
 ### 5.3 Signals
 
-Signals are the node's private, growable table of free values that its owned rules read and write. Each has an evolvable **keep** factor (how much survives each step), and is private to a module or part of its interface depending on which instances use it. These are the internal signals of spec v0.7.6 §5.1, now a core feature of any node kind that owns rules.
+Signals are the node's private, growable table of free values that its owned rules read and write. Each has an evolvable **keep** factor (how much survives each step), and is private to a module or part of its interface depending on which instances use it. These are the internal signals of spec v0.7.7 §5.1, now a core feature of any node kind that owns rules.
 
 ### 5.4 Built-in operations on rules
 
@@ -248,7 +250,7 @@ Signals are the node's private, growable table of free values that its owned rul
 | `mutate(rules, M)` | The node's rules, changed by mutation settings `M` | inside the above, or as a rule effect on the node's own rules, or by a law on any node |
 | `copy(rules)` | The node's rules, unchanged | as `mutate` |
 
-**Mutation settings** are a declared value listing operator rates. The operators are built in: point changes to parameters and choices, rewiring of inputs and outputs, expression flips, and growth (duplicate, insert, delete instances; duplicate, delete, split, merge modules), as in spec v0.7.6 §8.1. New material starts unexpressed.
+**Mutation settings** are a declared value listing operator rates. The operators are built in: point changes to parameters and choices, rewiring of inputs and outputs, expression flips, and growth (duplicate, insert, delete instances; duplicate, delete, split, merge modules), as in spec v0.7.7 §8.1. New material starts unexpressed.
 
 ```
 mutation Drift {
@@ -268,23 +270,57 @@ The compiler guarantees that mutation only ever produces valid rule sets: instan
 
 ### 6.1 Ticks and phases
 
-The universe advances in lockstep **ticks**. The **snapshot** is the state at the start of the tick. Derived edges (§2.3) are computed from it and stay fixed for the whole tick. A rule's reads of anything outside its own node always see the snapshot. Effects are applied in four phases, and this is the only schedule: applications such as evolving creatures (spec v0.7.6 §7) are written in terms of it.
+The universe advances in lockstep **ticks**. The **snapshot** is the state at the start of the tick. Derived edges (§2.3) are computed from it and stay fixed for the whole tick. A rule's reads of anything outside its own node always see the snapshot. Effects are applied in four phases, and this is the only schedule: applications such as evolving creatures (spec v0.7.7 §7) are written in terms of it.
 
 1. **Set.**
    1. Every rule reads the snapshot and computes its free-value writes. They are combined (§3) and applied.
-   2. Each node with owned rules runs its **internal** instances for its substeps (§6.2), on its own signals.
+   2. Each node with owned rules runs its **internal** instances for its substeps (§6.3), on its own signals.
    3. Each node's other owned instances read the resulting signals and form their requests for the later phases. Laws form theirs from the snapshot.
 2. **Move.**
    1. **Charges.** Laws marked `charge` (for example upkeep) are settled first, in declaration order. A node that cannot pay a charge in full pays nothing and is marked **failing**: its owned requests in this and every later phase are dropped, and it takes part in no move as origin or destination. What happens to a failing node next (in creatures, death) is up to the application's laws in Restructure.
    2. **Fees.** Owned requests that carry a fee are charged in rule-set order. A request whose fee its node cannot pay at that point is dropped.
-   3. **Moves.** All remaining move requests, from laws and owned rules alike, are arbitrated together in two stages (by origin, then by destination capacity) against the balances after charges and fees, and applied, as in spec v0.7.6 §7.2.
+   3. **Moves.** All remaining move requests, from laws and owned rules alike, are arbitrated together in two stages (by origin, then by destination capacity) against the balances after charges and fees, and applied, as in spec v0.7.7 §7.2.
    4. **Paid sets.** Free-value writes that carry a fee (such as movement) are applied here, and only if the fee was paid.
 3. **Transform.** In each node and edge, transforms run on the balances after Move, in a fixed order: laws in declaration order, then owned instances in rule-set order, each limited by its inputs and by output capacity. Then laws that release declared waste to a sink run. A sink has no cap, so they cannot conflict.
-4. **Restructure and rewrite.** Deletions come first, each with its route (§7.1), then creations, splits and other graph changes, then rule rewrites, with conflicts settled as in §6.3. Conditions on a node's values (such as "may split when energy ≥ 10u") read its values after Transform. New nodes join the graph at the end of the tick and first act in the next one.
+4. **Restructure and rewrite.** Deletions come first, each with its route (§7.1), then creations, splits and other graph changes, then rule rewrites, each atomic and in the order of §6.4. Conditions on a node's values (such as "may split when energy ≥ 10u") read its conserved values after Transform (§6.2). New nodes join the graph at the end of the tick and first act in the next one.
 
 Because everything in a phase reads the same snapshot and is settled together, the order in which rules are declared does not change what moves where. The only exceptions are charges, which are settled in declaration order, and the declared order of transforms within one node.
 
-### 6.2 Substeps
+### 6.2 What each step reads
+
+This table is authoritative: where it and any other text disagree, the table wins. "Snapshot" is the state at the start of the tick. "Live" means the value as earlier steps of the same phase left it. A write is visible only where the last column says.
+
+| Step | Reads its own node or edge | Reads anything else | Writes | Visible to |
+| :-- | :-- | :-- | :-- | :-- |
+| Derived edges | snapshot | snapshot | edges | the whole tick, unchanged |
+| 1.1 Free-value writes | snapshot | snapshot | free values, combined (§3) | 4 (conditions on the same node); everything from the next tick |
+| 1.2 Substeps | its signals as the previous substep left them; sense readings from the snapshot | snapshot | signals | the next substep, then 1.3 |
+| 1.3 Requests | signals after the last substep; other values from the snapshot | snapshot | requests, with their sizes fixed | 2, 3, 4 |
+| 1.3 Requests of laws | snapshot | snapshot | requests | 2, 3, 4 |
+| 2.1 Charges | live balance, in declaration order | — | the charged quantity; the **failing** mark | 2.2 onward |
+| 2.2 Fees | live balance, in rule-set order | — | the paid quantity; dropped requests | 2.3 onward |
+| 2.3 Moves | balances after 2.2 (origins); free capacity at the start of 2.3 (destinations) | — | conserved values | 3 |
+| 2.4 Paid sets | — | — | free values (such as position) | everything from the next tick; derived edges keep the snapshot until then |
+| 3 Transforms | live balances, in the fixed order of §6.1, each seeing the previous transform's result | — | conserved values | later transforms of the node; 4 |
+| 3 Waste | balances after all transforms | — | conserved values, to sinks | 4 |
+| 4 Conditions | conserved values after 3; free values after 1.1 and 2.4 | snapshot | — | — |
+| 4 Changes | as in §6.4 | — | the graph, rule sets | the next tick; new nodes act from the next tick |
+
+So the only values that change during a phase and are read again within it are: signals between substeps, balances during charges, fees and transforms (each in a fixed order), and a node's own values in Restructure's conditions. Everything else reads the snapshot.
+
+In the creatures application, these rows are senses (1.2 readings), the mind's steps (1.2), intents and reaction speeds (1.3), upkeep (2.1), action fees (2.2), transfers (2.3), turning and moving (2.4), entity and world reactions (3), waste venting (3), and disposal and division (4). The reference runner's tests show each row on a minimal world:
+
+| Row | Test in `crates/emerge-ref/tests` |
+| :-- | :-- |
+| 1.2, 1.3 | `minds.rs`: `each_regulation_gene_adds_one_mind_step_of_delay`, `more_mind_steps_shorten_the_delay`, `keep_sets_how_much_of_a_signal_survives_each_step` |
+| 2.1 | `slice.rs`: `starving_entity_dies_on_the_first_tick_it_cannot_pay`, `dying_entity_does_nothing_else` |
+| 2.2 | `slice.rs`: `fees_are_paid_in_genome_order_and_unaffordable_intents_are_dropped` |
+| 2.3 | `slice.rs`: `world_and_entity_transfers_share_one_arbitration`, `two_origins_into_a_nearly_full_cell_overflow_to_the_sink` |
+| 2.4 | `space.rs`: `moving_wraps_charges_the_requested_distance_and_changes_cell_at_the_end_of_the_tick`, `takes_use_the_snapshot_cell_even_after_moving` |
+| 3 | `slice.rs`: `reactions_chain_in_genome_order_within_a_tick`, `reversed_order_delays_the_chain_by_a_tick`, `world_reactions_run_after_transfers` |
+| 4 | `slice.rs`: `division_checks_the_inventory_after_transform`, `disposal_comes_before_division_and_fills_the_cell_first`, `newborns_first_act_in_the_next_tick` |
+
+### 6.3 Substeps
 
 A node kind may run some of its owned rules several times per tick:
 
@@ -295,17 +331,25 @@ kind Critter {
 }
 ```
 
-Only **internal** instances take part in substeps: those that read and write nothing but their own node's free values and signals. The compiler checks this for every template. Internal instances cannot conflict with anything outside the node, so substeps need no arbitration and stay deterministic. Substeps run in Set (§6.1). All other rules run once per tick, after the last substep, and read its result.
+Only **internal** instances take part in substeps (row 1.2 of §6.2): those that read and write nothing but their own node's free values and signals. The compiler checks this for every template. Internal instances cannot conflict with anything outside the node, so substeps need no arbitration and stay deterministic. Substeps run in Set (§6.1). All other rules run once per tick, after the last substep, and read its result.
 
-### 6.3 Conflicts in restructuring
+### 6.4 Restructuring
 
-Some graph changes compete: two rules relinking to a node that accepts only one more edge, a rule rewiring an edge another rule deletes. They are settled in a fixed order:
+Restructuring applies **changes**: deleting a node or edge, creating a node (`create`, `copying`, `split`), linking, unlinking and rewiring an edge, and rewriting a rule set. Each change is **atomic**: it happens completely or not at all, and the graph satisfies every cardinality constraint after each change.
+
+**Order.** Changes are applied one at a time, in this order, each against the graph the previous ones left:
 
 1. deletions before other changes;
 2. laws before owned rules;
 3. then by the persistent ID of the rule's node or edge, with ties broken by Philox keyed by the contested element.
 
-A change that would violate a cardinality constraint after that order is applied is dropped.
+**Deleting a node** is one change that also deletes every persistent edge incident to it. The conserved contents of the node and of those edges leave along their routes (§7.1), in this order: the node's own slots, then its edges' slots, by edge ID. A route delivers into its destination up to the destination's free capacity, and the rest goes to the route's **fallback sink**, which every route MUST name (`on delete Critter { move all to: at else: void; }`; in creatures, `remains`). If the destination is itself deleted in the same tick, the route delivers to that node's route instead; a chain that returns to a node already on it ends at the fallback sink. A node whose required edge (`exactly 1`) loses its other end must say what happens in its kind (`on lost at { delete self; }` or `rewire at to: ...`); the compiler requires one for every required edge kind whose target kind can be deleted.
+
+**Creating a node** (`create`, `copying`, `split`) is one change that creates the node **together with every edge its kind requires**: by default the new node gets edges to the same nodes as its parent's required edges, and the rule may name others. If any of them cannot be made (the target would exceed its cardinality, or was deleted this tick), or the universe is at its node limit, the change is **rejected**: no node, no edges, and for `split` no conserved values move. A split divides the parent's slots as its rule says (`floor`, with the remainder staying with the parent), and the child's slots must have the capacity to hold its share, or the split is rejected.
+
+**Linking, unlinking and rewiring** are rejected if the result would break a cardinality constraint. An edge that is deleted carries its contents along its kind's route, as a node does. A rewire of an edge deleted earlier in the order is rejected.
+
+**Fees.** Fees for restructuring are attempt fees: they are paid in Move (2.2) and are not refunded when the change is rejected, just as an attempt to move pays even when arbitration grants nothing. The engine reports a rejected change, with its reason, in the tick's events, so a world's author can see why an organism failed to split.
 
 ---
 
@@ -320,8 +364,8 @@ For every base quantity, after every tick:
 ```
 
 - **Boundaries.** Sources emit and sinks absorb. Only laws may use them.
-- **Transforms balance.** A transform MUST conserve every base quantity, and is put into canonical form before use (spec v0.7.6 §4.4). A transform may name a **catalyst** that raises its rate without being consumed (spec v0.7.6 §4.5). The catalyst is outside the balance.
-- **Deletion needs a route.** When a node or edge is deleted, its conserved contents MUST go somewhere: a law-declared route (`on delete Critter { move all to: at; }`) or a sink. The compiler checks that every conserved slot of every deletable kind has a route.
+- **Transforms balance.** A transform MUST conserve every base quantity, and is put into canonical form before use (spec v0.7.7 §4.4). A transform may name a **catalyst** that raises its rate without being consumed (spec v0.7.7 §4.5). The catalyst is outside the balance.
+- **Deletion needs a route.** When a node or edge is deleted, its conserved contents MUST go somewhere: a law-declared route with a fallback sink (`on delete Critter { move all to: at else: void; }`) or a sink. The compiler checks that every conserved slot of every deletable kind has a route. §6.4 says how routes into full or deleted destinations resolve.
 - **Splitting divides, never copies.** A `split` divides conserved contents between parent and child. `copying` gives the child nothing; anything it starts with must be moved to it.
 
 ### 7.2 Measures that must decrease
@@ -335,7 +379,7 @@ every transform decreases potential by at least 1;
 
 A transform whose outputs have a measure greater than its inputs' measure minus that amount is rejected.
 
-This is the dissipation law of spec v0.7.6 §3.2, now a general mechanism. A world may declare several measures or none.
+This is the dissipation law of spec v0.7.7 §3.2, now a general mechanism. A world may declare several measures or none.
 
 ### 7.3 Declared restrictions
 
@@ -351,7 +395,7 @@ A world that declares no edge values gets no edge values; a world that declares 
 
 ## 8. What moves out of the core
 
-| Today (spec v0.7.6) | Becomes |
+| Today (spec v0.7.7) | Becomes |
 | :-- | :-- |
 | Fields | Standard library: a grid of nodes with values |
 | Continuous 2D space and positions | Standard library: node values for position, plus a derived `nearby` edge kind (§2.3) |

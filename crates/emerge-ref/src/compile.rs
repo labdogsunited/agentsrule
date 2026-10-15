@@ -391,7 +391,7 @@ impl<'a> Compiler<'a> {
         let wrap = boolean(arg(&space, "wrap", &sp)?, &sp)?;
         for d in &w.decls {
             self.at.set(d.pos);
-            let WDecl::Field { name, kind, holds } = &d.node else { continue };
+            let WDecl::Field { name, kind, holds, .. } = &d.node else { continue };
             let path = self.path(&format!("fields.{name}"));
             let Some(holds) = holds else {
                 self.left_out(path.clone(), format!("signal field `{name}` is not run"));

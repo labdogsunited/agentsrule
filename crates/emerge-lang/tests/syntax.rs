@@ -126,3 +126,9 @@ lineage L in Dish {
 "#;
     assert_eq!(fmt(src), src);
 }
+
+#[test]
+fn a_signal_field_may_declare_how_writes_combine() {
+    let src = "world W {\n    field scent : Grid(w: 8, h: 8) signal combine max;\n}\n";
+    assert_eq!(fmt(src), src);
+}

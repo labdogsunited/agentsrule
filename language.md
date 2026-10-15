@@ -1,8 +1,8 @@
 # The `.em` Language
 
-**Language reference — draft, companion to spec v0.7.6**
+**Language reference — draft, companion to spec v0.7.7**
 
-This document defines the syntax and static rules of `.em` files. `spec-v0.7.6.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
+This document defines the syntax and static rules of `.em` files. `spec-v0.7.7.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
 
 > **Being restructured.** `core.md` now defines the core language. This document's syntax will be rewritten around it; until then, `core.md`'s examples are provisional and this document remains the syntax reference for the creatures application.
 
@@ -79,7 +79,7 @@ self true false and or not
 
 ```
 world lineage ruleset view chart explore patch
-element substance potential reaction field holds signal source sink waste
+element substance potential reaction field holds signal combine source sink waste
 senses sense actions action cost per requires
 rule on let when else for in genesis
 profile mutation seed genome module regulation regulate gene keep inputs weight
@@ -231,6 +231,8 @@ field scent : Grid(w: 256, h: 256) signal;
 ```
 
 A substance field lists each substance with its cap. A signal field holds one `f32` per cell, read and written as `self.value`. A field cannot hold both.
+
+A signal field written by more than one rule MUST declare how their writes combine, `field scent : Grid(w: 256, h: 256) signal combine max;`, with `sum`, `max` or `min` (`E0305`). With one writer, no declaration is needed. A cell no rule writes in a tick keeps its value (`core.md` §3).
 
 ### 6.4 Boundaries, waste and remains
 
@@ -689,7 +691,7 @@ element     := 'element' IDENT ';'
 substance   := 'substance' IDENT '=' comp 'potential' '-'? INT ';'
 comp        := cterm ('+' cterm)*
 cterm       := INT? IDENT
-field       := 'field' IDENT ':' call ( 'holds' '[' sep(IDENT ':' AMOUNT) ']' | 'signal' ) ';'
+field       := 'field' IDENT ':' call ( 'holds' '[' sep(IDENT ':' AMOUNT) ']' | 'signal' ( 'combine' IDENT )? ) ';'
 source      := 'source' IDENT ':' '[' sep(IDENT) ']' ';'
 sink        := 'sink' IDENT ':' ( 'any' | '[' sep(IDENT) ']' ) ';'
 waste       := 'waste' IDENT '->' IDENT ';'
@@ -896,6 +898,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E0116` | a required declaration or argument is missing |
 | `E0203`–`E0205` | values: out of their type's range (`E0204`: a fraction above `10_000bp`, an amount that does not fit `f32` exactly, §3.5 of the spec), or of the wrong kind (`E0205`) |
 | `E0301` | an effect not allowed in this context |
+| `E0305` | a value written by several rules without a declared `combine`, or with one that does not apply to it |
 | `E0401`–`E0406` | chemistry |
 | `E0501`, `E0502` | menus: a sense, action or regulation kind not on the world's menu; an argument that is not one of its parameters |
 | `E0601`, `E0602`, `E0605` | genomes: a parameter, input count or weight outside the menu's range; a reaction outside the reaction space's `include` list; a signal read but never written |
