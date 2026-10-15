@@ -9,17 +9,22 @@
 //! item's path (`language.md` §14); `--json` prints one JSON object per line. It exits with
 //! 1 if there is an error.
 //!
-//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S]`
+//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained]`
 //! compiles the world, seeds it with the lineages and runs it on the CPU reference runner,
 //! auditing the ledger every `--every` ticks. It prints a CSV row per window and a final
-//! `#` summary line (spec §16, exit criteria 7 and 8). A world with parts the runner cannot
+//! `#` summary line (spec §16, exit criteria 7–9). Children mutate (spec §8.1) unless
+//! `--mutation off`. With `--flux S`, `carriers` is the fraction of entities with an active
+//! reaction gene that makes `S`, and the summary's `sustained_at` is the first tick at which
+//! flux has been above zero with at least 10% carriers for 10_000 ticks (exit test 9);
+//! `--stop-when-sustained` ends the run there. A world with parts the runner cannot
 //! run yet (signal fields and their rules) is refused unless `--partial` is given. `--flux S` reports the µ of `S`
-//! produced by entity reactions. Mutation is not implemented, so `--mutation on` is refused.
+//! produced by entity reactions.
 
 use std::process::ExitCode;
 use std::time::Instant;
 
-use emerge_ref::compile::compile;
+use emerge_ref::compile::{compile, Options};
+use emerge_ref::Gene;
 use emerge_ref::World;
 
 fn main() -> ExitCode {
@@ -35,7 +40,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained]");
     ExitCode::from(2)
 }
 
@@ -96,7 +101,8 @@ fn check(args: &[String]) -> ExitCode {
                 let diag = |e: emerge_ref::compile::Error, severity| Diagnostic {
                     code: e.code, severity, path: e.path, line: e.pos.line, col: e.pos.col, message: e.message, fix: None,
                 };
-                match emerge_ref::compile::build(&file, &lineages, 1, true) {
+                let options = Options { seed: 1, allow_partial: true, mutation: true };
+                match emerge_ref::compile::build(&file, &lineages, options) {
                     Err(e) => out.push(diag(e, "error")),
                     Ok(c) => out.extend(c.partial.into_iter().map(|e| diag(e, "warning"))),
                 }
@@ -153,11 +159,12 @@ fn run(args: &[String]) -> ExitCode {
     let Some(path) = args.first() else { return usage() };
     let (mut lineages, mut flux_name) = (String::new(), None);
     let (mut seed, mut ticks, mut every) = (1u64, 50_000u64, 1_000u64);
-    let mut partial = false;
+    let (mut partial, mut mutation, mut stop) = (false, true, false);
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
-        if flag == "--partial" {
-            partial = true;
+        if flag == "--partial" || flag == "--stop-when-sustained" {
+            partial |= flag == "--partial";
+            stop |= flag == "--stop-when-sustained";
             continue;
         }
         let value = rest.next().map(String::as_str).unwrap_or("");
@@ -165,11 +172,7 @@ fn run(args: &[String]) -> ExitCode {
         match (flag.as_str(), number(value)) {
             ("--lineages", _) => lineages = value.to_string(),
             ("--flux", _) => flux_name = Some(value.to_string()),
-            ("--mutation", _) if value == "off" => {}
-            ("--mutation", _) => {
-                eprintln!("--mutation {value}: mutation is not implemented; every run is `--mutation off`");
-                return ExitCode::from(2);
-            }
+            ("--mutation", _) if value == "off" || value == "on" => mutation = value == "on",
             ("--seed", Some(n)) => seed = n,
             ("--ticks", Some(n)) => ticks = n,
             ("--every", Some(n)) if n > 0 => every = n,
@@ -181,7 +184,7 @@ fn run(args: &[String]) -> ExitCode {
     if names.is_empty() {
         return usage();
     }
-    let compiled = match compile(&src, &names, seed, partial) {
+    let compiled = match compile(&src, &names, Options { seed, allow_partial: partial, mutation }) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("{path}: {e}");
@@ -189,10 +192,10 @@ fn run(args: &[String]) -> ExitCode {
         }
     };
     for s in &compiled.notes {
-        eprintln!("note: not used in this run: {s}");
+        eprintln!("note: {s}");
     }
     for s in &compiled.partial {
-        eprintln!("warning: partial run, left out: {s}");
+        eprintln!("left out of this partial run: {s}");
     }
     let mut w = compiled.world;
     let find = |n: &str| w.chem.substances.iter().position(|s| s.name == n);
@@ -209,9 +212,12 @@ fn run(args: &[String]) -> ExitCode {
     w.record_transfers = false;
 
     let (pay_name, flux_label) = (&w.chem.substances[pay].name, flux_name.as_deref().unwrap_or("none"));
-    println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,ms_per_tick");
+    println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,carriers,mean_active_genes,ms_per_tick");
     let (mut births, mut deaths, mut made) = (0, 0, 0);
     let (mut windows, mut with_births, mut with_flux) = (0, 0, 0);
+    // Exit test 9: flux above zero, carried by at least 10% of the population, for 10_000
+    // ticks in a row. `sustained` is the first tick at which that holds.
+    let (mut streak, mut sustained) = (0u64, None);
     let mut clock = Instant::now();
     while w.tick < ticks && !w.entities.is_empty() {
         w.run_tick();
@@ -230,25 +236,43 @@ fn run(args: &[String]) -> ExitCode {
                 ),
                 None => (0, 0.0, 0.0),
             };
+            let carriers = flux.map_or(0.0, |s| w.entities.iter().filter(|e| makes(&w, e, s)).count() as f64 / pop);
+            let genes = w.entities.iter().map(|e| e.genome.active_genes()).sum::<usize>() as f64 / pop;
             println!(
-                "{},{},{},{},{},{:.2},{:.2},{:.3},{:.1}",
+                "{},{},{},{},{},{:.2},{:.2},{:.3},{:.4},{:.2},{:.1}",
                 w.tick, w.entities.len(), w.births - births, w.deaths - deaths, now - made,
-                mean(pay), mean_flux, cell_flux,
+                mean(pay), mean_flux, cell_flux, carriers, genes,
                 clock.elapsed().as_secs_f64() * 1_000.0 / every as f64,
             );
             windows += 1;
             with_births += (w.births > births) as u64;
             with_flux += (now > made) as u64;
+            streak = if now > made && carriers >= 0.10 { streak + every } else { 0 };
+            if streak >= 10_000 && sustained.is_none() {
+                sustained = Some(w.tick);
+            }
             (births, deaths, made) = (w.births, w.deaths, now);
             clock = Instant::now();
+            if stop && sustained.is_some() {
+                break;
+            }
         }
     }
-    let survived = !w.entities.is_empty() && w.tick >= ticks;
+    let survived = !w.entities.is_empty() && (w.tick >= ticks || sustained.is_some());
+    let sustained = sustained.map_or("never".to_string(), |t| t.to_string());
     println!(
-        "# lineages={lineages} seed={seed} ticks={} survived={survived} windows={windows} with_births={with_births} with_flux={with_flux}",
+        "# lineages={lineages} seed={seed} mutation={} ticks={} survived={survived} windows={windows} with_births={with_births} with_flux={with_flux} sustained_at={sustained}",
+        if mutation { "on" } else { "off" },
         w.tick
     );
     ExitCode::SUCCESS
+}
+
+/// Whether an entity has an active reaction gene that produces `s`.
+fn makes(w: &World, e: &emerge_ref::Entity, s: usize) -> bool {
+    e.genome.slots.iter().enumerate().any(|(g, slot)| {
+        e.genome.active(g) && matches!(slot.gene, Gene::React { reaction, .. } if w.chem.reactions[reaction].outputs.iter().any(|o| o.0 == s))
+    })
 }
 
 /// µ of `s` produced by entity reactions so far.

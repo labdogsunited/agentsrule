@@ -119,6 +119,8 @@ pub struct Entity {
     pub signals: Vec<f32>,
     /// Ticks completed.
     pub age: u64,
+    /// Index into `World::variation`; children inherit it.
+    pub lineage: usize,
 }
 
 /// World rules. Each runs on every cell; its kind sets its phase (spec §7.4).
@@ -269,6 +271,12 @@ pub struct World {
     /// The transfers of the last tick, in request order, if `record_transfers`.
     pub record_transfers: bool,
     pub last_transfers: Vec<Transfer>,
+    /// Variation at division (spec §8.1): off for control runs (`--mutation off`).
+    pub mutation: bool,
+    /// Each lineage's rates and capacity, by `Entity::lineage`; `None` never mutates.
+    pub variation: Vec<Option<(crate::mutate::Rates, crate::mutate::Capacity)>>,
+    /// What mutation may produce.
+    pub menus: crate::mutate::Menus,
     /// Buffers reused from tick to tick, so long runs do not allocate megabytes per tick.
     requests: Vec<Req>,
     sums: Vec<u64>,
@@ -320,6 +328,9 @@ impl World {
             entity_extent: vec![0; reactions],
             record_transfers: true,
             last_transfers: Vec::new(),
+            mutation: false,
+            variation: Vec::new(),
+            menus: crate::mutate::Menus::default(),
             requests: Vec::new(),
             sums: Vec::new(),
             stage1: Vec::new(),
@@ -384,6 +395,7 @@ impl World {
             genome,
             signals,
             age: 0,
+            lineage: 0,
         });
         self.next_id += 1;
         self.entities.len() - 1
@@ -649,9 +661,23 @@ impl World {
                 }
                 None => (parent.pos, parent.cell),
             };
-            let genome = parent.genome.clone();
+            let genome = match self.variation.get(parent.lineage) {
+                Some(Some((rates, cap))) if self.mutation => {
+                    let stream = philox::Stream {
+                        seed: self.seed,
+                        tick: tick as u32,
+                        stream: id as u32,
+                        domain: philox::DOMAIN_ENTITY,
+                        aux: 0,
+                        pass: philox::MUTATE,
+                    };
+                    crate::mutate::mutate(&parent.genome, rates, cap, &self.menus, &mut crate::mutate::Draws::new(stream))
+                }
+                _ => parent.genome.clone(),
+            };
             let signals = vec![0.0; genome.keep.len()];
-            children.push(Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0 });
+            let lineage = parent.lineage;
+            children.push(Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0, lineage });
             living += 1;
         }
         // 4.3 Survivors age and move to the cell under them; newborns join at the end of the

@@ -4,7 +4,7 @@
 //! test showed the compiled worlds matched it exactly at genesis and over 300 ticks. They
 //! change only if the world, the compiler or the runner's behaviour changes.
 
-use emerge_ref::compile::compile;
+use emerge_ref::compile::{compile, Options};
 use emerge_ref::World;
 
 const DISH: &str = include_str!("../../../examples/dish.em");
@@ -25,7 +25,7 @@ fn fnv(s: &str) -> u64 {
 }
 
 fn after_100_ticks(lineage: &str) -> (usize, u64, u64, u64) {
-    let mut w = compile(DISH, &[lineage], 7, true).unwrap_or_else(|e| panic!("{e}")).world;
+    let mut w = compile(DISH, &[lineage], Options { seed: 7, allow_partial: true, mutation: false }).unwrap_or_else(|e| panic!("{e}")).world;
     for _ in 0..100 {
         w.step().unwrap();
     }
@@ -44,10 +44,10 @@ fn builder_runs_as_recorded() {
 
 #[test]
 fn a_partial_run_must_be_allowed() {
-    let e = compile(DISH, &["Drifter"], 1, false).err().expect("scent and smell are not run");
+    let e = compile(DISH, &["Drifter"], Options { seed: 1, allow_partial: false, mutation: false }).err().expect("scent and smell are not run");
     assert!(e.message.contains("signal field `scent`") && e.message.contains("rule `smell`"), "{e}");
 
-    let c = compile(DISH, &["Drifter"], 1, true).unwrap();
+    let c = compile(DISH, &["Drifter"], Options { seed: 1, allow_partial: true, mutation: false }).unwrap();
     let partial: Vec<_> = c.partial.iter().map(|e| (e.code, e.path.as_str(), e.pos.line)).collect();
     assert_eq!(partial, [("W1001", "Dish.fields.scent", line_of("field scent")), ("W1001", "Dish.rules.smell", line_of("rule smell"))]);
     for s in ["Dish.reaction_space", "Drifter.mutation", "ruleset Tinker", "view Main", "chart Health"] {
@@ -63,7 +63,7 @@ fn line_of(needle: &str) -> usize {
 /// changed to `to`, and returns the error.
 fn rejected(from: &str, to: &str) -> emerge_ref::compile::Error {
     assert!(DISH.contains(from), "`{from}` is not in dish.em");
-    compile(&DISH.replacen(from, to, 1), &["Drifter"], 1, true).err().unwrap_or_else(|| panic!("`{to}` was accepted"))
+    compile(&DISH.replacen(from, to, 1), &["Drifter"], Options { seed: 1, allow_partial: true, mutation: false }).err().unwrap_or_else(|| panic!("`{to}` was accepted"))
 }
 
 #[test]
@@ -118,18 +118,18 @@ fn genesis_must_draw_from_sources_that_emit_and_fit_caps() {
 #[test]
 fn unsupported_or_unknown_things_are_errors() {
     let src = DISH.replace("action take(s: light, max: 1u) @eat_light;", "action emit(sig: scent, max: 1.0) @eat_light;");
-    let e = compile(&src, &["Drifter"], 1, true).err().expect("emit is not supported yet");
+    let e = compile(&src, &["Drifter"], Options { seed: 1, allow_partial: true, mutation: false }).err().expect("emit is not supported yet");
     assert!(e.message.contains("emit"), "{e}");
     assert_eq!(e.path, "Drifter.seed.metabolism@eat_light");
 
     let src = DISH.replace("sense inventory(s: body) -> fullness", "sense inventory(s: gold) -> fullness");
-    let e = compile(&src, &["Drifter"], 1, true).err().unwrap();
+    let e = compile(&src, &["Drifter"], Options { seed: 1, allow_partial: true, mutation: false }).err().unwrap();
     assert_eq!(e.message, "unknown substance `gold`");
 
     let src = DISH.replace("reaction rot : body -> carbon + nitrate;", "reaction rot : carbon + nitrate -> body;");
-    let e = compile(&src, &["Drifter"], 1, true).err().unwrap();
+    let e = compile(&src, &["Drifter"], Options { seed: 1, allow_partial: true, mutation: false }).err().unwrap();
     assert_eq!((e.code, e.pos.line), ("E0402", line_of("reaction rot :")), "{e}");
 
-    let e = compile(DISH, &["Nobody"], 1, true).err().unwrap();
+    let e = compile(DISH, &["Nobody"], Options { seed: 1, allow_partial: true, mutation: false }).err().unwrap();
     assert_eq!(e.message, "no such lineage");
 }

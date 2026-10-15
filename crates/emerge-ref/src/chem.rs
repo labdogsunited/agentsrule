@@ -17,6 +17,11 @@ pub struct Substance {
     pub potential: i64,
 }
 
+/// One side of a reaction: `(substance, coefficient)` terms in substance order.
+pub type Side = Vec<(SubstanceId, u32)>;
+/// A reaction's inputs and outputs.
+pub type Side2 = (Side, Side);
+
 #[derive(Debug, Clone)]
 pub struct Reaction {
     pub name: String,
@@ -72,6 +77,57 @@ impl Chemistry {
         self.check(&r)?;
         self.reactions.push(r);
         Ok(self.reactions.len() - 1)
+    }
+
+    /// Every canonical reaction with at most `max_inputs` and `max_outputs` distinct
+    /// substances, coefficients up to `max_coeff`, that balances and is downhill (spec §4.3),
+    /// in lexicographic order of `(inputs, outputs)` as `(substance, coefficient)` lists.
+    /// Neighbouring entries share their leading terms, so they are similar reactions.
+    pub fn balanced(&self, max_inputs: usize, max_outputs: usize, max_coeff: u32) -> Vec<Side2> {
+        let sides = |max: usize| {
+            let mut out: Vec<Side> = Vec::new();
+            let mut stack: Vec<Side> = vec![vec![]];
+            while let Some(side) = stack.pop() {
+                if !side.is_empty() {
+                    out.push(side.clone());
+                }
+                if side.len() < max {
+                    let from = side.last().map_or(0, |t| t.0 + 1);
+                    for s in from..self.substances.len() {
+                        for c in 1..=max_coeff {
+                            let mut next = side.clone();
+                            next.push((s, c));
+                            stack.push(next);
+                        }
+                    }
+                }
+            }
+            out.sort();
+            out
+        };
+        let (ins, outs) = (sides(max_inputs), sides(max_outputs));
+        let mut found = Vec::new();
+        for i in &ins {
+            for o in &outs {
+                let r = Reaction { name: String::new(), inputs: i.clone(), outputs: o.clone() };
+                if self.check(&r).is_ok() {
+                    found.push((i.clone(), o.clone()));
+                }
+            }
+        }
+        found
+    }
+
+    /// `light + carbon -> sugar`.
+    pub fn formula(&self, inputs: &[(SubstanceId, u32)], outputs: &[(SubstanceId, u32)]) -> String {
+        let side = |terms: &[(SubstanceId, u32)]| {
+            terms
+                .iter()
+                .map(|&(s, c)| if c == 1 { self.substances[s].name.clone() } else { format!("{c} {}", self.substances[s].name) })
+                .collect::<Vec<_>>()
+                .join(" + ")
+        };
+        format!("{} -> {}", side(inputs), side(outputs))
     }
 
     pub fn element(&self, name: &str) -> ElementId {

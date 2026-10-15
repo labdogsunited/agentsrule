@@ -23,8 +23,9 @@ use std::cell::Cell;
 
 use emerge_lang::ast::{self, BinOp, Expr, GeneBody, LDecl, Lit, MenuItem, Pos, Seg, Stmt, Value, WDecl};
 
-use crate::chem::{Chemistry, Mu, ReactionId, SubstanceId};
+use crate::chem::{Chemistry, Mu, ReactionId, Side, Side2, SubstanceId};
 use crate::mind::{Curve, Gene, Genome, Input, Sense, Slot, ONE};
+use crate::mutate::{ActionMenu, Capacity, Menus, Rates, WeighMenu};
 use crate::philox::{self, Stream};
 use crate::world::{End, Law, Sink, SinkId, SourceId, Space, Upkeep, World};
 
@@ -44,7 +45,8 @@ impl std::fmt::Display for Error {
         if self.pos.line > 0 {
             write!(f, "{}:{}: ", self.pos.line, self.pos.col)?;
         }
-        write!(f, "error[{}]", self.code)?;
+        let severity = if self.code.starts_with('W') { "warning" } else { "error" };
+        write!(f, "{severity}[{}]", self.code)?;
         if !self.path.is_empty() {
             write!(f, ": {}", self.path)?;
         }
@@ -61,15 +63,29 @@ pub struct Compiled {
     pub partial: Vec<Error>,
 }
 
+/// How to build a world.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Options {
+    pub seed: u64,
+    /// Leave out, and list, parts of the world the runner cannot run, instead of failing.
+    pub allow_partial: bool,
+    /// Vary children at division (spec §8.1). Off is `--mutation off`.
+    pub mutation: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options { seed: 1, allow_partial: false, mutation: false }
+    }
+}
+
 /// Parses and checks `src`, then builds its world seeded with `lineages`, in that order.
-/// With `allow_partial`, parts of the world the runner cannot run are left out and listed
-/// instead of being an error.
-pub fn compile(src: &str, lineages: &[&str], seed: u64, allow_partial: bool) -> Result<Compiled, Error> {
+pub fn compile(src: &str, lineages: &[&str], options: Options) -> Result<Compiled, Error> {
     let file = emerge_lang::parse(src).map_err(|d| Error { code: d.code, pos: Pos { line: d.line, col: d.col }, path: String::new(), message: d.message })?;
     if let Some(p) = emerge_lang::check::check(&file).into_iter().next() {
         return Err(Error { code: p.code, pos: p.pos, path: p.path, message: p.message });
     }
-    build(&file, lineages, seed, allow_partial)
+    build(&file, lineages, options)
 }
 
 /// The names of the lineages declared in a file, in order.
@@ -81,9 +97,9 @@ pub fn lineage_names(file: &ast::File) -> Vec<&str> {
 }
 
 /// Builds the world of a parsed file whose chemistry `emerge_lang::check` has accepted.
-pub fn build(file: &ast::File, lineages: &[&str], seed: u64, allow_partial: bool) -> Result<Compiled, Error> {
+pub fn build(file: &ast::File, lineages: &[&str], options: Options) -> Result<Compiled, Error> {
     let at = Cell::new(Pos::default());
-    build_at(file, lineages, seed, allow_partial, &at).map_err(|mut e| {
+    build_at(file, lineages, options, &at).map_err(|mut e| {
         if e.pos.line == 0 {
             e.pos = at.get();
         }
@@ -91,7 +107,7 @@ pub fn build(file: &ast::File, lineages: &[&str], seed: u64, allow_partial: bool
     })
 }
 
-fn build_at(file: &ast::File, lineages: &[&str], seed: u64, allow_partial: bool, at: &Cell<Pos>) -> Result<Compiled, Error> {
+fn build_at(file: &ast::File, lineages: &[&str], options: Options, at: &Cell<Pos>) -> Result<Compiled, Error> {
     let worlds: Vec<&ast::Node<ast::Item>> = file.items.iter().filter(|i| matches!(i.node, ast::Item::World(_))).collect();
     let [item] = worlds[..] else {
         return err("E1001", "", format!("emerge-ref runs files with one world; this one has {}", worlds.len()));
@@ -99,15 +115,21 @@ fn build_at(file: &ast::File, lineages: &[&str], seed: u64, allow_partial: bool,
     let ast::Item::World(w) = &item.node else { unreachable!() };
     at.set(item.pos);
     let mut c = Compiler::new(w, at)?;
-    c.world.seed = seed;
+    c.world.seed = options.seed;
+    c.world.mutation = options.mutation;
+    c.mutation = options.mutation;
+    c.rulesets = file.items.iter().filter_map(|i| match &i.node {
+        ast::Item::Ruleset(r) => Some(r.name.clone()),
+        _ => None,
+    }).collect();
     for item in &file.items {
         match &item.node {
             ast::Item::World(_) | ast::Item::Lineage(_) => {}
-            ast::Item::Ruleset(r) => c.notes.push(format!("ruleset {}", r.name)),
-            ast::Item::View(v) => c.notes.push(format!("view {}", v.name)),
-            ast::Item::Chart(ch) => c.notes.push(format!("chart {}", ch.name)),
-            ast::Item::Explore(e) => c.notes.push(format!("explore {}", e.name)),
-            ast::Item::Patch(p) => c.notes.push(format!("patch {} base {}", p.target, p.base)),
+            ast::Item::Ruleset(_) => {}
+            ast::Item::View(v) => c.notes.push(format!("view {}: not used by a run", v.name)),
+            ast::Item::Chart(ch) => c.notes.push(format!("chart {}: not used by a run", ch.name)),
+            ast::Item::Explore(e) => c.notes.push(format!("explore {}: not used by a run", e.name)),
+            ast::Item::Patch(p) => c.notes.push(format!("patch {} base {}: not applied by a run", p.target, p.base)),
         }
     }
     for name in lineages {
@@ -123,7 +145,7 @@ fn build_at(file: &ast::File, lineages: &[&str], seed: u64, allow_partial: bool,
         }
         c.lineage(l)?;
     }
-    if !allow_partial && !c.partial.is_empty() {
+    if !options.allow_partial && !c.partial.is_empty() {
         at.set(item.pos);
         return err(
             "E1002",
@@ -175,6 +197,10 @@ struct Compiler<'a> {
     /// The reaction space's rate limit for gene reactions.
     max_rate: Option<Mu>,
     included: Option<Vec<ReactionId>>,
+    /// The reaction space in mutation order, with each reaction's maximum gene rate.
+    space: Vec<(ReactionId, Mu)>,
+    mutation: bool,
+    rulesets: Vec<String>,
 }
 
 fn err<T>(code: &'static str, path: impl Into<String>, message: impl Into<String>) -> Result<T, Error> {
@@ -192,6 +218,7 @@ impl<'a> Compiler<'a> {
             _ => None,
         }).collect();
         let mut chem = Chemistry::new(&elements);
+        // `reaction_space` below adds generated reactions.
         let mut substances = HashMap::new();
         let mut reactions = HashMap::new();
         for d in &w.decls {
@@ -285,6 +312,8 @@ impl<'a> Compiler<'a> {
         if let Some(s) = (0..chem.substances.len()).find(|&s| !sinks[remains].accepts(s)) {
             return err("E0704", p("remains"), format!("`{}` must accept every substance; it does not accept `{}`", sinks[remains].name, chem.substances[s].name));
         }
+        let reactions_declared = chem.reactions.len();
+        let space = reaction_space(w, &mut chem, &reactions, at)?;
         let world = World::new(chem, upkeep, sinks, remains).map_err(|e| Error { code: "E0701", pos: Pos::default(), path: p("upkeep"), message: format!("{e:?}") })?;
 
         let mut c = Compiler {
@@ -304,9 +333,18 @@ impl<'a> Compiler<'a> {
             senses: HashMap::new(),
             actions: HashMap::new(),
             regulation: HashMap::new(),
-            max_rate: None,
-            included: None,
+            max_rate: space.max_rate,
+            included: Some(space.included),
+            space: space.entries.clone(),
+            mutation: false,
+            rulesets: Vec::new(),
         };
+        let generated = space.entries.iter().filter(|(r, _)| *r >= reactions_declared).count();
+        c.notes.push(format!(
+            "{}.reaction_space: {} reactions for genes, {generated} of them generated; only mutation reaches the generated ones",
+            w.name,
+            space.entries.len()
+        ));
         c.declarations()?;
         Ok(c)
     }
@@ -356,7 +394,7 @@ impl<'a> Compiler<'a> {
                         }
                     }
                 }
-                WDecl::Config { name, entries } if name == "reaction_space" => self.reaction_space(entries)?,
+                WDecl::Config { name, .. } if name == "reaction_space" => {}
                 WDecl::Config { name, .. } if name != "second_law" && name != "upkeep" => {
                     return err("E0115", self.path(name), format!("unknown block `{name}`"));
                 }
@@ -424,7 +462,79 @@ impl<'a> Compiler<'a> {
                 _ => {}
             }
         }
+        self.world.menus = self.menus()?;
         Ok(())
+    }
+
+    /// What mutation may produce: the menu items the runner supports, with their ranges.
+    fn menus(&self) -> Result<Menus, Error> {
+        let path = self.path("menus");
+        let range = |params: &[(String, ast::Param)], key: &str| -> Result<(f32, f32), Error> {
+            match params.iter().find(|(k, _)| k == key) {
+                Some((_, ast::Param::Range(Lit::Range(a, b)))) => {
+                    let f = |l: &Lit| -> Result<f32, Error> {
+                        Ok(match l {
+                            Lit::Float(x) => parse_f32(x, &path)?,
+                            Lit::Amount(m) => *m as f32,
+                            Lit::Int(i) => *i as f32,
+                            _ => return err("E0205", path.clone(), format!("`{key}` must be a numeric range")),
+                        })
+                    };
+                    Ok((f(a)?, f(b)?))
+                }
+                _ => err("E0116", path.clone(), format!("the menu gives no range for `{key}`")),
+            }
+        };
+        let action = |name: &str, key: &str| -> Result<Option<ActionMenu>, Error> {
+            match self.actions.get(name) {
+                Some(a) => Ok(Some(ActionMenu { range: range(&a.params, key)?, fee: a.cost })),
+                None => Ok(None),
+            }
+        };
+        let weigh = match self.regulation.get("weigh") {
+            None => None,
+            Some(g) => {
+                let curves = match g.params.iter().find(|(k, _)| k == "curve") {
+                    Some((_, ast::Param::Choices(cs))) => cs
+                        .iter()
+                        .filter_map(|c| match c.as_str() {
+                            "linear" => Some(Curve::Linear),
+                            "step" => Some(Curve::Step),
+                            "sigmoid" => Some(Curve::Sigmoid),
+                            "tanh" => Some(Curve::Tanh),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => vec![Curve::Linear],
+                };
+                let Some(weight) = g.weight else { return err("E0116", path, "`weigh` needs a weight range") };
+                let inputs = (g.inputs.0.max(1) as usize, g.inputs.1.max(1) as usize);
+                Some(WeighMenu { bias: range(&g.params, "bias")?, curves, inputs, weight })
+            }
+        };
+        let divide = match self.actions.get("divide") {
+            Some(a) => match a.requires {
+                Some(r) => Some((ActionMenu { range: range(&a.params, "split")?, fee: a.cost }, r)),
+                None => None,
+            },
+            None => None,
+        };
+        let caps = self.world.cells.first().map(|c| c.caps).unwrap_or_default();
+        let n = self.world.chem.substances.len();
+        Ok(Menus {
+            substances: (0..n).collect(),
+            field: (0..n).filter(|&s| caps[s] > 0).collect(),
+            inventory: self.senses.contains_key("inventory"),
+            gradient: self.senses.contains_key("gradient") && self.grid.is_some(),
+            weigh,
+            product: self.regulation.contains_key("product"),
+            moves: action("move", "speed")?,
+            turn: action("turn", "angle_deg")?,
+            take: action("take", "max")?,
+            drop: action("drop", "max")?,
+            divide,
+            reactions: self.space.clone(),
+        })
     }
 
     fn menu(&mut self, kind: &str, items: &[ast::Node<MenuItem>]) -> Result<(), Error> {
@@ -471,31 +581,6 @@ impl<'a> Compiler<'a> {
                 _ => return err("E0501", self.path(kind), "menu item does not match its menu"),
             }
         }
-        Ok(())
-    }
-
-    fn reaction_space(&mut self, entries: &[ast::Node<ast::Entry>]) -> Result<(), Error> {
-        let path = self.path("reaction_space");
-        for e in entries {
-            self.at.set(e.pos);
-            match e.node.key.as_str() {
-                "include" => {
-                    let Value::Expr(Expr::List(items)) = &e.node.value else { return err("E0205", path, "`include` is a list of reactions") };
-                    let ids = items.iter().map(|v| lookup(&self.reactions, name_of(expr(v)?, &path)?, &path, "reaction")).collect::<Result<_, _>>()?;
-                    self.included = Some(ids);
-                }
-                "max_rate" => {
-                    let m = amount(expr(&e.node.value)?, &path)?;
-                    if m > F32_EXACT {
-                        return err("E0204", path, "`max_rate` is above 2^24 µ, so gene rates would not convert to f32 exactly (spec §3.5)");
-                    }
-                    self.max_rate = Some(m);
-                }
-                "generate" | "generated_max_rate" | "exclude" => {}
-                k => return err("E0115", path, format!("unknown setting `{k}`")),
-            }
-        }
-        self.notes.push(format!("{} (generated reactions are reached only by mutation)", path));
         Ok(())
     }
 
@@ -690,23 +775,116 @@ impl<'a> Compiler<'a> {
 
     fn lineage(&mut self, l: &ast::Lineage) -> Result<(), Error> {
         let mut genome = None;
+        let (mut cap, mut rates) = (None, None);
+        let lineage_pos = self.at.get();
         for d in &l.decls {
             self.at.set(d.pos);
             match &d.node {
-                LDecl::Profile { name, .. } => self.notes.push(format!("{}.profile.{name} (capacity applies to mutation only)", l.name)),
-                LDecl::Mutation(_) => self.notes.push(format!("{}.mutation (the run has mutation off)", l.name)),
+                LDecl::Profile { name, entries } => {
+                    if cap.is_some() {
+                        self.notes.push(format!("{}.profile.{name}: not used; emerge-ref uses the first profile", l.name));
+                    } else {
+                        cap = Some(self.capacity(&l.name, entries)?);
+                    }
+                }
+                LDecl::Mutation(entries) => rates = Some(self.rates(&l.name, entries)?),
                 LDecl::Seed { signals, modules } => genome = Some(self.genome(&l.name, signals, modules)?),
                 LDecl::Genesis(_) => {}
             }
         }
         let Some(genome) = genome else { return err("E0116", &l.name, "a lineage needs a seed genome") };
+        let variation = match (self.mutation, rates, cap) {
+            (false, Some(_), _) => {
+                self.notes.push(format!("{}.mutation: not used, because mutation is off", l.name));
+                None
+            }
+            (true, Some(rates), Some(cap)) => {
+                self.at.set(lineage_pos);
+                if let Err(e) = crate::mutate::validate(&genome, &cap, &self.world.menus) {
+                    return err("E0601", format!("{}.seed", l.name), format!("the seed is not a genome mutation could keep: {e}"));
+                }
+                Some((rates, cap))
+            }
+            (true, Some(_), None) => {
+                self.at.set(lineage_pos);
+                return err("E0116", &l.name, "a lineage with `mutation` needs a `profile` for its capacity");
+            }
+            (_, None, _) => None,
+        };
+        let lineage = self.world.variation.len();
+        self.world.variation.push(variation);
+        let first = self.world.entities.len();
         for d in &l.decls {
             self.at.set(d.pos);
             if let LDecl::Genesis(body) = &d.node {
                 self.lineage_genesis(&l.name, body, &genome)?;
             }
         }
+        for e in &mut self.world.entities[first..] {
+            e.lineage = lineage;
+        }
         Ok(())
+    }
+
+    fn capacity(&self, lineage: &str, entries: &[ast::Node<ast::Entry>]) -> Result<Capacity, Error> {
+        let path = format!("{lineage}.profile");
+        let mut cap = Capacity { genes: 0, signals: 0, modules: 0 };
+        for e in entries {
+            self.at.set(e.pos);
+            let n = int(expr(&e.node.value)?, &path)?.max(0) as usize;
+            match e.node.key.as_str() {
+                "genes" => cap.genes = n,
+                "signals" => cap.signals = n,
+                "modules" => cap.modules = n,
+                k => return err("E0115", path, format!("unknown setting `{k}`")),
+            }
+        }
+        Ok(cap)
+    }
+
+    fn rates(&mut self, lineage: &str, entries: &[ast::Node<ast::Entry>]) -> Result<Rates, Error> {
+        let path = format!("{lineage}.mutation");
+        let mut r = Rates::default();
+        for e in entries {
+            self.at.set(e.pos);
+            let v = expr(&e.node.value)?;
+            if e.node.key == "rules" {
+                let name = name_of(v, &path)?;
+                if !self.rulesets.iter().any(|r| r == name) {
+                    return err("E0114", path, format!("unknown ruleset `{name}`"));
+                }
+                if self.mutation {
+                    self.left_out(path.clone(), format!("ruleset `{name}` is not applied (rewrite rules are not implemented)"));
+                } else {
+                    self.notes.push(format!("ruleset {name}: not used, because mutation is off"));
+                }
+                continue;
+            }
+            if matches!(v, Expr::Path(p) if p.root == "evolvable") {
+                return err("E1001", path, format!("`{}: evolvable` is not supported by emerge-ref yet", e.node.key));
+            }
+            let x = float(v, &path)?;
+            if !(0.0..=1.0).contains(&x) {
+                return err("E0204", path, format!("`{}: {x:?}` must be in 0.0..1.0", e.node.key));
+            }
+            let slot = match e.node.key.as_str() {
+                "rate" => &mut r.rate,
+                "param_sigma" => &mut r.param_sigma,
+                "expression_flip" => &mut r.expression_flip,
+                "rewire" => &mut r.rewire,
+                "diverge" => &mut r.diverge,
+                "duplicate_gene" => &mut r.duplicate_gene,
+                "insert_gene" => &mut r.insert_gene,
+                "delete_gene" => &mut r.delete_gene,
+                "duplicate_module" => &mut r.duplicate_module,
+                "delete_module" => &mut r.delete_module,
+                "split_module" => &mut r.split_module,
+                "merge_modules" => &mut r.merge_modules,
+                k => return err("E0115", path, format!("unknown setting `{k}`")),
+            };
+            *slot = x;
+        }
+        Ok(r)
     }
 
     fn genome(&self, lineage: &str, signals: &[ast::Node<(String, String)>], modules: &[ast::Node<ast::Module>]) -> Result<Genome, Error> {
@@ -938,6 +1116,123 @@ impl<'a> Compiler<'a> {
         }
         Ok(())
     }
+}
+
+// ---------- the reaction space ----------
+
+struct ReactionSpace {
+    included: Vec<ReactionId>,
+    max_rate: Option<Mu>,
+    /// Every reaction a gene may name, in mutation order, with its maximum gene rate.
+    entries: Vec<(ReactionId, Mu)>,
+}
+
+/// Builds the reaction space (spec §4.3): the `include` list, plus with `generate:
+/// balanced(...)` every balanced, downhill canonical reaction not in `exclude`, added to
+/// `chem` under its formula. Entries are in lexicographic order of their formulas as
+/// substance-order term lists, so neighbouring entries are similar reactions; a declared
+/// reaction that generation finds again keeps its ID.
+fn reaction_space(w: &ast::World, chem: &mut Chemistry, reactions: &HashMap<String, ReactionId>, at: &Cell<Pos>) -> Result<ReactionSpace, Error> {
+    let path = format!("{}.reaction_space", w.name);
+    let block = w.decls.iter().find_map(|d| match &d.node {
+        WDecl::Config { name, entries } if name == "reaction_space" => Some((d.pos, entries)),
+        _ => None,
+    });
+    let limit = w.decls.iter().find_map(|d| match &d.node {
+        WDecl::Config { name, entries } if name == "limits" => entries.iter().find_map(|e| match (&e.node.key, &e.node.value) {
+            (k, Value::Expr(Expr::Lit(Lit::Int(n)))) if k == "max_reaction_space" => Some(*n as usize),
+            _ => None,
+        }),
+        _ => None,
+    });
+    let Some((pos, entries)) = block else {
+        // No reaction space: genes may name any declared reaction, at any rate.
+        let all: Vec<ReactionId> = (0..chem.reactions.len()).collect();
+        return Ok(ReactionSpace { entries: all.iter().map(|&r| (r, F32_EXACT)).collect(), included: all, max_rate: None });
+    };
+    at.set(pos);
+    let (mut included, mut max_rate, mut generated_max, mut generate, mut exclude) = (Vec::new(), None, None, None, Vec::new());
+    let ids = |v: &Value| -> Result<ReactionId, Error> { lookup(reactions, name_of(expr(v)?, &path)?, &path, "reaction") };
+    for e in entries {
+        at.set(e.pos);
+        let list = || match &e.node.value {
+            Value::Expr(Expr::List(items)) => Ok(items),
+            _ => err("E0205", &path, format!("`{}` is a list", e.node.key)),
+        };
+        match e.node.key.as_str() {
+            "include" => included = list()?.iter().map(ids).collect::<Result<_, _>>()?,
+            "max_rate" | "generated_max_rate" => {
+                let m = amount(expr(&e.node.value)?, &path)?;
+                if m > F32_EXACT {
+                    return err("E0204", path, format!("`{}` is above 2^24 µ, so gene rates would not convert to f32 exactly (spec §3.5)", e.node.key));
+                }
+                if e.node.key == "max_rate" { max_rate = Some(m) } else { generated_max = Some(m) }
+            }
+            "generate" => match expr(&e.node.value)? {
+                Expr::Path(p) if p.root == "none" && p.segs.is_empty() => generate = None,
+                Expr::Call(c) if c.name == "balanced" => {
+                    only_args(c, &["max_inputs", "max_outputs", "max_coeff"], &path)?;
+                    let n = |k: &str| -> Result<i64, Error> { int(arg(c, k, &path)?, &path) };
+                    generate = Some((n("max_inputs")? as usize, n("max_outputs")? as usize, n("max_coeff")? as u32));
+                }
+                _ => return err("E0205", path, "`generate` is `balanced(...)` or `none`"),
+            },
+            "exclude" => {
+                for v in list()? {
+                    match v {
+                        Value::Formula(f) => {
+                            let order = |n: &str| chem.substances.iter().position(|s| s.name == n).unwrap_or(usize::MAX);
+                            let canon = emerge_lang::check::canonical(f, &order);
+                            let side = |terms: &[ast::Term]| -> Result<Side, Error> {
+                                terms
+                                    .iter()
+                                    .map(|t| match chem.substances.iter().position(|s| s.name == t.name) {
+                                        Some(s) => Ok((s, t.coeff.unwrap_or(1) as u32)),
+                                        None => err("E0114", &path, format!("unknown substance `{}`", t.name)),
+                                    })
+                                    .collect()
+                            };
+                            exclude.push((side(&canon.inputs)?, side(&canon.outputs)?));
+                        }
+                        v => {
+                            let r = &chem.reactions[ids(v)?];
+                            exclude.push((r.inputs.clone(), r.outputs.clone()));
+                        }
+                    }
+                }
+            }
+            k => return err("E0115", path, format!("unknown setting `{k}`")),
+        }
+    }
+    let generated_max = generated_max.or(max_rate).unwrap_or(F32_EXACT);
+    let declared = |chem: &Chemistry, sides: &Side2| chem.reactions.iter().position(|r| r.inputs == sides.0 && r.outputs == sides.1);
+    let mut space: Vec<(Side2, ReactionId, Mu)> = included
+        .iter()
+        .map(|&r| ((chem.reactions[r].inputs.clone(), chem.reactions[r].outputs.clone()), r, max_rate.unwrap_or(F32_EXACT)))
+        .collect();
+    if let Some((mi, mo, mc)) = generate {
+        for sides in chem.balanced(mi, mo, mc) {
+            if exclude.contains(&sides) {
+                continue;
+            }
+            let id = match declared(chem, &sides) {
+                Some(r) if included.contains(&r) => continue,
+                Some(r) => r,
+                None => {
+                    let name = chem.formula(&sides.0, &sides.1);
+                    chem.reaction(&name, &sides.0, &sides.1).map_err(|e| Error { code: "E0401", pos, path: path.clone(), message: format!("{e:?}") })?
+                }
+            };
+            space.push((sides, id, generated_max));
+        }
+    }
+    space.sort_by(|a, b| a.0.cmp(&b.0));
+    let limit = limit.unwrap_or(65_536);
+    if space.len() > limit {
+        at.set(pos);
+        return err("E0804", path, format!("the reaction space has {} reactions, more than `max_reaction_space` ({limit})", space.len()));
+    }
+    Ok(ReactionSpace { included, max_rate, entries: space.into_iter().map(|(_, r, m)| (r, m)).collect() })
 }
 
 // ---------- reading values ----------
