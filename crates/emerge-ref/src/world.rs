@@ -749,9 +749,8 @@ impl World {
                 let Some(space) = &self.space else { return [0.0, 0.0] };
                 // Central differences over the neighbouring cells, per unit distance.
                 let at = |dx, dy| units(self.cells[space.offset(e.cell, dx, dy)].amounts[s]);
-                let per_distance = space.grid_w as f32 / (2.0 * space.w);
-                let gx = (at(1, 0) - at(-1, 0)) * per_distance;
-                let gy = (at(0, 1) - at(0, -1)) * per_distance;
+                let gx = (at(1, 0) - at(-1, 0)) * (space.grid_w as f32 / (2.0 * space.w));
+                let gy = (at(0, 1) - at(0, -1)) * (space.grid_h as f32 / (2.0 * space.h));
                 let [hx, hy] = e.heading;
                 [gx * hx + gy * hy, -gx * hy + gy * hx]
             }

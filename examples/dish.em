@@ -1,4 +1,4 @@
-// Reference world for Phase 0 (spec v0.7.4 §15).
+// Reference world for Phase 0 (spec v0.7.5 §15).
 // Also the parser fixture: parse -> fmt -> parse must give the same AST,
 // and `emerge fmt` must leave this file unchanged.
 //
@@ -25,7 +25,7 @@ world Dish {
     substance body = C + N potential 5;
 
     field cells : Grid(w: 256, h: 256) holds [
-        light: 2_000u,
+        light: 1u,
         sugar: 2_000u,
         carbon: 2_000u,
         nitrate: 2_000u,
@@ -103,7 +103,7 @@ world Dish {
 
     // World rules. Each holds one kind of effect, which sets its phase (spec §7.4).
     rule sunlight on cells {
-        transfer(light, from: sun, to: self, amount: 2u, overflow: void) @transfer_light;
+        transfer(light, from: sun, to: self, amount: 40mu, overflow: void) @transfer_light;
     }
 
     rule weather on cells {
@@ -168,7 +168,7 @@ lineage Drifter in Dish {
             sense gradient(q: cells.body) -> food_x, food_y @food_dir;
             regulate weigh(curve: tanh) <- [10.0 * food_y] -> steer @weigh_steer;
             action move(speed: 1.0) @go;
-            action turn(angle_deg: 30.0) <- steer @turn_to_food;
+            action turn(angle_deg: 30.0) <- steer threshold -2.0 @turn_to_food;
         }
 
         module metabolism {
@@ -222,13 +222,13 @@ lineage Builder in Dish {
             sense gradient(q: cells.body) -> food_x, food_y @food_dir;
             regulate weigh(curve: tanh) <- [10.0 * food_y] -> steer @weigh_steer;
             action move(speed: 1.0) @go;
-            action turn(angle_deg: 30.0) <- steer @turn_to_food;
+            action turn(angle_deg: 30.0) <- steer threshold -2.0 @turn_to_food;
         }
 
         module metabolism {
             reaction photosynthesis rate 1u @photosynthesis;
             reaction respiration rate 1u @respiration;
-            reaction build rate 250mu @build;
+            reaction build rate 50mu @build;
             action take(s: light, max: 1u) @eat_light;
             action take(s: carbon, max: 1u) @eat_carbon;
             action take(s: nitrate, max: 250mu) @eat_nitrate;

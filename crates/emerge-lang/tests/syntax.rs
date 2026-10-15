@@ -118,7 +118,7 @@ lineage L in Dish {
         module metabolism {
             reaction photosynthesis rate 1u <- hunger @photosynthesis;
             dormant reaction build rate 250mu @build;
-            action turn(angle_deg: 30.0) <- steer threshold -1.0 @turn;
+            action turn(angle_deg: 30.0) <- steer threshold -2.0 @turn;
             regulate weigh(curve: tanh) <- [-2.5 * hunger, steer] -> drive @weigh_drive;
         }
     }

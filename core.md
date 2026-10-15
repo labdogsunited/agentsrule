@@ -2,7 +2,7 @@
 
 **Core specification — draft v0.1**
 
-Status: first draft. This document defines the **core** of the language: what a program is made of and how it runs, independent of any application. Evolving creatures (`spec-v0.7.4.md`) become one application written in this core, using a standard library. Syntax here is provisional and will be merged into `language.md`.
+Status: first draft. This document defines the **core** of the language: what a program is made of and how it runs, independent of any application. Evolving creatures (`spec-v0.7.5.md`) become one application written in this core, using a standard library. Syntax here is provisional and will be merged into `language.md`.
 
 Conventions:
 - **MUST** / **MUST NOT** mark normative requirements.
@@ -117,7 +117,7 @@ derived edge nearby : Critter -- Critter
 - **Free values written by several rules** in one phase are combined by the slot's declared **combine** operator: `sum` (default), `max`, `min` or `any` (for `bool`). The order of combination is fixed (§6.3), so results are deterministic.
 - **Dynamic free values.** A node kind with owned rules has a growable table of private free values (its **signals**), which its owned rules create and use (§5.3).
 
-Units and the numeric contract (saturating integers, defined rounding, sanitised floats) carry over from spec v0.7.4 §3.5 and §10.1.
+Units and the numeric contract (saturating integers, defined rounding, sanitised floats) carry over from spec v0.7.5 §3.5 and §10.1.
 
 ---
 
@@ -236,7 +236,7 @@ rules Seed for Critter {
 
 ### 5.3 Signals
 
-Signals are the node's private, growable table of free values that its owned rules read and write. Each has an evolvable **keep** factor (how much survives each step), and is private to a module or part of its interface depending on which instances use it. These are the internal signals of spec v0.7.4 §5.1, now a core feature of any node kind that owns rules.
+Signals are the node's private, growable table of free values that its owned rules read and write. Each has an evolvable **keep** factor (how much survives each step), and is private to a module or part of its interface depending on which instances use it. These are the internal signals of spec v0.7.5 §5.1, now a core feature of any node kind that owns rules.
 
 ### 5.4 Built-in operations on rules
 
@@ -248,7 +248,7 @@ Signals are the node's private, growable table of free values that its owned rul
 | `mutate(rules, M)` | The node's rules, changed by mutation settings `M` | inside the above, or as a rule effect on the node's own rules, or by a law on any node |
 | `copy(rules)` | The node's rules, unchanged | as `mutate` |
 
-**Mutation settings** are a declared value listing operator rates. The operators are built in: point changes to parameters and choices, rewiring of inputs and outputs, expression flips, and growth (duplicate, insert, delete instances; duplicate, delete, split, merge modules), as in spec v0.7.4 §8.1. New material starts unexpressed.
+**Mutation settings** are a declared value listing operator rates. The operators are built in: point changes to parameters and choices, rewiring of inputs and outputs, expression flips, and growth (duplicate, insert, delete instances; duplicate, delete, split, merge modules), as in spec v0.7.5 §8.1. New material starts unexpressed.
 
 ```
 mutation Drift {
@@ -268,7 +268,7 @@ The compiler guarantees that mutation only ever produces valid rule sets: instan
 
 ### 6.1 Ticks and phases
 
-The universe advances in lockstep **ticks**. The **snapshot** is the state at the start of the tick. Derived edges (§2.3) are computed from it and stay fixed for the whole tick. A rule's reads of anything outside its own node always see the snapshot. Effects are applied in four phases, and this is the only schedule: applications such as evolving creatures (spec v0.7.4 §7) are written in terms of it.
+The universe advances in lockstep **ticks**. The **snapshot** is the state at the start of the tick. Derived edges (§2.3) are computed from it and stay fixed for the whole tick. A rule's reads of anything outside its own node always see the snapshot. Effects are applied in four phases, and this is the only schedule: applications such as evolving creatures (spec v0.7.5 §7) are written in terms of it.
 
 1. **Set.**
    1. Every rule reads the snapshot and computes its free-value writes. They are combined (§3) and applied.
@@ -277,7 +277,7 @@ The universe advances in lockstep **ticks**. The **snapshot** is the state at th
 2. **Move.**
    1. **Charges.** Laws marked `charge` (for example upkeep) are settled first, in declaration order. A node that cannot pay a charge in full pays nothing and is marked **failing**: its owned requests in this and every later phase are dropped, and it takes part in no move as origin or destination. What happens to a failing node next (in creatures, death) is up to the application's laws in Restructure.
    2. **Fees.** Owned requests that carry a fee are charged in rule-set order. A request whose fee its node cannot pay at that point is dropped.
-   3. **Moves.** All remaining move requests, from laws and owned rules alike, are arbitrated together in two stages (by origin, then by destination capacity) against the balances after charges and fees, and applied, as in spec v0.7.4 §7.2.
+   3. **Moves.** All remaining move requests, from laws and owned rules alike, are arbitrated together in two stages (by origin, then by destination capacity) against the balances after charges and fees, and applied, as in spec v0.7.5 §7.2.
    4. **Paid sets.** Free-value writes that carry a fee (such as movement) are applied here, and only if the fee was paid.
 3. **Transform.** In each node and edge, transforms run on the balances after Move, in a fixed order: laws in declaration order, then owned instances in rule-set order, each limited by its inputs and by output capacity. Then laws that release declared waste to a sink run. A sink has no cap, so they cannot conflict.
 4. **Restructure and rewrite.** Deletions come first, each with its route (§7.1), then creations, splits and other graph changes, then rule rewrites, with conflicts settled as in §6.3. Conditions on a node's values (such as "may split when energy ≥ 10u") read its values after Transform. New nodes join the graph at the end of the tick and first act in the next one.
@@ -320,7 +320,7 @@ For every base quantity, after every tick:
 ```
 
 - **Boundaries.** Sources emit and sinks absorb. Only laws may use them.
-- **Transforms balance.** A transform MUST conserve every base quantity, and is put into canonical form before use (spec v0.7.4 §4.4). A transform may name a **catalyst** that raises its rate without being consumed (spec v0.7.4 §4.5). The catalyst is outside the balance.
+- **Transforms balance.** A transform MUST conserve every base quantity, and is put into canonical form before use (spec v0.7.5 §4.4). A transform may name a **catalyst** that raises its rate without being consumed (spec v0.7.5 §4.5). The catalyst is outside the balance.
 - **Deletion needs a route.** When a node or edge is deleted, its conserved contents MUST go somewhere: a law-declared route (`on delete Critter { move all to: at; }`) or a sink. The compiler checks that every conserved slot of every deletable kind has a route.
 - **Splitting divides, never copies.** A `split` divides conserved contents between parent and child. `copying` gives the child nothing; anything it starts with must be moved to it.
 
@@ -333,7 +333,7 @@ measure potential = 10 * light + 8 * energy + 9 * sugar + 5 * body;
 never increases potential by less than 1;
 ```
 
-This is the dissipation law of spec v0.7.4 §3.2, now a general mechanism. A world may declare several measures or none.
+This is the dissipation law of spec v0.7.5 §3.2, now a general mechanism. A world may declare several measures or none.
 
 ### 7.3 Declared restrictions
 
@@ -349,7 +349,7 @@ A world that declares no edge values gets no edge values; a world that declares 
 
 ## 8. What moves out of the core
 
-| Today (spec v0.7.4) | Becomes |
+| Today (spec v0.7.5) | Becomes |
 | :-- | :-- |
 | Fields | Standard library: a grid of nodes with values |
 | Continuous 2D space and positions | Standard library: node values for position, plus a derived `nearby` edge kind (§2.3) |

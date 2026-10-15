@@ -61,11 +61,11 @@ pub fn seed_genome(lineage: Lineage) -> Genome {
         Gene::Sense { sense: Sense::Gradient(BODY), out: food_x, out2: Some(food_y) },
         Gene::Weigh { bias: 0.0, curve: Curve::Tanh, inputs: vec![(10.0, food_y)], out: steer },
         Gene::Move { speed: 1.0, fee_per_distance: 20, src: ONE, threshold: 0.0 },
-        Gene::Turn { angle_deg: 30.0, fee: 10, src: Input::Signal(steer), threshold: 0.0 },
+        Gene::Turn { angle_deg: 30.0, fee: 10, src: Input::Signal(steer), threshold: -2.0 },
     ];
     let mut metabolism = vec![Gene::react(PHOTOSYNTHESIS, U), Gene::react(RESPIRATION, U)];
     if lineage == Lineage::Builder {
-        metabolism.push(Gene::react(BUILD, 250));
+        metabolism.push(Gene::react(BUILD, 50));
     }
     metabolism.push(Gene::take(LIGHT, U, 5));
     metabolism.push(Gene::take(CARBON, U, 5));
@@ -103,14 +103,15 @@ pub fn world(lineage: Lineage, seed: u64) -> World {
     w.mind_steps = 1;
 
     let mut caps = vec![0; 7];
-    for s in [LIGHT, SUGAR, CARBON, NITRATE, BODY] {
+    for s in [SUGAR, CARBON, NITRATE, BODY] {
         caps[s] = 2_000 * U;
     }
+    caps[LIGHT] = U;
     let space = Space { w: 512.0, h: 512.0, wrap: true, grid_w: 256, grid_h: 256, child_offset: 0.5 };
     w.grid(space, caps);
 
     // World rules, in declaration order.
-    w.laws.push(Law::Inflow { s: LIGHT, source: sun, amount: 2 * U, overflow: Some(void) });
+    w.laws.push(Law::Inflow { s: LIGHT, source: sun, amount: 40, overflow: Some(void) });
     w.laws.push(Law::Inflow { s: CARBON, source: rock, amount: 20, overflow: Some(void) });
     w.laws.push(Law::Inflow { s: NITRATE, source: rock, amount: 10, overflow: Some(void) });
     w.laws.push(Law::Inflow { s: BODY, source: rock, amount: 1, overflow: Some(void) });
