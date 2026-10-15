@@ -6,3 +6,4 @@ description = "CPU reference runner for the Emergent core schedule (Set, Move, T
 publish = false
 
 [dependencies]
+emerge-lang = { path = "../emerge-lang" }

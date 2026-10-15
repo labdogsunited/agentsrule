@@ -2,8 +2,8 @@
 //!
 //! `parse` turns source text into a syntax tree that keeps comments and blank lines;
 //! `format` prints the one canonical text of a tree (`emerge fmt`); `check::check` runs
-//! the static checks written so far (chemistry). Type checking and compiling to the
-//! runner's world model come next.
+//! the static checks written so far (chemistry). `emerge-ref` compiles a checked tree
+//! into a runnable world. Type checking comes next.
 
 pub mod ast;
 pub mod check;

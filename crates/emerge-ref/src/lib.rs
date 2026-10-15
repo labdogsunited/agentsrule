@@ -2,8 +2,9 @@
 //!
 //! This is the first executable slice: cells and entities with conserved inventories,
 //! run on the four phases of `core.md` §6.1 as the creatures application uses them
-//! (spec §7). Worlds are built in Rust; there is no parser yet. Tests in `tests/`
-//! state exact expected states, so spec changes have something concrete to keep.
+//! (spec §7). `compile` builds a world from an `.em` file, and tests also build worlds
+//! in Rust. Tests in `tests/` state exact expected states, so spec changes have
+//! something concrete to keep.
 //!
 //! Covered: element ledger and audits; upkeep (active genes, signals in use, retention,
 //! carried units) and attempt fees through the payment route; minds (inventory and cell
@@ -14,14 +15,13 @@
 //! waste venting; disposal before division; newborns acting next tick; continuous 2D space
 //! with a grid of cells, `move`, `turn`, the `gradient` sense and child placement.
 //!
-//! `dish` is a hand translation of `examples/dish.em`, and the `dish` binary runs it. Both
-//! go away once the parser can compile the `.em` file.
+//! The `emerge` binary formats `.em` files (`emerge fmt`) and runs them (`emerge run`).
 //!
 //! Not covered yet: see `DISCREPANCIES.md`.
 
 pub mod arbitrate;
 pub mod chem;
-pub mod dish;
+pub mod compile;
 pub mod mind;
 pub mod philox;
 pub mod world;

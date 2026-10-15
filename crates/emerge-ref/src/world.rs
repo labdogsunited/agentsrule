@@ -122,7 +122,7 @@ pub struct Entity {
 }
 
 /// World rules. Each runs on every cell; its kind sets its phase (spec §7.4).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Law {
     /// Transfer rule: `transfer(s, from: source, to: self, amount, overflow)`. Move.
     Inflow { s: SubstanceId, source: SourceId, amount: Mu, overflow: Option<SinkId> },
@@ -132,7 +132,7 @@ pub enum Law {
     React { reaction: ReactionId, rate_bp: u32 },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Upkeep {
     pub pay: SubstanceId,
     pub becomes: SubstanceId,
