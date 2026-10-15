@@ -1,4 +1,4 @@
-// Reference world for Phase 0 (spec v0.7.1 §15).
+// Reference world for Phase 0 (spec v0.7.2 §15).
 // Also the parser fixture: parse -> fmt -> parse must give the same AST,
 // and `emerge fmt` must leave this file unchanged.
 //
@@ -103,21 +103,21 @@ world Dish {
 
     // World rules run in this order. Each rule holds one kind of effect.
     rule sunlight on cells {
-        transfer(light, from: sun, to: self, amount: 2u, overflow: void);
+        transfer(light, from: sun, to: self, amount: 2u, overflow: void) @transfer_light;
     }
 
     rule weather on cells {
-        transfer(carbon, from: rock, to: self, amount: 20mu, overflow: void);
-        transfer(nitrate, from: rock, to: self, amount: 10mu, overflow: void);
-        transfer(body, from: rock, to: self, amount: 1mu, overflow: void);
+        transfer(carbon, from: rock, to: self, amount: 20mu, overflow: void) @transfer_carbon;
+        transfer(nitrate, from: rock, to: self, amount: 10mu, overflow: void) @transfer_nitrate;
+        transfer(body, from: rock, to: self, amount: 1mu, overflow: void) @transfer_body;
     }
 
     rule rotting on cells {
-        react(rot, rate: 50bp);
+        react(rot, rate: 50bp) @react_rot;
     }
 
     rule spread on cells {
-        diffuse_conserved([sugar, carbon, nitrate, body], rate: 300bp);
+        diffuse_conserved([sugar, carbon, nitrate, body], rate: 300bp) @diffuse_conserved;
     }
 
     rule smell on scent {
@@ -126,9 +126,9 @@ world Dish {
 
     genesis {
         for cell in cells {
-            transfer(carbon, from: rock, to: cell, amount: 50u);
-            transfer(nitrate, from: rock, to: cell, amount: 20u);
-            transfer(body, from: rock, to: cell, amount: 1u);
+            transfer(carbon, from: rock, to: cell, amount: 50u) @transfer_carbon;
+            transfer(nitrate, from: rock, to: cell, amount: 20u) @transfer_nitrate;
+            transfer(body, from: rock, to: cell, amount: 1u) @transfer_body;
         }
     }
 }
@@ -166,21 +166,21 @@ lineage Drifter in Dish {
     seed genome {
         module forage {
             sense gradient(q: cells.body) -> food_x, food_y @food_dir;
-            regulate weigh(curve: tanh) <- [10.0 * food_y] -> steer;
+            regulate weigh(curve: tanh) <- [10.0 * food_y] -> steer @weigh_steer;
             action move(speed: 1.0) @go;
             action turn(angle_deg: 30.0) <- steer @turn_to_food;
         }
 
         module metabolism {
-            reaction photosynthesis rate 1u;
-            reaction respiration rate 1u;
+            reaction photosynthesis rate 1u @photosynthesis;
+            reaction respiration rate 1u @respiration;
             action take(s: light, max: 1u) @eat_light;
             action take(s: carbon, max: 1u) @eat_carbon;
         }
 
         module reproduce {
-            sense inventory(s: body) -> fullness;
-            regulate weigh(bias: -10.0, curve: step) <- [fullness] -> ready;
+            sense inventory(s: body) -> fullness @inventory_fullness;
+            regulate weigh(bias: -10.0, curve: step) <- [fullness] -> ready @weigh_ready;
             action take(s: body, max: 1u) @eat_body;
             action divide(split: 0.5) <- ready threshold 0.5 @split;
         }
@@ -189,7 +189,7 @@ lineage Drifter in Dish {
     genesis {
         count: 2_000;
         position = uniform(x: 0.0..512.0, y: 0.0..512.0);
-        transfer(energy, from: spark, to: self, amount: 5u);
+        transfer(energy, from: spark, to: self, amount: 5u) @transfer_energy;
     }
 }
 
@@ -220,23 +220,23 @@ lineage Builder in Dish {
     seed genome {
         module forage {
             sense gradient(q: cells.body) -> food_x, food_y @food_dir;
-            regulate weigh(curve: tanh) <- [10.0 * food_y] -> steer;
+            regulate weigh(curve: tanh) <- [10.0 * food_y] -> steer @weigh_steer;
             action move(speed: 1.0) @go;
             action turn(angle_deg: 30.0) <- steer @turn_to_food;
         }
 
         module metabolism {
-            reaction photosynthesis rate 1u;
-            reaction respiration rate 1u;
-            reaction build rate 250mu;
+            reaction photosynthesis rate 1u @photosynthesis;
+            reaction respiration rate 1u @respiration;
+            reaction build rate 250mu @build;
             action take(s: light, max: 1u) @eat_light;
             action take(s: carbon, max: 1u) @eat_carbon;
             action take(s: nitrate, max: 250mu) @eat_nitrate;
         }
 
         module reproduce {
-            sense inventory(s: body) -> fullness;
-            regulate weigh(bias: -10.0, curve: step) <- [fullness] -> ready;
+            sense inventory(s: body) -> fullness @inventory_fullness;
+            regulate weigh(bias: -10.0, curve: step) <- [fullness] -> ready @weigh_ready;
             action take(s: body, max: 1u) @eat_body;
             action divide(split: 0.5) <- ready threshold 0.5 @split;
         }
@@ -245,7 +245,7 @@ lineage Builder in Dish {
     genesis {
         count: 2_000;
         position = uniform(x: 0.0..512.0, y: 0.0..512.0);
-        transfer(energy, from: spark, to: self, amount: 5u);
+        transfer(energy, from: spark, to: self, amount: 5u) @transfer_energy;
     }
 }
 

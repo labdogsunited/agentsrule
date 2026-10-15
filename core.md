@@ -2,7 +2,7 @@
 
 **Core specification — draft v0.1**
 
-Status: first draft. This document defines the **core** of the language: what a program is made of and how it runs, independent of any application. Evolving creatures (`spec-v0.7.1.md`) become one application written in this core, using a standard library. Syntax here is provisional and will be merged into `language.md`.
+Status: first draft. This document defines the **core** of the language: what a program is made of and how it runs, independent of any application. Evolving creatures (`spec-v0.7.2.md`) become one application written in this core, using a standard library. Syntax here is provisional and will be merged into `language.md`.
 
 Conventions:
 - **MUST** / **MUST NOT** mark normative requirements.
@@ -17,7 +17,7 @@ Conventions:
 | Substrate | A **graph**. A grid is one kind of graph |
 | Rule owners | **Laws** belong to the universe and are its physics. **Owned rules** belong to a node and run on that node |
 | Time | **Lockstep** ticks. A node may run rules that touch only itself several times within a tick (**substeps**) |
-| Edges | Edges have kinds and may hold values, free or conserved |
+| Edges | Edges have kinds and may hold values, free or conserved. Derived edges are computed each tick from a condition (§2.3) |
 | Creation | Only laws may create nodes from nothing. Owned rules create only by copying or splitting their own node |
 | Rewriting rules | Both laws and a node's own rules may rewrite that node's owned rules |
 | Copy and mutate | Built into the language, not assembled from lower-level operations |
@@ -85,6 +85,22 @@ universe Dish {
 
 A generator is ordinary core code. The engine recognises the regular structure a `grid` produces and stores its edges implicitly.
 
+### 2.3 Derived edges
+
+A **derived edge** kind is defined by a condition on the nodes it connects, not built by rules. The engine recomputes it from the snapshot at the start of every tick:
+
+```
+derived edge nearby : Critter -- Critter
+    where distance(a.pos, b.pos, wrap: 512.0) <= 4.0
+    (at most 8 per Critter, nearest first);
+```
+
+- To rules, a derived edge reads like any other edge: `sum(nearby.body)`, `move sugar * 5% along nearby`.
+- The engine does not store it as a list of edges. It answers queries from an index, such as a spatial hash for a distance condition, so a world of moving nodes does not rebuild its graph every tick.
+- **Limits.** A cardinality limit MUST say which edges are kept (`nearest first`, by a value, or by lowest ID). Ties are broken by persistent ID, so the result is deterministic.
+- **What it cannot do.** A derived edge holds no values, because it does not persist from one tick to the next. Rules MUST NOT `link`, `unlink` or `rewire` it. Restructuring changes it only by changing the values its condition reads.
+- The condition is a pure expression over the two nodes' values, and the compiler must be able to answer it from an index: a distance bound, equal values of a key, or the same node at the end of another edge (`a.at == b.at`). Other conditions are a compile error, because they would need every pair of nodes to be checked.
+
 ---
 
 ## 3. Values
@@ -100,7 +116,7 @@ A generator is ordinary core code. The engine recognises the regular structure a
 - **Free values written by several rules** in one phase are combined by the slot's declared **combine** operator: `sum` (default), `max`, `min` or `any` (for `bool`). The order of combination is fixed (§6.3), so results are deterministic.
 - **Dynamic free values.** A node kind with owned rules has a growable table of private free values (its **signals**), which its owned rules create and use (§5.3).
 
-Units and the numeric contract (saturating integers, defined rounding, sanitised floats) carry over from spec v0.7.1 §3.5 and §10.1.
+Units and the numeric contract (saturating integers, defined rounding, sanitised floats) carry over from spec v0.7.2 §3.5 and §10.1.
 
 ---
 
@@ -219,7 +235,7 @@ rules Seed for Critter {
 
 ### 5.3 Signals
 
-Signals are the node's private, growable table of free values that its owned rules read and write. Each has an evolvable **keep** factor (how much survives each step), and is private to a module or part of its interface depending on which instances use it. These are the internal signals of spec v0.7.1 §5.1, now a core feature of any node kind that owns rules.
+Signals are the node's private, growable table of free values that its owned rules read and write. Each has an evolvable **keep** factor (how much survives each step), and is private to a module or part of its interface depending on which instances use it. These are the internal signals of spec v0.7.2 §5.1, now a core feature of any node kind that owns rules.
 
 ### 5.4 Built-in operations on rules
 
@@ -231,7 +247,7 @@ Signals are the node's private, growable table of free values that its owned rul
 | `mutate(rules, M)` | The node's rules, changed by mutation settings `M` | inside the above, or as a rule effect on the node's own rules, or by a law on any node |
 | `copy(rules)` | The node's rules, unchanged | as `mutate` |
 
-**Mutation settings** are a declared value listing operator rates. The operators are built in: point changes to parameters and choices, rewiring of inputs and outputs, expression flips, and growth (duplicate, insert, delete instances; duplicate, delete, split, merge modules), as in spec v0.7.1 §8.1. New material starts unexpressed.
+**Mutation settings** are a declared value listing operator rates. The operators are built in: point changes to parameters and choices, rewiring of inputs and outputs, expression flips, and growth (duplicate, insert, delete instances; duplicate, delete, split, merge modules), as in spec v0.7.2 §8.1. New material starts unexpressed.
 
 ```
 mutation Drift {
@@ -254,7 +270,7 @@ The compiler guarantees that mutation only ever produces valid rule sets: instan
 The universe advances in lockstep **ticks**. Every rule, law or owned, reads the snapshot and contributes effects. Effects are applied in four phases:
 
 1. **Set:** all free-value writes are combined (§3) and applied.
-2. **Move:** all move requests, from laws and owned rules alike, are arbitrated together in two stages (by origin, then by destination capacity) and applied, as in spec v0.7.1 §7.2.
+2. **Move:** all move requests, from laws and owned rules alike, are arbitrated together in two stages (by origin, then by destination capacity) and applied, as in spec v0.7.2 §7.2.
 3. **Transform:** in each node and edge, transforms run in a fixed order (laws in declaration order, then owned instances in rule-set order), each limited by its inputs and by output capacity.
 4. **Restructure and rewrite:** graph changes and rule rewrites are applied, with conflicts settled as in §6.3. New nodes join the graph at the end of the tick.
 
@@ -296,7 +312,7 @@ For every base quantity, after every tick:
 ```
 
 - **Boundaries.** Sources emit and sinks absorb. Only laws may use them.
-- **Transforms balance.** A transform MUST conserve every base quantity, and is put into canonical form before use (spec v0.7.1 §4.4).
+- **Transforms balance.** A transform MUST conserve every base quantity, and is put into canonical form before use (spec v0.7.2 §4.4). A transform may name a **catalyst** that raises its rate without being consumed (spec v0.7.2 §4.5). The catalyst is outside the balance.
 - **Deletion needs a route.** When a node or edge is deleted, its conserved contents MUST go somewhere: a law-declared route (`on delete Critter { move all to: at; }`) or a sink. The compiler checks that every conserved slot of every deletable kind has a route.
 - **Splitting divides, never copies.** A `split` divides conserved contents between parent and child. `copying` gives the child nothing; anything it starts with must be moved to it.
 
@@ -309,7 +325,7 @@ measure potential = 10 * light + 8 * energy + 9 * sugar + 5 * body;
 never increases potential by less than 1;
 ```
 
-This is the dissipation law of spec v0.7.1 §3.2, now a general mechanism. A world may declare several measures or none.
+This is the dissipation law of spec v0.7.2 §3.2, now a general mechanism. A world may declare several measures or none.
 
 ### 7.3 Declared restrictions
 
@@ -325,10 +341,10 @@ A world that declares no edge values gets no edge values; a world that declares 
 
 ## 8. What moves out of the core
 
-| Today (spec v0.7.1) | Becomes |
+| Today (spec v0.7.2) | Becomes |
 | :-- | :-- |
 | Fields | Standard library: a grid of nodes with values |
-| Continuous 2D space and positions | Standard library: node values for position, plus "nearby" edges maintained by a law |
+| Continuous 2D space and positions | Standard library: node values for position, plus a derived `nearby` edge kind (§2.3) |
 | Elements, substances, reactions, potentials | Standard library chemistry, built on base and compound quantities, transforms and measures |
 | Senses, actions, regulation kinds | Templates in the standard library and in the creatures application |
 | Upkeep | A law in the creatures application |
@@ -343,6 +359,7 @@ A world that declares no edge values gets no edge values; a world that declares 
 - **Performance of general graphs.** Arbitrary rewiring and creation are hard to run fast on a GPU. The engine will need fast paths for regular graphs and for kinds whose structure rarely changes. The 100k-entity target should be re-examined once a first engine exists.
 - **Read depth.** How far along edges a rule may read before matching becomes too costly, and whether laws may match general **subgraph patterns** (for example "two Critters joined by a bond, both on the same Cell") or only nodes and edges with a fixed read depth. Kappa, a rule-based language for rewriting site graphs, is the closest prior art for pattern-matching laws and for how they can be run efficiently.
 - **Moves between distant nodes.** Moves currently follow one edge. Multi-edge moves (through a pipe of several edges) may be needed, or may be better built from repeated single moves.
+- **Reading another node's signals.** Owned rules read node values along edges (§4.2), but signals are private to their node (§5.3). Bonded nodes that act as one body, such as a leaf cell and a root cell linked by a `bond`, may need to read each other's interface signals. Whether to allow that along declared edge kinds, and what it costs, is open. Substances already flow between bonded nodes through laws (`move sugar * 20% along bond`), so multicellular bodies need no special composite object.
 - **Layout for views.** A general graph has no positions. Views need either position values on nodes or a layout algorithm. Grids and spatial worlds have natural positions.
 - **Author-defined templates and the GPU.** Templates compile to code, so a universe with many templates produces many code paths. Binning by template sequence may be enough.
 - **Syntax.** The examples here are provisional. Once the core settles, `language.md` will be rewritten around it.

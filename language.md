@@ -1,8 +1,8 @@
 # The `.em` Language
 
-**Language reference — draft, companion to spec v0.7.1**
+**Language reference — draft, companion to spec v0.7.2**
 
-This document defines the syntax and static rules of `.em` files. `spec-v0.7.1.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
+This document defines the syntax and static rules of `.em` files. `spec-v0.7.2.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
 
 > **Being restructured.** `core.md` now defines the core language. This document's syntax will be rewritten around it; until then, `core.md`'s examples are provisional and this document remains the syntax reference for the creatures application.
 
@@ -259,6 +259,7 @@ reaction_space {
 ```
 
 - `generate: none;` disables generation. Formulas inside `exclude` use the reaction syntax without a name.
+- **Catalysts** [P1] follow the formula: `reaction build : carbon + nitrate + energy -> body + heat catalyze iron(half: 100mu, boost: 10.0);`. The catalyst is not part of the formula, its canonical form or its `ΔG` (spec §4.5).
 - A hand-written reaction MUST be in canonical form (spec §4.4): no substance on both sides, no repeated terms, coefficients without a common factor, terms in substance declaration order. Otherwise it is `E0404`, with the canonical form as a suggested fix.
 - The compiler reports, for each reaction, its element balance, canonical form and `ΔG`, and rejects any reaction that is unbalanced (`E0401`) or not downhill by at least `min_drop` (`E0402`).
 
@@ -287,6 +288,8 @@ mind_steps: 1;
 ```
 
 `child_offset` is the distance, in space units, behind its parent at which a child is placed (spec §7.5). It defaults to `0.5`. `mind_steps` is how many times per tick every mind updates its signals (spec §5.4). It defaults to `1`.
+
+`per_signal_keep` (optional, default `0mu`) adds `ceil(per_signal_keep × keep)` for each signal in use, so long memory can be made to cost more than reflexes (spec §3.3).
 
 `pay` and `becomes` MUST have the same composition, `pay → becomes` MUST be downhill, `vent` MUST accept `becomes` (`E0701`), and `base` MUST be greater than `0mu` (`E0702`).
 
@@ -335,7 +338,7 @@ regulation {
 ```
 genesis {
     for cell in cells {
-        transfer(carbon, from: rock, to: cell, amount: 50u);
+        transfer(carbon, from: rock, to: cell, amount: 50u) @transfer_carbon;
     }
 }
 ```
@@ -374,14 +377,14 @@ All reads in a rule see the state at the start of the rule.
 
 ```
 rule weather on cells {
-    transfer(carbon, from: rock, to: self, amount: 20mu, overflow: void);
+    transfer(carbon, from: rock, to: self, amount: 20mu, overflow: void) @transfer_carbon;
     when self.grain > 0u and below.grain < cap(grain) {
-        transfer(grain, from: self, to: below, amount: 1u);
+        transfer(grain, from: self, to: below, amount: 1u) @transfer_grain;
     }
 }
 
 rule spread on cells {
-    diffuse_conserved([sugar, carbon, nitrate], rate: 300bp);
+    diffuse_conserved([sugar, carbon, nitrate], rate: 300bp) @diffuse_conserved;
 }
 ```
 
@@ -389,7 +392,7 @@ rule spread on cells {
 
 ```
 rule rotting on cells {
-    react(rot, rate: 50bp);
+    react(rot, rate: 50bp) @react_rot;
 }
 ```
 
@@ -417,7 +420,7 @@ rule life on board {
 | `self.value = expr;` | signal rules |
 | `for cell in field { ... }` | world genesis |
 
-Effect statements may carry a label (`react(rot, rate: 50bp) @slow_rot;`) so patches can address them by name (§10).
+Every effect statement (a `transfer`, `diffuse_conserved` or `react` call) has a label in canonical form (`react(rot, rate: 50bp) @slow_rot;`), so patches can address it by name. `emerge fmt` adds one if it is missing (§10.1).
 
 ---
 
@@ -454,7 +457,7 @@ lineage Drifter in Dish {
     genesis {
         count: 2_000;
         position = uniform(x: 0.0..512.0, y: 0.0..512.0);
-        transfer(energy, from: spark, to: self, amount: 5u);
+        transfer(energy, from: spark, to: self, amount: 5u) @transfer_energy;
     }
 }
 ```
@@ -473,15 +476,15 @@ seed genome {
 
     module forage {
         sense gradient(q: cells.body) -> food_x, food_y @food_dir;
-        regulate weigh(curve: tanh) <- [10.0 * food_y] -> steer;
+        regulate weigh(curve: tanh) <- [10.0 * food_y] -> steer @weigh_steer;
         action move(speed: 1.0) @go;
         action turn(angle_deg: 30.0) <- steer @turn_to_food;
     }
 
     module metabolism {
-        reaction photosynthesis rate 1u <- hunger;
-        reaction respiration rate 1u;
-        dormant reaction build rate 250mu;
+        reaction photosynthesis rate 1u <- hunger @photosynthesis;
+        reaction respiration rate 1u @respiration;
+        dormant reaction build rate 250mu @build;
     }
 }
 ```
@@ -499,7 +502,7 @@ The four gene forms, with arrows showing what flows in and out:
 - **Inputs** of a regulation gene are a list of `weight * signal` terms. A weight of `1.0` is omitted: `[fullness]` means `[1.0 * fullness]`. Kinds without weights (such as `product`) take plain signal names. The number of inputs and the weight range come from the regulation menu (§6.7); out of range is `E0601`.
 - `dormant` starts a gene unexpressed; `dormant module` starts a whole module unexpressed.
 - Each parameter MUST lie in the menu's range (`E0601`).
-- Labels (`@name`) are optional. They give a gene a stable path and a stable ID match across edits (§10).
+- Every gene has a label (`@name`) in canonical form, which gives it a stable path and a stable ID match across edits. `emerge fmt` adds one if it is missing (§10.1).
 
 ### 8.3 Signals
 
@@ -513,8 +516,8 @@ The four gene forms, with arrows showing what flows in and out:
 
 ```
 module reproduce {
-    sense inventory(s: body) -> fullness;
-    regulate weigh(bias: -10.0, curve: step) <- [fullness] -> ready;
+    sense inventory(s: body) -> fullness @inventory_fullness;
+    regulate weigh(bias: -10.0, curve: step) <- [fullness] -> ready @weigh_ready;
     action divide(split: 0.5) <- ready threshold 0.5 @split;
 }
 ```
@@ -586,7 +589,7 @@ chart Health for Dish {
 explore ChemistryAtlas {
     base: Dish;
     vary Dish.reaction_space.generate.max_coeff in [1, 2, 3];
-    vary Dish.rules.rotting.react[0].rate in logspace(from: 10bp, to: 500bp, steps: 8);
+    vary Dish.rules.rotting@react_rot.rate in logspace(from: 10bp, to: 500bp, steps: 8);
     vary seed in 1..4;
     ticks: 50_000;
     batch: 32;
@@ -612,13 +615,26 @@ Every item has a readable path:
 | A reaction | `Dish.reactions.build` |
 | A generated reaction | `Dish.reactions.gen_<hash>` (hash of its canonical formula) |
 | A rule | `Dish.rules.rotting` |
-| A statement in a rule | `Dish.rules.rotting@slow_rot` (by label) or `Dish.rules.rotting.react[0]` (by kind and position) |
+| A statement in a rule | `Dish.rules.rotting@react_rot` |
 | A setting | `Dish.upkeep.base` |
 | A module | `Drifter.seed.forage` |
-| A seed gene | `Drifter.seed.forage@turn_to_food` (by label) or `Drifter.seed.forage.action[1]` (by kind and position within its module) |
+| A seed gene | `Drifter.seed.forage@turn_to_food` |
 | A signal | `Drifter.seed.signals.steer` |
 
-Positional paths (`action[1]`) change meaning when items are inserted before them. Labels don't. Tools that patch genes or statements should label them.
+**There are no positional paths.** Statements and genes are addressed only by label, because a position (`action[1]`) changes meaning when an item is inserted before it. A list value, such as `exclude`, is changed as a whole: `set reaction_space.exclude = [light -> energy];`.
+
+**Automatic labels.** In canonical form every gene and every effect statement has a label. `emerge fmt` keeps the labels it finds and adds a derived one where a label is missing:
+
+| Item | Derived label | Example |
+| :-- | :-- | :-- |
+| Effect statement | the function, then its subject if the subject is a name | `@transfer_carbon`, `@react_rot`, `@diffuse_conserved` |
+| Sense or regulation gene | the menu item or kind, then the first signal it writes | `@gradient_food_x`, `@weigh_steer` |
+| Reaction gene | the reaction | `@photosynthesis` |
+| Action gene | the menu item, then its first parameter if that is a name | `@take_light`, `@move` |
+
+- A label is unique within its rule or genesis block, and, for genes, within its genome. A derived label that is already taken gets `_2`, `_3` and so on, in source order.
+- Once written, a label is ordinary source. `emerge fmt` never changes an existing label, even if the item's kind or parameters change later.
+- Genes created by evolution have no labels. They are addressed by persistent ID (§10.2).
 
 ### 10.2 Persistent IDs
 
@@ -628,7 +644,7 @@ When sources are loaded, each item is matched to an existing ID in this order:
 
 1. by label;
 2. by named path (`Dish.rules.rotting`);
-3. by kind and position (`Drifter.seed.action[2]`), only if the item's kind and menu choice also match.
+3. by kind and position within its block, only if the item's kind and menu choice also match. This step exists only for sources edited by hand before `emerge fmt` has labelled them; positions are never written as paths.
 
 Unmatched items get new IDs. IDs of items that no longer exist are retired. A `rename` patch keeps the ID; renaming in a text editor is matched by label if there is one, and is otherwise a removal plus an addition.
 
@@ -639,10 +655,10 @@ The journal, the node editor's `.meta.json` and the API all refer to items by ID
 ```
 patch Dish base 41 {
     set upkeep.base = 25mu;
-    set rules.sunlight.transfer[0].amount = 3u;
-    add after rules.weather: rule wind on cells { diffuse_conserved([carbon], rate: 100bp); }
+    set rules.sunlight@transfer_light.amount = 3u;
+    add after rules.weather: rule wind on cells { diffuse_conserved([carbon], rate: 100bp) @diffuse_conserved; }
     replace rules.smell { self.value = fade(scent.here, keep: 0.8); }
-    remove reaction_space.exclude[0];
+    set reaction_space.exclude = [];
     rename rules.rotting to decompose;
     remove substances.ozone move_to: void;
 }
@@ -676,7 +692,7 @@ field       := 'field' IDENT ':' call ( 'holds' '[' sep(IDENT ':' AMOUNT) ']' | 
 source      := 'source' IDENT ':' '[' sep(IDENT) ']' ';'
 sink        := 'sink' IDENT ':' ( 'any' | '[' sep(IDENT) ']' ) ';'
 waste       := 'waste' IDENT '->' IDENT ';'
-reaction    := 'reaction' IDENT ':' formula ';'
+reaction    := 'reaction' IDENT ':' formula ('catalyze' call)? ';'   // catalyze: [P1]
 formula     := comp '->' comp
 block_cfg   := IDENT '{' entry* '}'            // second_law, reaction_space, upkeep, limits
 setting     := IDENT ':' value ';'             // space, remains, max_age
@@ -756,7 +772,7 @@ call        := IDENT '(' args? ')'
 args        := subject (',' named)* | named (',' named)*
 subject     := expr
 named       := IDENT ':' value
-path        := ('self' | IDENT) ('.' IDENT | '[' INT ']' | LABEL)*
+path        := ('self' | IDENT) ('.' IDENT | LABEL)*
 literal     := INT | FLOAT | AMOUNT | RATE | RANGE | 'true' | 'false'
 
 // ---- tokens ----
@@ -873,5 +889,3 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 - **Signal units:** signals are plain `f32`. Some worlds may want declared signal units (temperature, concentration) checked like amounts.
 - **User functions:** there are none yet. Pure helper functions for world rules (no effects, no recursion) would cut repetition but add a feature to the grammar.
 - **Multi-file worlds:** whether a `world` may be split across files (for example chemistry in one file and rules in another) or must stay in one block.
-- **Automatic labels:** whether `emerge fmt` should add labels to every gene and effect statement, so positional paths are never needed.
-- **Explicit catalysts:** a syntax for a substance that must be present but is not consumed, which canonical form currently removes (spec §17).
