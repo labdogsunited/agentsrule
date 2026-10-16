@@ -353,3 +353,22 @@ fn disposal_comes_before_division_and_fills_the_cell_first() {
     assert_eq!(w.cells[cell].amounts[d.body], 2_000 * U);
     w.audit().unwrap();
 }
+
+#[test]
+fn decompose_turns_a_corpse_into_raw_materials_before_disposal() {
+    let (mut w, d) = dish(0, 0);
+    let cell = dish_cell(&mut w, &d);
+    w.endow(End::Cell(cell), d.carbon, 1_999 * U);
+    let e = w.spawn(cell, vec![]);
+    w.endow(End::Entity(e), d.body, 3 * U);
+    w.endow(End::Entity(e), d.energy, 2 * U);
+    w.max_age = 1;
+    w.decompose = Some(d.rot);
+    w.step().unwrap();
+    assert_eq!(w.events, vec![Event::Died { tick: 0, id: 1, cause: Cause::Age }]);
+    // 3u of body becomes 3u of carbon and 3u of nitrate; 1u of carbon fits, the rest goes to remains.
+    assert_eq!(w.cells[cell].amounts[d.body], 0);
+    assert_eq!(w.cells[cell].amounts[d.carbon], 2_000 * U);
+    assert_eq!(w.cells[cell].amounts[d.nitrate], 3 * U);
+    w.audit().unwrap();
+}

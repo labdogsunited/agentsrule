@@ -269,6 +269,8 @@ pub struct World {
     pub upkeep: Upkeep,
     pub waste: Vec<(SubstanceId, SinkId)>,
     pub remains: SinkId,
+    /// A reaction run to completion on a dead entity's inventory before disposal places it.
+    pub decompose: Option<ReactionId>,
     pub max_age: u64,
     pub max_entities: usize,
     pub mind_steps: u32,
@@ -338,6 +340,7 @@ impl World {
             upkeep,
             waste: Vec::new(),
             remains,
+            decompose: None,
             max_age: u64::MAX,
             max_entities: usize::MAX,
             mind_steps: 1,
@@ -651,6 +654,12 @@ impl World {
             removed[i] = true;
             let cause = if dying[i] { Cause::Starved } else { Cause::Age };
             let cell = self.entities[i].cell;
+            if let Some(r) = self.decompose {
+                let r = &self.chem.reactions[r];
+                let store = &mut self.entities[i].store;
+                let extent = r.inputs.iter().map(|&(s, c)| store.amounts[s] / c).min().unwrap_or(0);
+                apply_reaction(store, r, extent);
+            }
             for s in 0..self.chem.substances.len() {
                 let amount = std::mem::take(&mut self.entities[i].store.amounts[s]);
                 let to_cell = amount.min(self.cells[cell].headroom(s));

@@ -397,6 +397,7 @@ impl<'a> Compiler<'a> {
                     match e.key.as_str() {
                         "space" => space = Some(call(v, &path)?),
                         "remains" => {}
+                        "decompose" => self.world.decompose = Some(lookup(&self.reactions, name_of(v, &path)?, &path, "reaction")?),
                         "max_age" => self.world.max_age = int(v, &path)? as u64,
                         "child_offset" => child_offset = float(v, &path)?,
                         "mind_steps" => self.world.mind_steps = int(v, &path)? as u32,

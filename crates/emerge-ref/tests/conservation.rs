@@ -65,6 +65,7 @@ fn random_worlds_conserve_every_element() {
         }
 
         w.max_age = 20 + rng.below(200);
+        w.decompose = if rng.below(2) == 0 { Some(d.rot) } else { None };
         w.max_entities = 5 + rng.below(60) as usize;
         for _ in 0..rng.below(20) {
             let mut genes = Vec::new();

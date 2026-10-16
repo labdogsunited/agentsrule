@@ -244,6 +244,7 @@ sink vent : [heat];
 
 waste heat -> void; // vented from every inventory after Transform
 remains: void; // where a dead entity's unplaceable substances go
+decompose: rot; // optional: a declared reaction run to completion on a dead entity's inventory before disposal
 ```
 
 ### 6.5 Reactions and the reaction space
