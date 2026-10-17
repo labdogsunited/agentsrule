@@ -9,7 +9,7 @@
 //! item's path (`language.md` §14); `--json` prints one JSON object per line. It exits with
 //! 1 if there is an error.
 //!
-//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--producers F] [--census N]`
+//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N]`
 //! compiles the world, seeds it with the lineages and runs it on the CPU reference runner,
 //! auditing the ledger every `--every` ticks. It prints a CSV row per window and a final
 //! `#` summary line (spec §16, exit criteria 7–9). Children mutate (spec §8.1) unless
@@ -18,7 +18,9 @@
 //! in the window. The summary's `sustained_at` is the first tick at which flux has been
 //! above zero with at least `--producers F` producers (default `0.02`) in every window
 //! for 10_000 ticks (exit test 9);
-//! `--stop-when-sustained` ends the run there. `--census N` prints the `N` most common
+//! `--stop-when-sustained` ends the run there. `--stop-when-hopeless` ends a run that can no longer
+//! pass (the ticks left plus the current streak are under 10_000); the summary then ends with
+//! `stopped=cannot_pass`. `--census N` prints the `N` most common
 //! genomes at the end, and the most common one that makes the `--flux` substance, in
 //! `.em` syntax on `#` lines. `stolen_mu` is the µ moved by `steal` in the
 //! window, and `thieves` the fraction of entities with an active `steal` gene. A world with parts the runner cannot
@@ -45,7 +47,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--producers F] [--census N]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N]");
     ExitCode::from(2)
 }
 
@@ -164,13 +166,14 @@ fn run(args: &[String]) -> ExitCode {
     let Some(path) = args.first() else { return usage() };
     let (mut lineages, mut flux_name) = (String::new(), None);
     let (mut seed, mut ticks, mut every) = (1u64, 50_000u64, 1_000u64);
-    let (mut partial, mut mutation, mut stop) = (false, true, false);
+    let (mut partial, mut mutation, mut stop, mut hopeless_stop) = (false, true, false, false);
     let (mut census, mut threshold) = (0, 0.02);
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
-        if flag == "--partial" || flag == "--stop-when-sustained" {
+        if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" {
             partial |= flag == "--partial";
             stop |= flag == "--stop-when-sustained";
+            hopeless_stop |= flag == "--stop-when-hopeless";
             continue;
         }
         let value = rest.next().map(String::as_str).unwrap_or("");
@@ -228,6 +231,7 @@ fn run(args: &[String]) -> ExitCode {
     // Exit test 9: flux above zero, made by at least `threshold` of the population in every
     // window, for 10_000 ticks in a row. `sustained` is the first tick at which that holds.
     let (mut streak, mut sustained) = (0u64, None);
+    let mut hopeless = false;
     let mut clock = Instant::now();
     while w.tick < ticks && !w.entities.is_empty() {
         w.run_tick();
@@ -270,14 +274,20 @@ fn run(args: &[String]) -> ExitCode {
             if stop && sustained.is_some() {
                 break;
             }
+            // The run cannot pass any more: the ticks left, plus the streak so far, are under 10_000.
+            if hopeless_stop && sustained.is_none() && streak + (ticks - w.tick) < 10_000 {
+                hopeless = true;
+                break;
+            }
         }
     }
-    let survived = !w.entities.is_empty() && (w.tick >= ticks || sustained.is_some());
+    let survived = !w.entities.is_empty() && (w.tick >= ticks || sustained.is_some() || hopeless);
     let sustained = sustained.map_or("never".to_string(), |t| t.to_string());
     println!(
-        "# lineages={lineages} seed={seed} mutation={} ticks={} survived={survived} windows={windows} with_births={with_births} with_flux={with_flux} sustained_at={sustained}",
+        "# lineages={lineages} seed={seed} mutation={} ticks={} survived={survived} windows={windows} with_births={with_births} with_flux={with_flux} sustained_at={sustained}{}",
         if mutation { "on" } else { "off" },
-        w.tick
+        w.tick,
+        if hopeless { " stopped=cannot_pass" } else { "" }
     );
     if census > 0 {
         print_census(&w, &field, census, flux);
