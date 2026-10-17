@@ -9,7 +9,7 @@
 //! item's path (`language.md` §14); `--json` prints one JSON object per line. It exits with
 //! 1 if there is an error.
 //!
-//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N]`
+//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--features] [--producers F] [--census N]`
 //! compiles the world, seeds it with the lineages and runs it on the CPU reference runner,
 //! auditing the ledger every `--every` ticks. It prints a CSV row per window and a final
 //! `#` summary line (spec §16, exit criteria 7–9). Children mutate (spec §8.1) unless
@@ -166,12 +166,13 @@ fn run(args: &[String]) -> ExitCode {
     let Some(path) = args.first() else { return usage() };
     let (mut lineages, mut flux_name) = (String::new(), None);
     let (mut seed, mut ticks, mut every) = (1u64, 50_000u64, 1_000u64);
-    let (mut partial, mut mutation, mut stop, mut hopeless_stop) = (false, true, false, false);
+    let (mut partial, mut mutation, mut stop, mut hopeless_stop, mut features) = (false, true, false, false, false);
     let (mut census, mut threshold) = (0, 0.02);
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
-        if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" {
+        if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" || flag == "--features" {
             partial |= flag == "--partial";
+            features |= flag == "--features";
             stop |= flag == "--stop-when-sustained";
             hopeless_stop |= flag == "--stop-when-hopeless";
             continue;
@@ -269,6 +270,10 @@ fn run(args: &[String]) -> ExitCode {
                 sustained = Some(w.tick);
             }
             (births, deaths, made, stolen) = (w.births, w.deaths, now, w.stolen);
+            // Before the reset below, so `made` still holds this window.
+            if features && (w.tick >= ticks || w.entities.is_empty()) {
+                print_features(&w);
+            }
             w.entities.iter_mut().for_each(|e| e.made = 0);
             clock = Instant::now();
             if stop && sustained.is_some() {
@@ -343,4 +348,63 @@ fn produced(w: &World, s: usize) -> u64 {
         .enumerate()
         .map(|(r, rx)| rx.outputs.iter().filter(|o| o.0 == s).map(|o| o.1 as u64).sum::<u64>() * w.entity_extent[r])
         .sum()
+}
+
+/// What an active gene is, as a short label: its kind and its substance or reaction.
+fn feature_labels(w: &World, e: &emerge_ref::Entity) -> std::collections::BTreeSet<String> {
+    use emerge_ref::mind::Sense;
+    let sub = |s: usize| w.chem.substances[s].name.clone();
+    let side = |t: &[(usize, u32)]| t.iter().map(|&(s, c)| if c == 1 { sub(s) } else { format!("{c} {}", sub(s)) }).collect::<Vec<_>>().join(" + ");
+    let mut out = std::collections::BTreeSet::new();
+    for (g, slot) in e.genome.slots.iter().enumerate().filter(|(g, _)| e.genome.active(*g)) {
+        let _ = g;
+        out.insert(match &slot.gene {
+            Gene::Sense { sense, .. } => match sense {
+                Sense::Inventory(s) => format!("sense inventory({})", sub(*s)),
+                Sense::Cell(s) => format!("sense cell({})", sub(*s)),
+                Sense::Gradient(s) => format!("sense gradient({})", sub(*s)),
+                Sense::Probe { s, .. } => format!("sense probe({})", sub(*s)),
+                Sense::Crowd { .. } => "sense crowd".to_string(),
+                Sense::Neighbour { s, .. } => format!("sense neighbour({})", sub(*s)),
+                Sense::Clock { .. } => "sense clock".to_string(),
+            },
+            Gene::Weigh { inputs, .. } => format!("regulate weigh/{}", inputs.len()),
+            Gene::Product { .. } => "regulate product".to_string(),
+            Gene::React { reaction, .. } => {
+                let r = &w.chem.reactions[*reaction];
+                format!("reaction {} -> {}", side(&r.inputs), side(&r.outputs))
+            }
+            Gene::Move { .. } => "action move".to_string(),
+            Gene::Turn { .. } => "action turn".to_string(),
+            Gene::Take { s, .. } => format!("action take({})", sub(*s)),
+            Gene::Drop { s, .. } => format!("action drop({})", sub(*s)),
+            Gene::Give { s, .. } => format!("action give({})", sub(*s)),
+            Gene::Steal { s, .. } => format!("action steal({})", sub(*s)),
+            Gene::Divide { .. } => "action divide".to_string(),
+        });
+    }
+    out
+}
+
+/// Share of producers (`made > 0`) and of the other entities that have each kind of active gene.
+fn print_features(w: &World) {
+    let mut count: std::collections::BTreeMap<String, (usize, usize)> = std::collections::BTreeMap::new();
+    let (mut p, mut o) = (0usize, 0usize);
+    for e in &w.entities {
+        let producer = e.made > 0;
+        if producer { p += 1 } else { o += 1 }
+        for l in feature_labels(w, e) {
+            let c = count.entry(l).or_default();
+            if producer { c.0 += 1 } else { c.1 += 1 }
+        }
+    }
+    println!("# features: {p} producers, {o} others (share of each group with an active gene of this kind)");
+    let mut rows: Vec<(String, f64, f64)> = count
+        .into_iter()
+        .map(|(l, (a, b))| (l, a as f64 / p.max(1) as f64, b as f64 / o.max(1) as f64))
+        .collect();
+    rows.sort_by(|x, y| (y.1 - y.2).abs().total_cmp(&(x.1 - x.2).abs()));
+    for (l, a, b) in rows.iter().take(30) {
+        println!("#   {a:6.1}% vs {b:6.1}%  {l}", a = a * 100.0, b = b * 100.0);
+    }
 }
