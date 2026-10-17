@@ -9,7 +9,7 @@
 //! item's path (`language.md` §14); `--json` prints one JSON object per line. It exits with
 //! 1 if there is an error.
 //!
-//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--features] [--producers F] [--census N]`
+//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--features] [--cell S] [--producers F] [--census N]`
 //! compiles the world, seeds it with the lineages and runs it on the CPU reference runner,
 //! auditing the ledger every `--every` ticks. It prints a CSV row per window and a final
 //! `#` summary line (spec §16, exit criteria 7–9). Children mutate (spec §8.1) unless
@@ -165,6 +165,7 @@ fn quote(s: &str) -> String {
 fn run(args: &[String]) -> ExitCode {
     let Some(path) = args.first() else { return usage() };
     let (mut lineages, mut flux_name) = (String::new(), None);
+    let mut cell_name: Option<String> = None;
     let (mut seed, mut ticks, mut every) = (1u64, 50_000u64, 1_000u64);
     let (mut partial, mut mutation, mut stop, mut hopeless_stop, mut features) = (false, true, false, false, false);
     let (mut census, mut threshold) = (0, 0.02);
@@ -182,6 +183,7 @@ fn run(args: &[String]) -> ExitCode {
         match (flag.as_str(), number(value)) {
             ("--lineages", _) => lineages = value.to_string(),
             ("--flux", _) => flux_name = Some(value.to_string()),
+            ("--cell", _) => cell_name = Some(value.to_string()),
             ("--mutation", _) if value == "off" || value == "on" => mutation = value == "on",
             ("--seed", Some(n)) => seed = n,
             ("--ticks", Some(n)) => ticks = n,
@@ -220,13 +222,22 @@ fn run(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let cell_sub = match cell_name.as_deref().map(|n| (n, find(n))) {
+        None => None,
+        Some((_, Some(s))) => Some(s),
+        Some((n, None)) => {
+            eprintln!("--cell: unknown substance `{n}`");
+            return ExitCode::from(2);
+        }
+    };
     let pay = w.upkeep.pay;
     w.record_events = false;
     w.track = flux;
     w.record_transfers = false;
 
     let (pay_name, flux_label) = (&w.chem.substances[pay].name, flux_name.as_deref().unwrap_or("none"));
-    println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,carriers,producers,mean_active_genes,stolen_mu,thieves,ms_per_tick");
+    let extra = cell_name.as_deref().map_or(String::new(), |n| format!(",cell_{n}_u,held_{n}_u"));
+    println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,carriers,producers,mean_active_genes,stolen_mu,thieves,ms_per_tick{extra}");
     let (mut births, mut deaths, mut made, mut stolen) = (0, 0, 0, 0);
     let (mut windows, mut with_births, mut with_flux) = (0, 0, 0);
     // Exit test 9: flux above zero, made by at least `threshold` of the population in every
@@ -256,8 +267,12 @@ fn run(args: &[String]) -> ExitCode {
             let producers = w.entities.iter().filter(|e| e.made > 0).count() as f64 / pop;
             let genes = w.entities.iter().map(|e| e.genome.active_genes()).sum::<usize>() as f64 / pop;
             let thieves = w.entities.iter().filter(|e| steals(e)).count() as f64 / pop;
+            let extra = cell_sub.map_or(String::new(), |s| {
+                let cells = w.cells.iter().map(|c| c.amounts[s] as f64).sum::<f64>() / w.cells.len().max(1) as f64 / 1_000.0;
+                format!(",{cells:.3},{:.3}", mean(s))
+            });
             println!(
-                "{},{},{},{},{},{:.2},{:.2},{:.3},{:.4},{:.4},{:.2},{},{:.4},{:.1}",
+                "{},{},{},{},{},{:.2},{:.2},{:.3},{:.4},{:.4},{:.2},{},{:.4},{:.1}{extra}",
                 w.tick, w.entities.len(), w.births - births, w.deaths - deaths, now - made,
                 mean(pay), mean_flux, cell_flux, carriers, producers, genes, w.stolen - stolen, thieves,
                 clock.elapsed().as_secs_f64() * 1_000.0 / every as f64,
