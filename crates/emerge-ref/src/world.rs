@@ -137,6 +137,22 @@ pub struct Entity {
     /// µ of `World::track` its reaction genes have produced since this was last reset.
     /// Children start at `0`.
     pub made: u64,
+    /// What upkeep needs from the genome. A genome never changes after birth, so this is
+    /// worked out once, not every tick.
+    pub shape: GenomeShape,
+}
+
+/// The parts of a genome that upkeep reads (spec §3.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenomeShape {
+    pub active_genes: usize,
+    pub in_use: Vec<usize>,
+}
+
+impl GenomeShape {
+    pub fn of(g: &Genome) -> GenomeShape {
+        GenomeShape { active_genes: g.active_genes(), in_use: g.signals_in_use() }
+    }
 }
 
 /// World rules. Each runs on every cell; its kind sets its phase (spec §7.4).
@@ -420,6 +436,7 @@ impl World {
     pub fn spawn_genome(&mut self, cell: usize, genome: Genome) -> usize {
         let caps = vec![self.inventory_cap; self.chem.substances.len()];
         let signals = vec![0.0; genome.keep.len()];
+        let shape = GenomeShape::of(&genome);
         self.entities.push(Entity {
             id: self.next_id,
             cell,
@@ -431,6 +448,7 @@ impl World {
             age: 0,
             lineage: 0,
             made: 0,
+            shape,
         });
         self.next_id += 1;
         self.entities.len() - 1
@@ -731,7 +749,8 @@ impl World {
             };
             let signals = vec![0.0; genome.keep.len()];
             let lineage = parent.lineage;
-            children.push(Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0, lineage, made: 0 });
+            let shape = if genome == parent.genome { parent.shape.clone() } else { GenomeShape::of(&genome) };
+            children.push(Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0, lineage, made: 0, shape });
             living += 1;
         }
         // 4.3 Survivors age and move to the cell under them; newborns join at the end of the
@@ -1049,11 +1068,11 @@ fn scale(o: f32, max: Mu) -> Mu {
 /// Upkeep for one entity (spec §3.3), in u64.
 fn upkeep_cost(u: &Upkeep, e: &Entity) -> u64 {
     let g = &e.genome;
-    let in_use = g.signals_in_use();
+    let in_use = &e.shape.in_use;
     let keep: u64 = in_use.iter().map(|&s| (u.per_signal_keep as f32 * g.keep[s]).ceil() as u64).sum();
     let carried: u64 = e.store.amounts.iter().map(|&a| a as u64).sum::<u64>() / 1_000;
     u.base as u64
-        + u.per_gene as u64 * g.active_genes() as u64
+        + u.per_gene as u64 * e.shape.active_genes as u64
         + u.per_signal as u64 * in_use.len() as u64
         + keep
         + u.per_carried_u as u64 * carried
