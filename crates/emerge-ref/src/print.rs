@@ -32,6 +32,7 @@ pub fn genome(w: &World, g: &Genome, field: &str) -> String {
                         Sense::Crowd { radius } => format!("crowd(radius: {radius:?})"),
                         Sense::Neighbour { s, rank } => format!("neighbour(s: {}, rank: {rank})", substance(s)),
                         Sense::Clock { period } => format!("clock(period: {period})"),
+                        Sense::Delta(s) => format!("delta(s: {})", substance(s)),
                     };
                     let outs = std::iter::once(out).chain(out2).map(|s| format!("s{s}")).collect::<Vec<_>>().join(", ");
                     format!("sense {call} -> {outs}")

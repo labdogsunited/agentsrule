@@ -52,6 +52,8 @@ pub struct Menus {
     /// Substances the conserved field holds, for `gradient`.
     pub field: Vec<SubstanceId>,
     pub inventory: bool,
+    /// `delta`: change in an own amount since the previous reading.
+    pub delta: bool,
     pub gradient: bool,
     /// `probe`: angle and distance ranges, over the field's substances.
     pub probe: Option<((f32, f32), (f32, f32))>,
@@ -218,7 +220,7 @@ fn point(d: &mut Draws, g: &mut Gene, menus: &Menus, sigma: f32) {
     let threshold = |d: &mut Draws, t: &mut f32| *t = (*t + d.normal() * sigma).clamp(-THRESHOLD_LIMIT, THRESHOLD_LIMIT);
     match g {
         Gene::Sense { sense, .. } => match sense {
-            Sense::Inventory(s) | Sense::Cell(s) => *s = pick(d, &menus.substances).unwrap_or(*s),
+            Sense::Inventory(s) | Sense::Cell(s) | Sense::Delta(s) => *s = pick(d, &menus.substances).unwrap_or(*s),
             Sense::Gradient(s) => *s = pick(d, &menus.field).unwrap_or(*s),
             Sense::Probe { s, angle_deg, dist } => match (&menus.probe, d.below(3)) {
                 (_, 0) => *s = pick(d, &menus.field).unwrap_or(*s),
@@ -324,6 +326,7 @@ fn random_gene(d: &mut Draws, m: &mut Modules, menus: &Menus, cap: &Capacity) ->
         (13, menus.clock.is_some()),
         (14, menus.give.is_some()),
         (15, menus.steal.is_some()),
+        (16, menus.delta),
     ] {
         if on {
             kinds.push(k);
@@ -389,6 +392,10 @@ fn random_gene(d: &mut Draws, m: &mut Modules, menus: &Menus, cap: &Capacity) ->
             let rank = whole(d, menus.neighbour?);
             let s = pick(d, &menus.substances)?;
             Gene::Sense { sense: Sense::Neighbour { s, rank }, out: m.fresh(cap)?, out2: None }
+        }
+        16 => {
+            let s = pick(d, &menus.substances)?;
+            Gene::Sense { sense: Sense::Delta(s), out: m.fresh(cap)?, out2: None }
         }
         13 => Gene::Sense { sense: Sense::Clock { period: whole(d, menus.clock?).max(1) }, out: m.fresh(cap)?, out2: None },
         _ => {
@@ -613,6 +620,7 @@ pub fn validate(g: &Genome, cap: &Capacity, menus: &Menus) -> Result<(), String>
         let t_ok = |t: f32| (-THRESHOLD_LIMIT..=THRESHOLD_LIMIT).contains(&t);
         let ok = match &slot.gene {
             Gene::Sense { sense: Sense::Inventory(s) | Sense::Cell(s), .. } => menus.inventory && menus.substances.contains(s),
+            Gene::Sense { sense: Sense::Delta(s), out2, .. } => menus.delta && menus.substances.contains(s) && out2.is_none(),
             Gene::Sense { sense: Sense::Gradient(s), out2, .. } => menus.gradient && menus.field.contains(s) && out2.is_some(),
             Gene::Sense { sense: Sense::Probe { s, angle_deg, dist }, out2, .. } => {
                 menus.probe.is_some_and(|(a, r)| within(*angle_deg, a) && within(*dist, r)) && menus.field.contains(s) && out2.is_none()

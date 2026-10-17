@@ -560,6 +560,7 @@ impl<'a> Compiler<'a> {
             substances: (0..n).collect(),
             field: (0..n).filter(|&s| caps[s] > 0).collect(),
             inventory: self.senses.contains_key("inventory"),
+            delta: self.senses.contains_key("delta"),
             gradient: self.senses.contains_key("gradient") && self.grid.is_some(),
             probe: sense("probe", &["angle_deg", "dist"])?.filter(|_| field).map(|r| (r[0], r[1])),
             crowd: sense("crowd", &["radius"])?.filter(|_| contact).map(|r| r[0]),
@@ -990,6 +991,7 @@ impl<'a> Compiler<'a> {
                                 rank: int(arg(c, "rank", &path)?, &path)? as u32,
                             },
                             "clock" => Sense::Clock { period: int(arg(c, "period", &path)?, &path)?.max(1) as u32 },
+                            "delta" => Sense::Delta(self.substance(name_of(arg(c, "s", &path)?, &path)?, &path)?),
                             other => return err("E1001", path, format!("sense `{other}` is not supported by emerge-ref yet")),
                         };
                         if matches!(sense, Sense::Crowd { .. } | Sense::Neighbour { .. }) {
@@ -1323,7 +1325,7 @@ fn call(e: &Expr, path: &str) -> Result<ast::Call, Error> {
 }
 
 /// Menu items emerge-ref runs. Other items are left out of a partial run.
-const SENSES: &[&str] = &["inventory", "gradient", "probe", "crowd", "neighbour", "clock"];
+const SENSES: &[&str] = &["inventory", "gradient", "probe", "crowd", "neighbour", "clock", "delta"];
 const REGULATION: &[&str] = &["weigh", "product"];
 const ACTIONS: &[&str] = &["move", "turn", "take", "drop", "give", "steal", "divide"];
 

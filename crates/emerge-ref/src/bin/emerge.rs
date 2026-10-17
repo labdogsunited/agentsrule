@@ -382,6 +382,7 @@ fn feature_labels(w: &World, e: &emerge_ref::Entity) -> std::collections::BTreeS
                 Sense::Crowd { .. } => "sense crowd".to_string(),
                 Sense::Neighbour { s, .. } => format!("sense neighbour({})", sub(*s)),
                 Sense::Clock { .. } => "sense clock".to_string(),
+                Sense::Delta(s) => format!("sense delta({})", sub(*s)),
             },
             Gene::Weigh { inputs, .. } => format!("regulate weigh/{}", inputs.len()),
             Gene::Product { .. } => "regulate product".to_string(),

@@ -140,6 +140,8 @@ pub struct Entity {
     /// What upkeep needs from the genome. A genome never changes after birth, so this is
     /// worked out once, not every tick.
     pub shape: GenomeShape,
+    /// Own amounts at the entity's previous reading, for `delta`; empty until a gene reads it.
+    pub prev: Vec<Mu>,
 }
 
 /// The parts of a genome that upkeep reads (spec §3.3).
@@ -147,11 +149,17 @@ pub struct Entity {
 pub struct GenomeShape {
     pub active_genes: usize,
     pub in_use: Vec<usize>,
+    /// Whether some gene senses `delta`.
+    pub delta: bool,
 }
 
 impl GenomeShape {
     pub fn of(g: &Genome) -> GenomeShape {
-        GenomeShape { active_genes: g.active_genes(), in_use: g.signals_in_use() }
+        GenomeShape {
+            active_genes: g.active_genes(),
+            in_use: g.signals_in_use(),
+            delta: g.slots.iter().any(|s| matches!(s.gene, Gene::Sense { sense: Sense::Delta(_), .. })),
+        }
     }
 }
 
@@ -449,6 +457,7 @@ impl World {
             lineage: 0,
             made: 0,
             shape,
+            prev: Vec::new(),
         });
         self.next_id += 1;
         self.entities.len() - 1
@@ -750,7 +759,7 @@ impl World {
             let signals = vec![0.0; genome.keep.len()];
             let lineage = parent.lineage;
             let shape = if genome == parent.genome { parent.shape.clone() } else { GenomeShape::of(&genome) };
-            children.push(Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0, lineage, made: 0, shape });
+            children.push(Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0, lineage, made: 0, shape, prev: Vec::new() });
             living += 1;
         }
         // 4.3 Survivors age and move to the cell under them; newborns join at the end of the
@@ -792,6 +801,10 @@ impl World {
             }).collect()
         };
         let e = &mut self.entities[i];
+        if e.shape.delta {
+            e.prev.clear();
+            e.prev.extend_from_slice(&e.store.amounts);
+        }
         think(&e.genome, &mut e.signals, &readings, self.mind_steps);
 
         let e = &self.entities[i];
@@ -882,6 +895,7 @@ impl World {
                 [(std::f32::consts::TAU * phase).sin(), 0.0]
             }
             Sense::Inventory(s) => [units(e.store.amounts[s]), 0.0],
+            Sense::Delta(s) => [e.prev.get(s).map_or(0.0, |&p| (e.store.amounts[s] - p) as f32 * 0.001), 0.0],
             Sense::Cell(s) => [units(self.cells[e.cell].amounts[s]), 0.0],
             Sense::Gradient(s) => {
                 let Some(space) = &self.space else { return [0.0, 0.0] };

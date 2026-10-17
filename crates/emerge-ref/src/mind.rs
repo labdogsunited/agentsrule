@@ -36,6 +36,9 @@ pub enum Sense {
     Neighbour { s: SubstanceId, rank: u32 },
     /// `clock(period)`: `sin(2π × (tick mod period) / period)`.
     Clock { period: u32 },
+    /// `delta(s)`: the entity's own amount of `s` now, minus what its previous reading saw,
+    /// in units; 0 at the first reading.
+    Delta(SubstanceId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
