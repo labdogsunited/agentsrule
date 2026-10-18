@@ -538,7 +538,8 @@ fn carries(w: &World, e: &emerge_ref::Entity, s: usize) -> bool {
 /// and each is mutated once per generation, as at a division. At chosen generations,
 /// the share of lineages whose genome has a reaction making `--flux` (expressed, or only
 /// dormant), an expressed `take` of each input it needs, and a complete route: an expressed
-/// reaction making it whose every input is taken or made by another expressed reaction.
+/// reaction making it whose every input is taken or made by another expressed reaction,
+/// and (last column) an expressed `steal` of it.
 fn census(args: &[String]) -> ExitCode {
     let Some(path) = args.first() else { return usage() };
     let (mut lineage, mut flux_name) = (String::new(), "body".to_string());
@@ -573,17 +574,18 @@ fn census(args: &[String]) -> ExitCode {
     };
     let mut genomes = vec![e.genome.clone(); lines];
     let report = |gen: u32, genomes: &[emerge_ref::Genome]| {
-        let mut n = [0usize; 5];
+        let mut n = [0usize; 6];
         for g in genomes {
             let f = route(&w, g, flux);
             for (k, &b) in f.iter().enumerate() {
                 n[k] += b as usize;
             }
+            n[5] += g.slots.iter().enumerate().any(|(i, slot)| g.active(i) && matches!(slot.gene, Gene::Steal { s, .. } if s == flux)) as usize;
         }
         let pct = |k: usize| n[k] as f64 / genomes.len() as f64 * 100.0;
-        println!("{gen},{:.2},{:.2},{:.2},{:.2},{:.2}", pct(0), pct(1), pct(2), pct(3), pct(4));
+        println!("{gen},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2}", pct(0), pct(1), pct(2), pct(3), pct(4), pct(5));
     };
-    println!("generation,any_{flux_name}_reaction_pct,expressed_{flux_name}_reaction_pct,takes_an_input_pct,expressed_and_takes_pct,complete_route_pct");
+    println!("generation,any_{flux_name}_reaction_pct,expressed_{flux_name}_reaction_pct,takes_an_input_pct,expressed_and_takes_pct,complete_route_pct,steals_{flux_name}_pct");
     report(0, &genomes);
     let marks = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1_000, 2_000, 5_000];
     for gen in 1..=generations {
