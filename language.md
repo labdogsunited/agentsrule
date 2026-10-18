@@ -925,7 +925,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E0114` | an unknown name: field, source, sink, substance, reaction, lineage |
 | `E0115` | an unknown setting or block |
 | `E0116` | a required declaration or argument is missing |
-| `E0203`–`E0205` | values: out of their type's range (`E0204`: a fraction above `10_000bp`, an amount that does not fit `f32` exactly, §3.5 of the spec), or of the wrong kind (`E0205`) |
+| `E0203`–`E0205` | values: out of their type's range (`E0203`: `second_law.min_drop` below 1 or not a whole number; `E0204`: a fraction above `10_000bp`, an amount that does not fit `f32` exactly, §3.5 of the spec), or of the wrong kind (`E0205`) |
 | `E0301` | an effect not allowed in this context |
 | `E0305` | a value written by several rules without a declared `combine`, or with one that does not apply to it |
 | `E0401`–`E0406` | chemistry |

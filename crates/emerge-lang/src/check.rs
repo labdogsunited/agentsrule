@@ -230,9 +230,16 @@ fn chemistry(w: &World, out: &mut Vec<Problem>) {
         match &d.node {
             WDecl::Element(e) => elements.push(e.as_str()),
             WDecl::Config { name, entries } if name == "second_law" => {
-                for e in entries {
-                    if let (true, Value::Expr(Expr::Lit(Lit::Int(m)))) = (e.node.key == "min_drop", &e.node.value) {
-                        min_drop = *m;
+                for e in entries.iter().filter(|e| e.node.key == "min_drop") {
+                    match &e.node.value {
+                        Value::Expr(Expr::Lit(Lit::Int(m))) if *m >= 1 => min_drop = *m,
+                        _ => out.push(Problem {
+                            code: "E0203",
+                            path: format!("{}.second_law.min_drop", w.name),
+                            pos: e.pos,
+                            message: "`min_drop` must be a whole number of at least 1, so every reaction loses potential".into(),
+                            fix: None,
+                        }),
                     }
                 }
             }

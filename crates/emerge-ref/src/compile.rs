@@ -231,7 +231,8 @@ impl<'a> Compiler<'a> {
                     for e in entries {
                         at.set(e.pos);
                         match (e.node.key.as_str(), &e.node.value) {
-                            ("min_drop", Value::Expr(Expr::Lit(Lit::Int(m)))) => chem.min_drop = *m,
+                            ("min_drop", Value::Expr(Expr::Lit(Lit::Int(m)))) if *m >= 1 => chem.min_drop = *m,
+                            ("min_drop", _) => return err("E0203", p("second_law.min_drop"), "`min_drop` must be a whole number of at least 1"),
                             (k, _) => return err("E0115", p("second_law"), format!("unknown setting `{k}`")),
                         }
                     }

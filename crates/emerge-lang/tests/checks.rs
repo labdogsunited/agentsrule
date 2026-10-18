@@ -72,6 +72,17 @@ fn upkeep_base_is_not_free() {
 }
 
 #[test]
+fn min_drop_is_at_least_one() {
+    for bad in ["second_law { min_drop: 0; }", "second_law { min_drop: -5; }"] {
+        let p = problems(&[("second_law { min_drop: 1; }", bad)]);
+        assert_eq!(p.len(), 1, "{bad}: {p:?}");
+        assert_eq!((p[0].code, p[0].path.as_str()), ("E0203", "Dish.second_law.min_drop"), "{bad}");
+    }
+    let p = problems(&[("second_law { min_drop: 1; }", "second_law { min_drop: 2; }")]);
+    assert!(p.iter().all(|p| p.code == "E0402"), "2 is a valid setting; only reactions too shallow for it fail: {p:?}");
+}
+
+#[test]
 fn every_problem_is_reported_not_only_the_first() {
     let p = problems(&[("base: 20mu;", "base: 0mu;"), ("genes: 32;", "genes: 11;"), ("<- [fullness] -> ready", "<- [fulness] -> ready")]);
     let codes: Vec<_> = p.iter().map(|p| p.code).collect();
