@@ -428,6 +428,28 @@ rule life on board {
 
 Every effect statement (a `transfer`, `diffuse_conserved` or `react` call) has a label in canonical form (`react(rot, rate: 50bp) @slow_rot;`), so patches can address it by name. `emerge fmt` adds one if it is missing (§10.1).
 
+### 7.4 What happens in a tick
+
+A summary of spec §7, for reading a world's behaviour. Every tick runs four phases in this order:
+
+| Phase | What happens, in order |
+| :-- | :-- |
+| 1. **Set** | Senses read the snapshot. Minds update signals. Action genes become intents; reaction genes set their speed. Signal rules run. |
+| 2. **Move** | (a) **Upkeep** is paid from the `pay` substance. An entity that cannot pay it is **dying**: it pays nothing, does nothing else this tick, takes part in no transfer (nothing can be given to it or stolen from it), and is removed at the end. (b) **Action fees** are paid, in genome order; an intent whose fee is unaffordable is dropped. (c) All **transfers** (entity `take`, `drop`, `give`, `steal`, and every transfer rule) are settled together. (d) Entities **move**. |
+| 3. **Transform** | Entity reactions run, each entity's genes in genome order. Then reaction rules run. Then waste is vented. |
+| 4. **Restructure** | Dying and too-old entities are removed. Then entities divide. Newborns act from the next tick. |
+
+Consequences that are easy to miss:
+
+- **Upkeep comes before reactions.** An entity with fuel but no `pay` substance dies in its first tick: its reactions would make energy only after upkeep is due.
+- **Everything outside the entity reads the start-of-tick snapshot,** including the cell it is in. An entity that moves and takes in the same tick takes from the cell it started in; from the next tick it takes from the new cell.
+- **Transfers cannot fund each other in one tick.** They use the balances after upkeep and fees, so what an entity receives this tick cannot pay for what it gives this tick.
+- **Shortfalls are shared pro rata.** If requests on one store exceed its balance, each request gets the same fraction, rounded down; the leftover µ go one at a time to the largest fractional parts. Example: requests of 1u and 0.5u on a cell holding 1u get 667µ and 333µ.
+- **Fees are paid for attempts.** A fee is paid in full even if the action then moves less, or nothing, because of sharing. An action with no target (no neighbour in range, or a cell that cannot hold the substance) is dropped and pays no fee.
+- **Reactions chain within a tick, in genome order.** A gene can use what an earlier gene made this tick; a gene placed before its supplier waits a tick.
+- **Dormant genes cost nothing.** Upkeep counts expressed genes only (§6.6, spec §3.3); a `dormant` gene or module pays no per-gene upkeep until it is expressed.
+- **Division checks the inventory after reactions,** and a child gets its share of every substance (`split`), rounded down; the remainder stays with the parent.
+
 ---
 
 ## 8. Lineages and genomes
