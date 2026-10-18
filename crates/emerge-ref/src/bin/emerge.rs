@@ -539,7 +539,7 @@ fn carries(w: &World, e: &emerge_ref::Entity, s: usize) -> bool {
 /// the share of lineages whose genome has a reaction making `--flux` (expressed, or only
 /// dormant), an expressed `take` of each input it needs, and a complete route: an expressed
 /// reaction making it whose every input is taken or made by another expressed reaction,
-/// and (last column) an expressed `steal` of it.
+/// and (last column) an expressed `steal` of it with `max` above zero.
 fn census(args: &[String]) -> ExitCode {
     let Some(path) = args.first() else { return usage() };
     let (mut lineage, mut flux_name) = (String::new(), "body".to_string());
@@ -580,7 +580,7 @@ fn census(args: &[String]) -> ExitCode {
             for (k, &b) in f.iter().enumerate() {
                 n[k] += b as usize;
             }
-            n[5] += g.slots.iter().enumerate().any(|(i, slot)| g.active(i) && matches!(slot.gene, Gene::Steal { s, .. } if s == flux)) as usize;
+            n[5] += g.slots.iter().enumerate().any(|(i, slot)| g.active(i) && matches!(slot.gene, Gene::Steal { s, max, .. } if s == flux && max > 0)) as usize;
         }
         let pct = |k: usize| n[k] as f64 / genomes.len() as f64 * 100.0;
         println!("{gen},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2}", pct(0), pct(1), pct(2), pct(3), pct(4), pct(5));
@@ -609,23 +609,44 @@ fn census(args: &[String]) -> ExitCode {
 
 /// For one genome and substance `s`: [some reaction gene makes `s`, an expressed one does,
 /// some expressed `take` names an input of an expressed one, both of those, a complete route].
+/// Expressed means active with rate above zero. A complete route: starting from the taken
+/// substances, expressed reactions whose inputs are all available add their outputs, until
+/// nothing changes; complete when a reaction making `s` can run that way.
 fn route(w: &World, g: &emerge_ref::Genome, s: usize) -> [bool; 5] {
     let react = |active: bool| {
         g.slots.iter().enumerate().filter_map(move |(i, slot)| match slot.gene {
-            Gene::React { reaction, .. } if !active || g.active(i) => Some(reaction),
+            Gene::React { reaction, rate, .. } if !active || (g.active(i) && rate > 0) => Some(reaction),
             _ => None,
         })
     };
     let taken: Vec<usize> = g.slots.iter().enumerate().filter_map(|(i, slot)| match slot.gene {
-        Gene::Take { s, .. } if g.active(i) => Some(s),
+        Gene::Take { s, max, .. } if g.active(i) && max > 0 => Some(s),
         _ => None,
     }).collect();
     let makes = |r: usize| w.chem.reactions[r].outputs.iter().any(|o| o.0 == s);
     let any = react(false).any(makes);
     let expressed: Vec<usize> = react(true).filter(|&r| makes(r)).collect();
     let takes_input = expressed.iter().any(|&r| w.chem.reactions[r].inputs.iter().any(|i| taken.contains(&i.0)));
-    let made_by_other = |r: usize, x: usize| react(true).any(|o| o != r && w.chem.reactions[o].outputs.iter().any(|p| p.0 == x));
-    let complete = expressed.iter().any(|&r| w.chem.reactions[r].inputs.iter().all(|i| taken.contains(&i.0) || made_by_other(r, i.0)));
+    let mut have = vec![false; w.chem.substances.len()];
+    for &x in &taken {
+        have[x] = true;
+    }
+    let runs: Vec<usize> = react(true).collect();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for &r in &runs {
+            if w.chem.reactions[r].inputs.iter().all(|i| have[i.0]) {
+                for o in &w.chem.reactions[r].outputs {
+                    if !have[o.0] {
+                        have[o.0] = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    let complete = expressed.iter().any(|&r| w.chem.reactions[r].inputs.iter().all(|i| have[i.0]));
     [any, !expressed.is_empty(), takes_input, !expressed.is_empty() && takes_input, complete]
 }
 
