@@ -474,6 +474,24 @@ impl World {
         i
     }
 
+    /// Adds the entities of `other`, a world compiled from the same file with only the
+    /// lineage `lineage` of it, as a new lineage. They get new IDs, and their stores are
+    /// endowed here, so the ledger stays balanced. Returns the new lineage's index.
+    pub fn inject(&mut self, other: World, lineage: usize) -> usize {
+        let index = self.variation.len();
+        self.variation.push(other.variation[lineage].clone());
+        for e in other.entities.into_iter().filter(|e| e.lineage == lineage) {
+            let i = self.spawn_at(e.pos, e.heading, e.genome);
+            self.entities[i].lineage = index;
+            for s in 0..self.chem.substances.len() {
+                if e.store.amounts[s] > 0 {
+                    self.endow(End::Entity(i), s, e.store.amounts[s]);
+                }
+            }
+        }
+        index
+    }
+
     /// Genesis: moves `amount` from a source into a store, recording it as emitted.
     pub fn endow(&mut self, to: End, s: SubstanceId, amount: Mu) {
         let store = match to {

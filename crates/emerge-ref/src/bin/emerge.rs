@@ -47,7 +47,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK]");
     ExitCode::from(2)
 }
 
@@ -169,6 +169,7 @@ fn run(args: &[String]) -> ExitCode {
     let (mut seed, mut ticks, mut every) = (1u64, 50_000u64, 1_000u64);
     let (mut partial, mut mutation, mut stop, mut hopeless_stop, mut features) = (false, true, false, false, false);
     let (mut census, mut threshold) = (0, 0.02);
+    let mut inject: Option<(String, u64)> = None;
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
         if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" || flag == "--features" {
@@ -182,6 +183,10 @@ fn run(args: &[String]) -> ExitCode {
         let number = |v: &str| v.parse::<u64>().ok();
         match (flag.as_str(), number(value)) {
             ("--lineages", _) => lineages = value.to_string(),
+            ("--inject", _) => match value.split_once('@').map(|(n, t)| (n, t.parse::<u64>())) {
+                Some((n, Ok(t))) if !n.is_empty() => inject = Some((n.to_string(), t)),
+                _ => return usage(),
+            },
             ("--flux", _) => flux_name = Some(value.to_string()),
             ("--cell", _) => cell_name = Some(value.to_string()),
             ("--mutation", _) if value == "off" || value == "on" => mutation = value == "on",
@@ -211,6 +216,18 @@ fn run(args: &[String]) -> ExitCode {
     for s in &compiled.partial {
         eprintln!("left out of this partial run: {s}");
     }
+    // The invader is compiled alone from the same file, then added to the running world.
+    let mut invader = match &inject {
+        None => None,
+        Some((name, _)) => match compile(&src, &[name.as_str()], Options { seed, allow_partial: partial, mutation }) {
+            Ok(c) => Some(c.world),
+            Err(e) => {
+                eprintln!("{path}: --inject: {e}");
+                return ExitCode::FAILURE;
+            }
+        },
+    };
+    let mut injected: Option<usize> = None;
     let field = compiled.field.unwrap_or_default();
     let mut w = compiled.world;
     let find = |n: &str| w.chem.substances.iter().position(|s| s.name == n);
@@ -236,7 +253,10 @@ fn run(args: &[String]) -> ExitCode {
     w.record_transfers = false;
 
     let (pay_name, flux_label) = (&w.chem.substances[pay].name, flux_name.as_deref().unwrap_or("none"));
-    let extra = cell_name.as_deref().map_or(String::new(), |n| format!(",cell_{n}_u,held_{n}_u"));
+    let mut extra = cell_name.as_deref().map_or(String::new(), |n| format!(",cell_{n}_u,held_{n}_u"));
+    if let Some((n, _)) = &inject {
+        extra += &format!(",share_{n}");
+    }
     println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,carriers,producers,mean_active_genes,stolen_mu,thieves,ms_per_tick{extra}");
     let (mut births, mut deaths, mut made, mut stolen) = (0, 0, 0, 0);
     let (mut windows, mut with_births, mut with_flux) = (0, 0, 0);
@@ -246,6 +266,14 @@ fn run(args: &[String]) -> ExitCode {
     let mut hopeless = false;
     let mut clock = Instant::now();
     while w.tick < ticks && !w.entities.is_empty() {
+        if let Some((_, at)) = &inject {
+            if w.tick == *at {
+                if let Some(other) = invader.take() {
+                    injected = Some(w.inject(other, 0));
+                    eprintln!("injected {} entities at tick {at}", w.entities.iter().filter(|e| Some(e.lineage) == injected).count());
+                }
+            }
+        }
         w.run_tick();
         if w.tick.is_multiple_of(every) || w.entities.is_empty() {
             if let Err(e) = w.audit() {
@@ -267,10 +295,14 @@ fn run(args: &[String]) -> ExitCode {
             let producers = w.entities.iter().filter(|e| e.made > 0).count() as f64 / pop;
             let genes = w.entities.iter().map(|e| e.genome.active_genes()).sum::<usize>() as f64 / pop;
             let thieves = w.entities.iter().filter(|e| steals(e)).count() as f64 / pop;
-            let extra = cell_sub.map_or(String::new(), |s| {
+            let mut extra = cell_sub.map_or(String::new(), |s| {
                 let cells = w.cells.iter().map(|c| c.amounts[s] as f64).sum::<f64>() / w.cells.len().max(1) as f64 / 1_000.0;
                 format!(",{cells:.3},{:.3}", mean(s))
             });
+            if inject.is_some() {
+                let n = w.entities.iter().filter(|e| Some(e.lineage) == injected).count();
+                extra += &format!(",{:.4}", n as f64 / pop);
+            }
             println!(
                 "{},{},{},{},{},{:.2},{:.2},{:.3},{:.4},{:.4},{:.2},{},{:.4},{:.1}{extra}",
                 w.tick, w.entities.len(), w.births - births, w.deaths - deaths, now - made,
