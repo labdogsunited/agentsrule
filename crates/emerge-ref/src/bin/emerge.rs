@@ -267,12 +267,14 @@ fn run(args: &[String]) -> ExitCode {
 
     let (pay_name, flux_label) = (&w.chem.substances[pay].name, flux_name.as_deref().unwrap_or("none"));
     let mut extra = cell_name.as_deref().map_or(String::new(), |n| format!(",cell_{n}_u,held_{n}_u"));
+    extra += ",producer_count";
     if let Some((n, _)) = &inject {
         extra += &format!(",share_{n}");
     }
     println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,carriers,producers,mean_active_genes,stolen_mu,thieves,ms_per_tick{extra}");
     let (mut births, mut deaths, mut made, mut stolen) = (0, 0, 0, 0);
     let (mut windows, mut with_births, mut with_flux) = (0, 0, 0);
+    let mut last_row = 0;
     // Exit test 9: flux above zero, made by at least `threshold` of the population in every
     // window, for 10_000 ticks in a row. `sustained` is the first tick at which that holds.
     let (mut streak, mut sustained) = (0u64, None);
@@ -305,13 +307,15 @@ fn run(args: &[String]) -> ExitCode {
             };
             let carriers = flux.map_or(0.0, |s| w.entities.iter().filter(|e| makes(&w, e, s)).count() as f64 / pop);
             // Producers: entities alive now whose reactions made some of `S` in this window.
-            let producers = w.entities.iter().filter(|e| e.made > 0).count() as f64 / pop;
+            let producer_count = w.entities.iter().filter(|e| e.made > 0).count();
+            let producers = producer_count as f64 / pop;
             let genes = w.entities.iter().map(|e| e.genome.active_genes()).sum::<usize>() as f64 / pop;
             let thieves = w.entities.iter().filter(|e| steals(e)).count() as f64 / pop;
             let mut extra = cell_sub.map_or(String::new(), |s| {
                 let cells = w.cells.iter().map(|c| c.amounts[s] as f64).sum::<f64>() / w.cells.len().max(1) as f64 / 1_000.0;
                 format!(",{cells:.3},{:.3}", mean(s))
             });
+            extra += &format!(",{producer_count}");
             if inject.is_some() {
                 let n = w.entities.iter().filter(|e| Some(e.lineage) == injected).count();
                 extra += &format!(",{:.4}", n as f64 / pop);
@@ -323,6 +327,7 @@ fn run(args: &[String]) -> ExitCode {
                 clock.elapsed().as_secs_f64() * 1_000.0 / every as f64,
             );
             windows += 1;
+            last_row = w.tick;
             with_births += (w.births > births) as u64;
             with_flux += (now > made) as u64;
             streak = if now > made && producers >= threshold { streak + every } else { 0 };
@@ -346,14 +351,25 @@ fn run(args: &[String]) -> ExitCode {
             }
         }
     }
-    let survived = !w.entities.is_empty() && (w.tick >= ticks || sustained.is_some() || hopeless);
+    // Why the run ended: `end` is the requested horizon; the others stop early.
+    let stop = if w.entities.is_empty() {
+        "extinct"
+    } else if sustained.is_some() && w.tick < ticks {
+        "sustained"
+    } else if hopeless {
+        "cannot_pass"
+    } else {
+        "end"
+    };
     let sustained = sustained.map_or("never".to_string(), |t| t.to_string());
     println!(
-        "# lineages={lineages} seed={seed} mutation={} ticks={} survived={survived} windows={windows} with_births={with_births} with_flux={with_flux} sustained_at={sustained}{}{left_out}",
+        "# lineages={lineages} seed={seed} mutation={} ticks={} requested={ticks} stop={stop} alive={} last_row={last_row} every={every} producers_threshold={threshold} windows={windows} with_births={with_births} with_flux={with_flux} sustained_at={sustained}{}{left_out}",
         if mutation { "on" } else { "off" },
         w.tick,
+        !w.entities.is_empty(),
         if hopeless { " stopped=cannot_pass" } else { "" }
     );
+    println!("# binary={} args={}", binary_digest(), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
     if census > 0 {
         print_census(&w, &field, census, flux);
     }
@@ -367,6 +383,13 @@ fn run(args: &[String]) -> ExitCode {
         print_dump(&w);
     }
     ExitCode::SUCCESS
+}
+
+/// FNV-1a of this executable's bytes, so a result names the build that made it.
+fn binary_digest() -> String {
+    let bytes = std::env::current_exe().and_then(std::fs::read).unwrap_or_default();
+    let h = bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+    format!("fnv64:{h:016x}")
 }
 
 /// Every entity and every cell with its nonzero amounts in µ, as `#` lines.
@@ -386,7 +409,7 @@ fn print_dump(w: &World) {
 /// Which limits cut transfers (by kind and substance) and division, as `#` lines.
 fn print_binding(w: &World, b: &emerge_ref::world::Binding) {
     use emerge_ref::world::TRANSFER_KINDS;
-    println!("# binding: transfers by kind and substance; share of requests cut by the origin's balance or the destination's room");
+    println!("# binding: transfers by kind and substance; share of requests cut by the origin's balance (stage 1) or the destination's room (stage 2); a request can be cut by both");
     for (&(kind, s), c) in &b.transfers {
         let pct = |x: u64| x as f64 / c.requests.max(1) as f64 * 100.0;
         let got = c.delivered as f64 / c.requested.max(1) as f64 * 100.0;
@@ -404,17 +427,22 @@ fn print_binding(w: &World, b: &emerge_ref::world::Binding) {
     );
 }
 
-/// For the 20 reactions with the most active gene-ticks over the run: the share that ran,
-/// that their signal held off, and that lacked each input or room, as `#` lines.
+/// For the 20 reactions with the most active gene-ticks over the run: the share that ran at
+/// their cap, ran below it, had a cap of zero, or made nothing for lack of an input or room,
+/// as `#` lines. Only active genes of living entities count.
 fn print_blocked(w: &World, blocked: &[emerge_ref::world::Blocked]) {
-    let total = |b: &emerge_ref::world::Blocked| b.ran + b.off + b.no_room + b.no_input.iter().sum::<u64>();
+    let total = |b: &emerge_ref::world::Blocked| b.full + b.limited + b.cap_zero + b.no_room + b.no_input.iter().sum::<u64>();
     let mut rows: Vec<(usize, u64)> = blocked.iter().enumerate().map(|(r, b)| (r, total(b))).filter(|&(_, n)| n > 0).collect();
     rows.sort_by_key(|&(r, n)| (std::cmp::Reverse(n), r));
-    println!("# blocked: reaction genes by outcome, share of active gene-ticks over the run");
+    println!(
+        "# blocked: reaction genes by outcome, share of active gene-ticks over the run ({} of {} reactions shown)",
+        rows.len().min(20),
+        rows.len()
+    );
     for &(r, n) in rows.iter().take(20) {
         let (b, rx) = (&blocked[r], &w.chem.reactions[r]);
         let pct = |x: u64| x as f64 / n as f64 * 100.0;
-        let mut why = format!("ran {:.1}%, off {:.1}%", pct(b.ran), pct(b.off));
+        let mut why = format!("full {:.1}%, limited {:.1}%, cap 0 {:.1}%", pct(b.full), pct(b.limited), pct(b.cap_zero));
         for (s, &c) in b.no_input.iter().enumerate().filter(|&(_, &c)| c > 0) {
             why += &format!(", no {} {:.1}%", w.chem.substances[s].name, pct(c));
         }

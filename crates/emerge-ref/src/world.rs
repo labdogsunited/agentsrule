@@ -163,12 +163,14 @@ impl GenomeShape {
     }
 }
 
-/// Gene-ticks of one reaction, by outcome. A gene that makes nothing counts once: for its
-/// signal (`off`), else for its first missing input, else for a full output.
+/// Gene-ticks of one reaction, by outcome. A gene that makes something counts as `full`
+/// (extent = its cap) or `limited`. One that makes nothing counts once, in this order: a cap
+/// of zero (rate, signal or rounding), its first missing input, a full output.
 #[derive(Debug, Clone, Default)]
 pub struct Blocked {
-    pub ran: u64,
-    pub off: u64,
+    pub full: u64,
+    pub limited: u64,
+    pub cap_zero: u64,
     pub no_input: Vec<u64>,
     pub no_room: u64,
 }
@@ -711,8 +713,9 @@ impl World {
                         let b = &mut b[reaction];
                         let cap = plans[i].react_caps[g];
                         match r.inputs.iter().find(|&&(s, c)| e.store.amounts[s] < c) {
-                            _ if extent > 0 => b.ran += 1,
-                            _ if cap == 0 => b.off += 1,
+                            _ if extent > 0 && extent == cap => b.full += 1,
+                            _ if extent > 0 => b.limited += 1,
+                            _ if cap == 0 => b.cap_zero += 1,
                             Some(&(s, _)) => {
                                 b.no_input.resize(self.chem.substances.len(), 0);
                                 b.no_input[s] += 1;
