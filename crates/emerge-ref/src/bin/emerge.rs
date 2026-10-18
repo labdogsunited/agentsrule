@@ -47,7 +47,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked]");
     ExitCode::from(2)
 }
 
@@ -169,12 +169,14 @@ fn run(args: &[String]) -> ExitCode {
     let (mut seed, mut ticks, mut every) = (1u64, 50_000u64, 1_000u64);
     let (mut partial, mut mutation, mut stop, mut hopeless_stop, mut features) = (false, true, false, false, false);
     let (mut census, mut threshold) = (0, 0.02);
+    let mut blocked = false;
     let mut inject: Option<(String, u64)> = None;
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
-        if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" || flag == "--features" {
+        if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" || flag == "--features" || flag == "--blocked" {
             partial |= flag == "--partial";
             features |= flag == "--features";
+            blocked |= flag == "--blocked";
             stop |= flag == "--stop-when-sustained";
             hopeless_stop |= flag == "--stop-when-hopeless";
             continue;
@@ -251,6 +253,9 @@ fn run(args: &[String]) -> ExitCode {
     w.record_events = false;
     w.track = flux;
     w.record_transfers = false;
+    if blocked {
+        w.blocked = Some(vec![Default::default(); w.chem.reactions.len()]);
+    }
 
     let (pay_name, flux_label) = (&w.chem.substances[pay].name, flux_name.as_deref().unwrap_or("none"));
     let mut extra = cell_name.as_deref().map_or(String::new(), |n| format!(",cell_{n}_u,held_{n}_u"));
@@ -344,7 +349,31 @@ fn run(args: &[String]) -> ExitCode {
     if census > 0 {
         print_census(&w, &field, census, flux);
     }
+    if let Some(b) = &w.blocked {
+        print_blocked(&w, b);
+    }
     ExitCode::SUCCESS
+}
+
+/// For the 20 reactions with the most active gene-ticks over the run: the share that ran,
+/// that their signal held off, and that lacked each input or room, as `#` lines.
+fn print_blocked(w: &World, blocked: &[emerge_ref::world::Blocked]) {
+    let total = |b: &emerge_ref::world::Blocked| b.ran + b.off + b.no_room + b.no_input.iter().sum::<u64>();
+    let mut rows: Vec<(usize, u64)> = blocked.iter().enumerate().map(|(r, b)| (r, total(b))).filter(|&(_, n)| n > 0).collect();
+    rows.sort_by_key(|&(r, n)| (std::cmp::Reverse(n), r));
+    println!("# blocked: reaction genes by outcome, share of active gene-ticks over the run");
+    for &(r, n) in rows.iter().take(20) {
+        let (b, rx) = (&blocked[r], &w.chem.reactions[r]);
+        let pct = |x: u64| x as f64 / n as f64 * 100.0;
+        let mut why = format!("ran {:.1}%, off {:.1}%", pct(b.ran), pct(b.off));
+        for (s, &c) in b.no_input.iter().enumerate().filter(|&(_, &c)| c > 0) {
+            why += &format!(", no {} {:.1}%", w.chem.substances[s].name, pct(c));
+        }
+        if b.no_room > 0 {
+            why += &format!(", no room {:.1}%", pct(b.no_room));
+        }
+        println!("#   {} ({n} gene-ticks): {why}", w.chem.formula(&rx.inputs, &rx.outputs));
+    }
 }
 
 /// The `n` most common genomes, and the most common one that makes `flux`, as `#` lines.

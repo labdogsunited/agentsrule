@@ -163,6 +163,16 @@ impl GenomeShape {
     }
 }
 
+/// Gene-ticks of one reaction, by outcome. A gene that makes nothing counts once: for its
+/// signal (`off`), else for its first missing input, else for a full output.
+#[derive(Debug, Clone, Default)]
+pub struct Blocked {
+    pub ran: u64,
+    pub off: u64,
+    pub no_input: Vec<u64>,
+    pub no_room: u64,
+}
+
 /// World rules. Each runs on every cell; its kind sets its phase (spec §7.4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Law {
@@ -314,6 +324,8 @@ pub struct World {
     pub entity_extent: Vec<u64>,
     /// Cumulative µ delivered by `steal`, over all substances.
     pub stolen: u64,
+    /// If set, why reaction genes ran or not, by reaction (`--blocked`).
+    pub blocked: Option<Vec<Blocked>>,
     /// The substance whose production each entity counts in `Entity::made`.
     pub track: Option<SubstanceId>,
     /// The transfers of the last tick, in request order, if `record_transfers`.
@@ -380,6 +392,7 @@ impl World {
             deaths: 0,
             entity_extent: vec![0; reactions],
             stolen: 0,
+            blocked: None,
             track: None,
             record_transfers: true,
             last_transfers: Vec::new(),
@@ -655,6 +668,19 @@ impl World {
                     }
                     for &(s, c) in &r.outputs {
                         extent = extent.min(e.store.headroom(s) / c);
+                    }
+                    if let Some(b) = &mut self.blocked {
+                        let b = &mut b[reaction];
+                        let cap = plans[i].react_caps[g];
+                        match r.inputs.iter().find(|&&(s, c)| e.store.amounts[s] < c) {
+                            _ if extent > 0 => b.ran += 1,
+                            _ if cap == 0 => b.off += 1,
+                            Some(&(s, _)) => {
+                                b.no_input.resize(self.chem.substances.len(), 0);
+                                b.no_input[s] += 1;
+                            }
+                            None => b.no_room += 1,
+                        }
                     }
                     apply_reaction(&mut e.store, r, extent);
                     self.entity_extent[reaction] += extent as u64;
