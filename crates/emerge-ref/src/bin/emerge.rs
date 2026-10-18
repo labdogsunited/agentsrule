@@ -40,6 +40,7 @@ fn main() -> ExitCode {
         Some("fmt") => fmt(&args[1..]),
         Some("check") => check(&args[1..]),
         Some("run") => run(&args[1..]),
+        Some("census") => census(&args[1..]),
         _ => usage(),
     }
 }
@@ -48,6 +49,7 @@ fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
     eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance]");
+    eprintln!("       emerge census <file.em> --lineage A [--flux S] [--lines N] [--generations N]");
     ExitCode::from(2)
 }
 
@@ -422,6 +424,99 @@ fn binary_digest() -> String {
     let bytes = std::env::current_exe().and_then(std::fs::read).unwrap_or_default();
     let h = bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
     format!("fnv64:{h:016x}")
+}
+
+/// Mutation alone, no selection: `lines` lineages start from the seed genome of `--lineage`
+/// and each is mutated once per generation, as at a division. At chosen generations,
+/// the share of lineages whose genome has a reaction making `--flux` (expressed, or only
+/// dormant), an expressed `take` of each input it needs, and a complete route: an expressed
+/// reaction making it whose every input is taken or made by another expressed reaction.
+fn census(args: &[String]) -> ExitCode {
+    let Some(path) = args.first() else { return usage() };
+    let (mut lineage, mut flux_name) = (String::new(), "body".to_string());
+    let (mut lines, mut generations) = (10_000usize, 100u32);
+    let mut rest = args[1..].iter();
+    while let Some(flag) = rest.next() {
+        let value = rest.next().map(String::as_str).unwrap_or("");
+        match (flag.as_str(), value.parse::<u64>().ok()) {
+            ("--lineage", _) => lineage = value.to_string(),
+            ("--flux", _) => flux_name = value.to_string(),
+            ("--lines", Some(n)) if n > 0 => lines = n as usize,
+            ("--generations", Some(n)) if n > 0 => generations = n as u32,
+            _ => return usage(),
+        }
+    }
+    let Some(src) = read(path) else { return ExitCode::from(2) };
+    let c = match compile(&src, &[lineage.as_str()], Options { seed: 1, allow_partial: true, mutation: true }) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let w = c.world;
+    let Some(flux) = w.chem.substances.iter().position(|s| s.name == flux_name) else {
+        eprintln!("--flux: unknown substance `{flux_name}`");
+        return ExitCode::from(2);
+    };
+    let (Some(e), Some(Some((rates, cap)))) = (w.entities.first(), w.variation.first()) else {
+        eprintln!("{path}: `{lineage}` needs entities at genesis and a `mutation` block");
+        return ExitCode::FAILURE;
+    };
+    let mut genomes = vec![e.genome.clone(); lines];
+    let report = |gen: u32, genomes: &[emerge_ref::Genome]| {
+        let mut n = [0usize; 5];
+        for g in genomes {
+            let f = route(&w, g, flux);
+            for (k, &b) in f.iter().enumerate() {
+                n[k] += b as usize;
+            }
+        }
+        let pct = |k: usize| n[k] as f64 / genomes.len() as f64 * 100.0;
+        println!("{gen},{:.2},{:.2},{:.2},{:.2},{:.2}", pct(0), pct(1), pct(2), pct(3), pct(4));
+    };
+    println!("generation,any_{flux_name}_reaction_pct,expressed_{flux_name}_reaction_pct,takes_an_input_pct,expressed_and_takes_pct,complete_route_pct");
+    report(0, &genomes);
+    let marks = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1_000, 2_000, 5_000];
+    for gen in 1..=generations {
+        for (i, g) in genomes.iter_mut().enumerate() {
+            let stream = emerge_ref::philox::Stream {
+                seed: 1,
+                tick: gen,
+                stream: i as u32,
+                domain: emerge_ref::philox::DOMAIN_ENTITY,
+                aux: 1,
+                pass: emerge_ref::philox::MUTATE,
+            };
+            *g = emerge_ref::mutate::mutate(g, rates, cap, &w.menus, &mut emerge_ref::mutate::Draws::new(stream));
+        }
+        if marks.contains(&gen) || gen == generations {
+            report(gen, &genomes);
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+/// For one genome and substance `s`: [some reaction gene makes `s`, an expressed one does,
+/// some expressed `take` names an input of an expressed one, both of those, a complete route].
+fn route(w: &World, g: &emerge_ref::Genome, s: usize) -> [bool; 5] {
+    let react = |active: bool| {
+        g.slots.iter().enumerate().filter_map(move |(i, slot)| match slot.gene {
+            Gene::React { reaction, .. } if !active || g.active(i) => Some(reaction),
+            _ => None,
+        })
+    };
+    let taken: Vec<usize> = g.slots.iter().enumerate().filter_map(|(i, slot)| match slot.gene {
+        Gene::Take { s, .. } if g.active(i) => Some(s),
+        _ => None,
+    }).collect();
+    let makes = |r: usize| w.chem.reactions[r].outputs.iter().any(|o| o.0 == s);
+    let any = react(false).any(makes);
+    let expressed: Vec<usize> = react(true).filter(|&r| makes(r)).collect();
+    let takes_input = expressed.iter().any(|&r| w.chem.reactions[r].inputs.iter().any(|i| taken.contains(&i.0)));
+    let made_by_other = |r: usize, x: usize| react(true).any(|o| o != r && w.chem.reactions[o].outputs.iter().any(|p| p.0 == x));
+    let complete = expressed.iter().any(|&r| w.chem.reactions[r].inputs.iter().all(|i| taken.contains(&i.0) || made_by_other(r, i.0)));
+    [any, !expressed.is_empty(), takes_input, !expressed.is_empty() && takes_input, complete]
 }
 
 /// Every entity and every cell with its nonzero amounts in µ, as `#` lines.
