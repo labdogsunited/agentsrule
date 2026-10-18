@@ -231,6 +231,12 @@ fn run(args: &[String]) -> ExitCode {
     };
     let mut injected: Option<usize> = None;
     let field = compiled.field.unwrap_or_default();
+    // What this run leaves out, so the result says it is partial (not only stderr).
+    let left_out = if compiled.partial.is_empty() {
+        String::new()
+    } else {
+        format!(" left_out={}", compiled.partial.iter().map(|e| e.path.as_str()).collect::<Vec<_>>().join(","))
+    };
     let mut w = compiled.world;
     let find = |n: &str| w.chem.substances.iter().position(|s| s.name == n);
     let flux = match flux_name.as_deref().map(|n| (n, find(n))) {
@@ -341,7 +347,7 @@ fn run(args: &[String]) -> ExitCode {
     let survived = !w.entities.is_empty() && (w.tick >= ticks || sustained.is_some() || hopeless);
     let sustained = sustained.map_or("never".to_string(), |t| t.to_string());
     println!(
-        "# lineages={lineages} seed={seed} mutation={} ticks={} survived={survived} windows={windows} with_births={with_births} with_flux={with_flux} sustained_at={sustained}{}",
+        "# lineages={lineages} seed={seed} mutation={} ticks={} survived={survived} windows={windows} with_births={with_births} with_flux={with_flux} sustained_at={sustained}{}{left_out}",
         if mutation { "on" } else { "off" },
         w.tick,
         if hopeless { " stopped=cannot_pass" } else { "" }
