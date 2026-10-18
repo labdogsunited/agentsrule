@@ -90,6 +90,33 @@ struct Diagnostic {
     fix: Option<String>,
 }
 
+/// Substances that can never appear, and reactions that can never run, as notes.
+fn reach_notes(w: &World) -> Vec<Diagnostic> {
+    let r = emerge_ref::reach::reach(w);
+    let sub = |s: usize| w.chem.substances[s].name.clone();
+    let rx = |i: usize| w.chem.formula(&w.chem.reactions[i].inputs, &w.chem.reactions[i].outputs);
+    let note = |code, message| Diagnostic { code, severity: "note", path: String::new(), line: 0, col: 0, message, fix: None };
+    let mut out = Vec::new();
+    let never: Vec<usize> = (0..r.possible.len()).filter(|&s| !r.possible[s]).collect();
+    if !never.is_empty() {
+        let names = never.iter().map(|&s| format!("`{}`", sub(s))).collect::<Vec<_>>().join(", ");
+        let why = r.witness.iter().map(|&(i, s)| format!("{} needs `{}`", rx(i), sub(s))).collect::<Vec<_>>().join("; ");
+        let why = if why.is_empty() { "no reaction makes any of them".to_string() } else { format!("every reaction that makes one needs one: {why}") };
+        out.push(note("N1101", format!("can never appear: {names}. No store starts with any of them, no inflow adds one, and {why}")));
+    }
+    if !r.dead.is_empty() {
+        let space = w.menus.reactions.len();
+        let dead_space = w.menus.reactions.iter().filter(|(i, _)| r.dead.contains(i)).count();
+        let shown = r.dead.iter().take(5).map(|&i| rx(i)).collect::<Vec<_>>().join("; ");
+        let more = if r.dead.len() > 5 { format!("; and {} more", r.dead.len() - 5) } else { String::new() };
+        out.push(note(
+            "N1102",
+            format!("can never run: {} reaction(s), {dead_space} of the {space} in the reaction space, because an input can never appear: {shown}{more}", r.dead.len()),
+        ));
+    }
+    out
+}
+
 fn check(args: &[String]) -> ExitCode {
     let (json, files): (Vec<&String>, Vec<&String>) = args.iter().partition(|a| *a == "--json");
     let [file_path] = files[..] else { return usage() };
@@ -111,7 +138,10 @@ fn check(args: &[String]) -> ExitCode {
                 let options = Options { seed: 1, allow_partial: true, mutation: true };
                 match emerge_ref::compile::build(&file, &lineages, options) {
                     Err(e) => out.push(diag(e, "error")),
-                    Ok(c) => out.extend(c.partial.into_iter().map(|e| diag(e, "warning"))),
+                    Ok(c) => {
+                        out.extend(c.partial.into_iter().map(|e| diag(e, "warning")));
+                        out.extend(reach_notes(&c.world));
+                    }
                 }
             }
         }

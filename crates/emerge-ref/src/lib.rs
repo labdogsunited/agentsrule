@@ -32,6 +32,7 @@ pub mod mutate;
 pub mod near;
 pub mod philox;
 pub mod print;
+pub mod reach;
 pub mod world;
 
 pub use chem::{Chemistry, Mu, U};

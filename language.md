@@ -935,6 +935,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E0801`–`E0803` | limits: a seed larger than its profile, a population above `max_entities`, positions outside the space |
 | `E1001` | not supported by the runner yet |
 | `E1002`, `W1001` | a part of the world the runner cannot run: an error, or with `--partial` a warning naming what was left out |
+| `N1101`, `N1102` | notes from `emerge check`: substances that can never appear (no store starts with them, no inflow adds them, and every reaction that makes one needs one), and reactions, in the reaction space or in rules, that can never run for that reason. An optimistic closure: amounts, order and costs are ignored, so a note is a proof of impossibility, and no note proves nothing |
 
 ---
 
