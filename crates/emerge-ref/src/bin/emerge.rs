@@ -47,7 +47,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance]");
     ExitCode::from(2)
 }
 
@@ -199,15 +199,16 @@ fn run(args: &[String]) -> ExitCode {
     let (mut seed, mut ticks, mut every) = (1u64, 50_000u64, 1_000u64);
     let (mut partial, mut mutation, mut stop, mut hopeless_stop, mut features) = (false, true, false, false, false);
     let (mut census, mut threshold) = (0, 0.02);
-    let (mut blocked, mut dump) = (false, false);
+    let (mut blocked, mut dump, mut one_per_substance) = (false, false, false);
     let mut inject: Option<(String, u64)> = None;
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
-        if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" || flag == "--features" || flag == "--blocked" || flag == "--dump" {
+        if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" || flag == "--features" || flag == "--blocked" || flag == "--dump" || flag == "--one-per-substance" {
             partial |= flag == "--partial";
             features |= flag == "--features";
             blocked |= flag == "--blocked";
             dump |= flag == "--dump";
+            one_per_substance |= flag == "--one-per-substance";
             stop |= flag == "--stop-when-sustained";
             hopeless_stop |= flag == "--stop-when-hopeless";
             continue;
@@ -290,6 +291,7 @@ fn run(args: &[String]) -> ExitCode {
     w.record_events = false;
     w.track = flux;
     w.record_transfers = false;
+    w.one_per_substance = one_per_substance;
     if blocked {
         w.blocked = Some(vec![Default::default(); w.chem.reactions.len()]);
         w.binding = Some(Default::default());

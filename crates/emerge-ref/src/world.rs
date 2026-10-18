@@ -363,6 +363,10 @@ pub struct World {
     pub stolen: u64,
     /// If set, why reaction genes ran or not, by reaction (`--blocked`).
     pub blocked: Option<Vec<Blocked>>,
+    /// Experimental (`--one-per-substance`, not in the spec): only the first firing gene of
+    /// each substance action and substance counts per tick, as for `move`; later copies are
+    /// dropped and pay nothing.
+    pub one_per_substance: bool,
     /// If set, which limits cut transfers and division (`--blocked`).
     pub binding: Option<Binding>,
     /// The substance whose production each entity counts in `Entity::made`.
@@ -432,6 +436,7 @@ impl World {
             entity_extent: vec![0; reactions],
             stolen: 0,
             blocked: None,
+            one_per_substance: false,
             binding: None,
             track: None,
             record_transfers: true,
@@ -908,6 +913,14 @@ impl World {
         let cell = &self.cells[e.cell];
         let mut plan = Plan { intents: Vec::new(), react_caps: vec![0; e.genome.slots.len()] };
         let (mut moves, mut turns, mut divides) = (false, false, false);
+        // Bit `s` of `fired[k]`: a `take`, `drop`, `give` or `steal` (k = 0..4) of `s` fired.
+        let mut fired = [0u16; 4];
+        let one = self.one_per_substance;
+        let mut first = |k: usize, s: usize| {
+            let new = !one || fired[k] & (1 << s) == 0;
+            fired[k] |= 1 << s;
+            new
+        };
         for g in (0..e.genome.slots.len()).filter(|&g| e.genome.active(g)) {
             match e.genome.slots[g].gene {
                 Gene::React { rate, speed, .. } => {
@@ -934,9 +947,10 @@ impl World {
                 Gene::Take { s, max, fee, src, threshold } | Gene::Drop { s, max, fee, src, threshold } => {
                     let o = value(&e.signals, src);
                     // No target: a cell that cannot hold the substance. Dropped, no fee.
-                    if o > threshold && cell.caps[s] > 0 {
+                    let take = matches!(e.genome.slots[g].gene, Gene::Take { .. });
+                    if o > threshold && cell.caps[s] > 0 && first(if take { 0 } else { 1 }, s) {
                         let amount = scale(o, max);
-                        let act = if matches!(e.genome.slots[g].gene, Gene::Take { .. }) {
+                        let act = if take {
                             Act::Take { s, amount }
                         } else {
                             Act::Drop { s, amount }
@@ -947,9 +961,13 @@ impl World {
                 Gene::Give { s, max, fee, src, threshold } | Gene::Steal { s, max, fee, src, threshold } => {
                     let o = value(&e.signals, src);
                     // No target: no other entity in range. Dropped, no fee.
+                    let give = matches!(e.genome.slots[g].gene, Gene::Give { .. });
                     if let (true, Some(&(_, _, other))) = (o > threshold, near.first()) {
+                        if !first(if give { 2 } else { 3 }, s) {
+                            continue;
+                        }
                         let amount = scale(o, max);
-                        let act = if matches!(e.genome.slots[g].gene, Gene::Give { .. }) {
+                        let act = if give {
                             Act::Give { s, amount, other }
                         } else {
                             Act::Steal { s, amount, other }
