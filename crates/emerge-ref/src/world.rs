@@ -173,6 +173,41 @@ pub struct Blocked {
     pub no_room: u64,
 }
 
+/// Transfers of one kind and substance, by which limit, if any, cut them.
+#[derive(Debug, Clone, Default)]
+pub struct Cuts {
+    pub requests: u64,
+    /// Cut in stage 1: the origin held less than was asked of it.
+    pub by_origin: u64,
+    /// Cut in stage 2: the destination had less headroom than arrived.
+    pub by_dest: u64,
+    pub requested: u64,
+    pub delivered: u64,
+}
+
+/// Which limits bound transfers and division, over a run.
+#[derive(Debug, Clone, Default)]
+pub struct Binding {
+    /// By (kind, substance); the kind is `TransferKind as usize`.
+    pub transfers: std::collections::BTreeMap<(usize, SubstanceId), Cuts>,
+    /// First firing `divide` intents: divided, fee unpaid, `requires` unmet, at `max_entities`.
+    pub divide: [u64; 4],
+}
+
+/// What a transfer is, from its ends.
+pub const TRANSFER_KINDS: [&str; 7] = ["take", "drop", "give", "steal", "inflow", "diffusion", "other"];
+
+fn transfer_kind(r: &Req) -> usize {
+    match (unpack(r.origin), unpack(r.dest)) {
+        (End::Cell(_), End::Entity(_)) => 0,
+        (End::Entity(_), End::Cell(_)) => 1,
+        (End::Entity(_), End::Entity(_)) => if r.steal { 3 } else { 2 },
+        (End::Source(_), _) => 4,
+        (End::Cell(_), End::Cell(_)) => 5,
+        _ => 6,
+    }
+}
+
 /// World rules. Each runs on every cell; its kind sets its phase (spec §7.4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Law {
@@ -326,6 +361,8 @@ pub struct World {
     pub stolen: u64,
     /// If set, why reaction genes ran or not, by reaction (`--blocked`).
     pub blocked: Option<Vec<Blocked>>,
+    /// If set, which limits cut transfers and division (`--blocked`).
+    pub binding: Option<Binding>,
     /// The substance whose production each entity counts in `Entity::made`.
     pub track: Option<SubstanceId>,
     /// The transfers of the last tick, in request order, if `record_transfers`.
@@ -393,6 +430,7 @@ impl World {
             entity_extent: vec![0; reactions],
             stolen: 0,
             blocked: None,
+            binding: None,
             track: None,
             record_transfers: true,
             last_transfers: Vec::new(),
@@ -758,7 +796,19 @@ impl World {
             let Gene::Divide { split_bp, requires: (rs, ramount), .. } = e.genome.slots[x.gene].gene else {
                 unreachable!()
             };
-            if !x.live || e.store.amounts[rs] < ramount || living >= self.max_entities {
+            let outcome = if !x.live {
+                1
+            } else if e.store.amounts[rs] < ramount {
+                2
+            } else if living >= self.max_entities {
+                3
+            } else {
+                0
+            };
+            if let Some(b) = &mut self.binding {
+                b.divide[outcome] += 1;
+            }
+            if outcome != 0 {
                 continue;
             }
             let mut child = Store { amounts: [0; MAX_SUBSTANCES], caps: e.store.caps };
@@ -1065,6 +1115,14 @@ impl World {
             }
             if r.steal {
                 self.stolen += delivered as u64;
+            }
+            if let Some(b) = &mut self.binding {
+                let c = b.transfers.entry((transfer_kind(r), s)).or_default();
+                c.requests += 1;
+                c.by_origin += (stage1[k] < r.requested) as u64;
+                c.by_dest += (stage2[k] < stage1[k]) as u64;
+                c.requested += r.requested as u64;
+                c.delivered += delivered as u64;
             }
             if self.record_transfers {
                 self.last_transfers.push(Transfer {

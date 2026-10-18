@@ -262,6 +262,7 @@ fn run(args: &[String]) -> ExitCode {
     w.record_transfers = false;
     if blocked {
         w.blocked = Some(vec![Default::default(); w.chem.reactions.len()]);
+        w.binding = Some(Default::default());
     }
 
     let (pay_name, flux_label) = (&w.chem.substances[pay].name, flux_name.as_deref().unwrap_or("none"));
@@ -359,6 +360,9 @@ fn run(args: &[String]) -> ExitCode {
     if let Some(b) = &w.blocked {
         print_blocked(&w, b);
     }
+    if let Some(b) = &w.binding {
+        print_binding(&w, b);
+    }
     if dump {
         print_dump(&w);
     }
@@ -377,6 +381,27 @@ fn print_dump(w: &World) {
     for (i, c) in w.cells.iter().enumerate() {
         println!("#   cell {i}:{}", held(c));
     }
+}
+
+/// Which limits cut transfers (by kind and substance) and division, as `#` lines.
+fn print_binding(w: &World, b: &emerge_ref::world::Binding) {
+    use emerge_ref::world::TRANSFER_KINDS;
+    println!("# binding: transfers by kind and substance; share of requests cut by the origin's balance or the destination's room");
+    for (&(kind, s), c) in &b.transfers {
+        let pct = |x: u64| x as f64 / c.requests.max(1) as f64 * 100.0;
+        let got = c.delivered as f64 / c.requested.max(1) as f64 * 100.0;
+        let never = if c.by_origin == 0 && c.by_dest == 0 { "  [never cut]" } else { "" };
+        println!(
+            "#   {} {}: {} requests, cut by origin {:.1}%, by room {:.1}%, delivered {got:.1}% of µ asked{never}",
+            TRANSFER_KINDS[kind], w.chem.substances[s].name, c.requests, pct(c.by_origin), pct(c.by_dest)
+        );
+    }
+    let d = b.divide;
+    let n = d.iter().sum::<u64>().max(1) as f64;
+    println!(
+        "# binding: divide intents {}: divided {:.1}%, fee unpaid {:.1}%, requires unmet {:.1}%, at max_entities {:.1}%",
+        d.iter().sum::<u64>(), d[0] as f64 / n * 100.0, d[1] as f64 / n * 100.0, d[2] as f64 / n * 100.0, d[3] as f64 / n * 100.0
+    );
 }
 
 /// For the 20 reactions with the most active gene-ticks over the run: the share that ran,
