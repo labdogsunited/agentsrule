@@ -448,6 +448,10 @@ Consequences that are easy to miss:
 - **Fees are paid for attempts.** A fee is paid in full even if the action then moves less, or nothing, because of sharing. An action with no target (no neighbour in range, or a cell that cannot hold the substance) is dropped and pays no fee.
 - **Reactions chain within a tick, in genome order.** A gene can use what an earlier gene made this tick; a gene placed before its supplier waits a tick.
 - **Dormant genes cost nothing.** Upkeep counts expressed genes only (§6.6, spec §3.3); a `dormant` gene or module pays no per-gene upkeep until it is expressed.
+- **Diffusion offers a share of each cell, not of each neighbour.** `diffuse_conserved(..., rate: 1_000bp)` offers `floor(amount × 1_000 / 10_000)` of the cell's amount, split equally between its four neighbours (N, E, S, W); the remainder stays. From 10u: 1u leaves, 250µ to each neighbour.
+- **A full destination is shared too.** If what arrives at a store exceeds its headroom (cap minus balance), each incoming transfer is cut by the same fraction. A transfer with `overflow:` sends its cut part to that sink; one without keeps it at its origin (an entity's `drop` keeps it in the entity).
+- **`max_age: N` means an entity acts in exactly N ticks** and is removed at the end of tick N.
+- **A removed entity's inventory goes back to its cell** as far as the cell holds that substance and has room; only the rest goes to `remains` (§6.4).
 - **Division checks the inventory after reactions,** and a child gets its share of every substance (`split`), rounded down; the remainder stays with the parent.
 
 ---
