@@ -47,7 +47,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump]");
     ExitCode::from(2)
 }
 
@@ -169,14 +169,15 @@ fn run(args: &[String]) -> ExitCode {
     let (mut seed, mut ticks, mut every) = (1u64, 50_000u64, 1_000u64);
     let (mut partial, mut mutation, mut stop, mut hopeless_stop, mut features) = (false, true, false, false, false);
     let (mut census, mut threshold) = (0, 0.02);
-    let mut blocked = false;
+    let (mut blocked, mut dump) = (false, false);
     let mut inject: Option<(String, u64)> = None;
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
-        if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" || flag == "--features" || flag == "--blocked" {
+        if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" || flag == "--features" || flag == "--blocked" || flag == "--dump" {
             partial |= flag == "--partial";
             features |= flag == "--features";
             blocked |= flag == "--blocked";
+            dump |= flag == "--dump";
             stop |= flag == "--stop-when-sustained";
             hopeless_stop |= flag == "--stop-when-hopeless";
             continue;
@@ -358,7 +359,24 @@ fn run(args: &[String]) -> ExitCode {
     if let Some(b) = &w.blocked {
         print_blocked(&w, b);
     }
+    if dump {
+        print_dump(&w);
+    }
     ExitCode::SUCCESS
+}
+
+/// Every entity and every cell with its nonzero amounts in µ, as `#` lines.
+fn print_dump(w: &World) {
+    let held = |s: &emerge_ref::Store| {
+        (0..w.chem.substances.len()).filter(|&i| s.amounts[i] > 0).map(|i| format!(" {}={}", w.chem.substances[i].name, s.amounts[i])).collect::<String>()
+    };
+    println!("# dump at tick {}: {} entities, {} births, {} deaths (amounts in mu)", w.tick, w.entities.len(), w.births, w.deaths);
+    for e in &w.entities {
+        println!("#   entity {} cell {} pos ({:.3}, {:.3}) age {}:{}", e.id, e.cell, e.pos[0], e.pos[1], e.age, held(&e.store));
+    }
+    for (i, c) in w.cells.iter().enumerate() {
+        println!("#   cell {i}:{}", held(c));
+    }
 }
 
 /// For the 20 reactions with the most active gene-ticks over the run: the share that ran,
