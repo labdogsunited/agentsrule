@@ -48,7 +48,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N]");
     eprintln!("       emerge census <file.em> --lineage A [--flux S] [--lines N] [--generations N]");
     ExitCode::from(2)
 }
@@ -202,6 +202,7 @@ fn run(args: &[String]) -> ExitCode {
     let (mut partial, mut mutation, mut stop, mut hopeless_stop, mut features) = (false, true, false, false, false);
     let (mut census, mut threshold) = (0, 0.02);
     let (mut blocked, mut dump, mut one_per_substance) = (false, false, false);
+    let mut ancestry_every = 0u64;
     let mut inject: Option<(String, u64)> = None;
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
@@ -230,6 +231,7 @@ fn run(args: &[String]) -> ExitCode {
             ("--ticks", Some(n)) => ticks = n,
             ("--every", Some(n)) if n > 0 => every = n,
             ("--census", Some(n)) => census = n as usize,
+            ("--ancestry", Some(n)) if n > 0 => ancestry_every = n,
             ("--producers", _) if value.parse::<f64>().is_ok_and(|f| (0.0..=1.0).contains(&f)) => threshold = value.parse().unwrap(),
             _ => return usage(),
         }
@@ -294,6 +296,12 @@ fn run(args: &[String]) -> ExitCode {
     w.track = flux;
     w.record_transfers = false;
     w.one_per_substance = one_per_substance;
+    // Ancestry needs each birth's parent; recording events changes no state.
+    w.record_events = ancestry_every > 0 && flux.is_some();
+    let mut ancestry = Ancestry::default();
+    if w.record_events {
+        ancestry.start(&w, flux.unwrap());
+    }
     if blocked {
         w.blocked = Some(vec![Default::default(); w.chem.reactions.len()]);
         w.binding = Some(Default::default());
@@ -315,6 +323,14 @@ fn run(args: &[String]) -> ExitCode {
     let mut hopeless = false;
     let mut clock = Instant::now();
     while w.tick < ticks && !w.entities.is_empty() {
+        if w.record_events && w.tick > 0 {
+            let s = flux.unwrap();
+            ancestry.follow(&mut w);
+            if w.tick.is_multiple_of(ancestry_every) {
+                ancestry.finish(&w, s);
+                ancestry.start(&w, s);
+            }
+        }
         if let Some((_, at)) = &inject {
             if w.tick == *at {
                 if let Some(other) = invader.take() {
@@ -416,6 +432,13 @@ fn run(args: &[String]) -> ExitCode {
     if dump {
         print_dump(&w);
     }
+    if w.record_events {
+        ancestry.follow(&mut w);
+        if w.tick > ancestry.t0 {
+            ancestry.finish(&w, flux.unwrap());
+        }
+        ancestry.print(flux_label);
+    }
     ExitCode::SUCCESS
 }
 
@@ -424,6 +447,91 @@ fn binary_digest() -> String {
     let bytes = std::env::current_exe().and_then(std::fs::read).unwrap_or_default();
     let h = bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
     format!("fnv64:{h:016x}")
+}
+
+/// Splits the change in the share of carriers (entities with an expressed reaction gene,
+/// rate above zero, that makes the tracked substance) over a window into two exact parts
+/// (the Price equation, over roots: the entities alive at the window's start):
+/// `selection = Cov(w, z) / mean(w)`, from carriers leaving more or fewer representatives,
+/// and `transmission = mean(w (z' - z)) / mean(w)`, from representatives gaining or losing
+/// the machinery. `w`: a root's representatives alive at the end (itself included), `z`: whether
+/// it carried at the start, `z'`: its representatives' share of carriers at the end.
+#[derive(Default)]
+struct Ancestry {
+    t0: u64,
+    /// Root index of each living entity, by ID.
+    root: std::collections::HashMap<u64, usize>,
+    /// Each root's trait at the start.
+    z: Vec<bool>,
+    rows: Vec<String>,
+}
+
+impl Ancestry {
+    fn start(&mut self, w: &World, s: usize) {
+        self.t0 = w.tick;
+        self.root = w.entities.iter().enumerate().map(|(i, e)| (e.id, i)).collect();
+        self.z = w.entities.iter().map(|e| carries(w, e, s)).collect();
+    }
+
+    /// Children join their parent's root; the dead leave. Clears the events.
+    fn follow(&mut self, w: &mut World) {
+        for ev in w.events.drain(..) {
+            match ev {
+                emerge_ref::Event::Born { parent, child, .. } => {
+                    // An injected lineage has no root until the next window starts.
+                    if let Some(&r) = self.root.get(&parent) {
+                        self.root.insert(child, r);
+                    }
+                }
+                emerge_ref::Event::Died { id, .. } => {
+                    self.root.remove(&id);
+                }
+            }
+        }
+    }
+
+    fn finish(&mut self, w: &World, s: usize) {
+        let n = self.z.len();
+        if n == 0 {
+            return;
+        }
+        let (mut count, mut carriers) = (vec![0u64; n], vec![0u64; n]);
+        for e in &w.entities {
+            let Some(&r) = self.root.get(&e.id) else { continue };
+            count[r] += 1;
+            carriers[r] += carries(w, e, s) as u64;
+        }
+        let pop: u64 = count.iter().sum();
+        let nf = n as f64;
+        let z = |i: usize| self.z[i] as u8 as f64;
+        let mean_w = pop as f64 / nf;
+        let mean_z = (0..n).map(z).sum::<f64>() / nf;
+        let cov = (0..n).map(|i| count[i] as f64 * z(i)).sum::<f64>() / nf - mean_w * mean_z;
+        // w (z' - z) = carriers - w z, so a root with no representatives adds nothing.
+        let trans = (0..n).map(|i| carriers[i] as f64 - count[i] as f64 * z(i)).sum::<f64>() / nf;
+        let z1 = carriers.iter().sum::<u64>() as f64 / pop.max(1) as f64;
+        let (selection, transmission) = if pop > 0 { (cov / mean_w, trans / mean_w) } else { (f64::NAN, f64::NAN) };
+        let surviving = count.iter().filter(|&&c| c > 0).count();
+        self.rows.push(format!(
+            "{},{},{n},{surviving},{pop},{mean_z:.5},{z1:.5},{:.5},{selection:.5},{transmission:.5},{:.1e}",
+            self.t0, w.tick, z1 - mean_z, z1 - mean_z - selection - transmission
+        ));
+    }
+
+    fn print(&self, flux: &str) {
+        println!("# ancestry: carriers of an expressed {flux} reaction; change = selection + transmission (Price equation over the roots alive at t0)");
+        println!("# t0,t1,roots,roots_with_descendants,population_t1,carriers_t0,carriers_t1,change,selection,transmission,residual");
+        for row in &self.rows {
+            println!("# {row}");
+        }
+    }
+}
+
+/// Whether an entity has an expressed reaction gene, rate above zero, that makes `s`.
+fn carries(w: &World, e: &emerge_ref::Entity, s: usize) -> bool {
+    e.genome.slots.iter().enumerate().any(|(g, slot)| {
+        e.genome.active(g) && matches!(slot.gene, Gene::React { reaction, rate, .. } if rate > 0 && w.chem.reactions[reaction].outputs.iter().any(|o| o.0 == s))
+    })
 }
 
 /// Mutation alone, no selection: `lines` lineages start from the seed genome of `--lineage`
