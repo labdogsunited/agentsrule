@@ -479,6 +479,7 @@ fn run(args: &[String]) -> ExitCode {
             if let Some(f) = &mut changes {
                 write_changes(f, &w, &field);
                 w.genome_changes.clear();
+                w.deaths_log.clear();
             }
             if let (Some(f), Some(a)) = (&mut accounts, &mut w.accounts) {
                 let in_clade = a.clade.is_some();
@@ -574,7 +575,8 @@ fn run(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// One row per genome change at birth (`none` for a birth with no change): the change's kind, its slot in the child (in the parent
+/// One row per genome change at birth (`none` for a birth with no change), and one per death
+/// (`starved` or `aged`): the change's kind, its slot in the child (in the parent
 /// for `removed`) and the gene in `.em` syntax (`old => new` for `changed`).
 fn write_changes(f: &mut impl Write, w: &World, field: &str) {
     use emerge_ref::diff::Change;
@@ -594,6 +596,11 @@ fn write_changes(f: &mut impl Write, w: &World, field: &str) {
             };
             let _ = writeln!(f, "{tick},{parent},{child},{kind},{at},\"{text}\"");
         }
+    }
+    // A death: `child` is the entity, `at` its age.
+    for (tick, id, cause, age) in &w.deaths_log {
+        let kind = if *cause == emerge_ref::Cause::Starved { "starved" } else { "aged" };
+        let _ = writeln!(f, "{tick},0,{id},{kind},{age},\"\"");
     }
 }
 

@@ -429,6 +429,8 @@ pub struct World {
     /// changes)`, with no changes when the child's genome equals its parent's.
     pub record_genome_changes: bool,
     pub genome_changes: Vec<(u64, u64, u64, Vec<crate::diff::Change>)>,
+    /// With `record_genome_changes`, each death as `(tick, ID, cause, age)`.
+    pub deaths_log: Vec<(u64, u64, Cause, u32)>,
     /// Per-group accounting, if set (`--accounts`).
     pub accounts: Option<Accounts>,
     /// Cumulative µ of `steal` requests dropped by `guard`.
@@ -510,6 +512,7 @@ impl World {
             accounts: None,
             record_genome_changes: false,
             genome_changes: Vec::new(),
+            deaths_log: Vec::new(),
             guarded: 0,
             blocked: None,
             one_per_substance: false,
@@ -905,6 +908,9 @@ impl World {
                 }
             }
             self.deaths += 1;
+            if self.record_genome_changes {
+                self.deaths_log.push((tick, self.entities[i].id, cause, self.entities[i].age as u32));
+            }
             if let Some(a) = &mut self.accounts {
                 let g = a.group[i];
                 a.add(g, if cause == Cause::Starved { A_STARVED } else { A_AGED }, 1);
