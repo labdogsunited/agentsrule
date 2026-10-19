@@ -425,8 +425,8 @@ pub struct World {
     pub entity_extent: Vec<u64>,
     /// Cumulative µ delivered by `steal`, over all substances.
     pub stolen: u64,
-    /// If set, each birth whose genome differs from its parent's is listed in `genome_changes`
-    /// as `(tick, parent ID, child ID, changes)`.
+    /// If set, each birth is listed in `genome_changes` as `(tick, parent ID, child ID,
+    /// changes)`, with no changes when the child's genome equals its parent's.
     pub record_genome_changes: bool,
     pub genome_changes: Vec<(u64, u64, u64, Vec<crate::diff::Change>)>,
     /// Per-group accounting, if set (`--accounts`).
@@ -991,8 +991,9 @@ impl World {
             let signals = vec![0.0; genome.keep.len()];
             let lineage = parent.lineage;
             let shape = if genome == parent.genome { parent.shape.clone() } else { GenomeShape::of(&genome) };
-            if self.record_genome_changes && genome != parent.genome {
-                self.genome_changes.push((tick, parent.id, id, crate::diff::diff(&parent.genome, &genome)));
+            if self.record_genome_changes {
+                let changes = if genome == parent.genome { Vec::new() } else { crate::diff::diff(&parent.genome, &genome) };
+                self.genome_changes.push((tick, parent.id, id, changes));
             }
             children.push(Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0, lineage, made: 0, shape, prev: Vec::new() });
             living += 1;

@@ -9,7 +9,7 @@
 //! item's path (`language.md` §14); `--json` prints one JSON object per line. It exits with
 //! 1 if there is an error.
 //!
-//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--features] [--cell S] [--producers F] [--census N] [--accounts FILE [--clade ID,…]] [--changes FILE]`
+//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--features] [--cell S] [--producers F] [--census N] [--accounts FILE [--clade ID,…]] [--changes FILE] [--producers-log FILE]`
 //! compiles the world, seeds it with the lineages and runs it on the CPU reference runner,
 //! auditing the ledger every `--every` ticks. It prints a CSV row per window and a final
 //! `#` summary line (spec §16, exit criteria 7–9). Children mutate (spec §8.1) unless
@@ -49,7 +49,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N] [--accounts FILE [--clade ID,…]] [--changes FILE]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N] [--accounts FILE [--clade ID,…]] [--changes FILE] [--producers-log FILE]");
     eprintln!("       emerge census <file.em> --lineage A [--flux S] [--lines N] [--generations N]");
     ExitCode::from(2)
 }
@@ -218,6 +218,7 @@ fn run(args: &[String]) -> ExitCode {
     let mut inject: Option<(String, u64)> = None;
     let mut accounts_path: Option<String> = None;
     let mut changes_path: Option<String> = None;
+    let mut producers_path: Option<String> = None;
     let mut clade: Option<std::collections::HashSet<u64>> = None;
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
@@ -242,6 +243,7 @@ fn run(args: &[String]) -> ExitCode {
             ("--flux", _) => flux_name = Some(value.to_string()),
             ("--accounts", _) if !value.is_empty() => accounts_path = Some(value.to_string()),
             ("--changes", _) if !value.is_empty() => changes_path = Some(value.to_string()),
+            ("--producers-log", _) if !value.is_empty() => producers_path = Some(value.to_string()),
             ("--clade", _) => match value.split(',').map(|x| x.parse::<u64>()).collect::<Result<_, _>>() {
                 Ok(ids) => clade = Some(ids),
                 Err(_) => return usage(),
@@ -316,6 +318,22 @@ fn run(args: &[String]) -> ExitCode {
     w.record_events = false;
     w.track = flux;
     w.record_transfers = false;
+    // Producers at the end of each window, one row each, in their own CSV file.
+    let mut producers_log = match &producers_path {
+        None => None,
+        Some(p) => match std::fs::File::create(p) {
+            Ok(f) => {
+                let mut f = std::io::BufWriter::new(f);
+                let _ = writeln!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
+                let _ = writeln!(f, "tick,id,age,made_mu,{pay}_mu,{flux}_mu", pay = w.chem.substances[pay].name, flux = flux_name.as_deref().unwrap_or("none"));
+                Some(f)
+            }
+            Err(e) => {
+                eprintln!("{p}: {e}");
+                return ExitCode::from(2);
+            }
+        },
+    };
     // Genome changes at birth, one row per change, in their own CSV file.
     let mut changes = match &changes_path {
         None => None,
@@ -497,6 +515,12 @@ fn run(args: &[String]) -> ExitCode {
             if features && (w.tick >= ticks || w.entities.is_empty()) {
                 print_features(&w);
             }
+            if let Some(f) = &mut producers_log {
+                for e in w.entities.iter().filter(|e| e.made > 0) {
+                    let held = flux.map_or(0, |s| e.store.amounts[s]);
+                    let _ = writeln!(f, "{},{},{},{},{},{held}", w.tick, e.id, e.age, e.made, e.store.amounts[pay]);
+                }
+            }
             w.entities.iter_mut().for_each(|e| e.made = 0);
             clock = Instant::now();
             if stop && sustained.is_some() {
@@ -550,12 +574,15 @@ fn run(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// One row per genome change at birth: the change's kind, its slot in the child (in the parent
+/// One row per genome change at birth (`none` for a birth with no change): the change's kind, its slot in the child (in the parent
 /// for `removed`) and the gene in `.em` syntax (`old => new` for `changed`).
 fn write_changes(f: &mut impl Write, w: &World, field: &str) {
     use emerge_ref::diff::Change;
     let gene = |g: &Gene| emerge_ref::print::gene(w, g, field).replace('"', "'");
     for (tick, parent, child, cs) in &w.genome_changes {
+        if cs.is_empty() {
+            let _ = writeln!(f, "{tick},{parent},{child},none,0,\"\"");
+        }
         for c in cs {
             let (kind, at, text) = match c {
                 Change::Added { at, gene: g } => ("added", *at, gene(g)),
