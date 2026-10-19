@@ -9,7 +9,7 @@
 //! item's path (`language.md` §14); `--json` prints one JSON object per line. It exits with
 //! 1 if there is an error.
 //!
-//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--features] [--cell S] [--producers F] [--census N] [--accounts FILE] [--changes FILE]`
+//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--features] [--cell S] [--producers F] [--census N] [--accounts FILE [--clade ID,…]] [--changes FILE]`
 //! compiles the world, seeds it with the lineages and runs it on the CPU reference runner,
 //! auditing the ledger every `--every` ticks. It prints a CSV row per window and a final
 //! `#` summary line (spec §16, exit criteria 7–9). Children mutate (spec §8.1) unless
@@ -49,7 +49,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N] [--accounts FILE] [--changes FILE]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N] [--accounts FILE [--clade ID,…]] [--changes FILE]");
     eprintln!("       emerge census <file.em> --lineage A [--flux S] [--lines N] [--generations N]");
     ExitCode::from(2)
 }
@@ -218,6 +218,7 @@ fn run(args: &[String]) -> ExitCode {
     let mut inject: Option<(String, u64)> = None;
     let mut accounts_path: Option<String> = None;
     let mut changes_path: Option<String> = None;
+    let mut clade: Option<std::collections::HashSet<u64>> = None;
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
         if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" || flag == "--features" || flag == "--blocked" || flag == "--dump" || flag == "--one-per-substance" {
@@ -241,6 +242,10 @@ fn run(args: &[String]) -> ExitCode {
             ("--flux", _) => flux_name = Some(value.to_string()),
             ("--accounts", _) if !value.is_empty() => accounts_path = Some(value.to_string()),
             ("--changes", _) if !value.is_empty() => changes_path = Some(value.to_string()),
+            ("--clade", _) => match value.split(',').map(|x| x.parse::<u64>()).collect::<Result<_, _>>() {
+                Ok(ids) => clade = Some(ids),
+                Err(_) => return usage(),
+            },
             ("--cell", _) => cell_name = Some(value.to_string()),
             ("--mutation", _) if value == "off" || value == "on" => mutation = value == "on",
             ("--seed", Some(n)) => seed = n,
@@ -333,7 +338,7 @@ fn run(args: &[String]) -> ExitCode {
         None => None,
         Some(p) => match std::fs::File::create(p) {
             Ok(f) => {
-                w.accounts = Some(emerge_ref::world::Accounts { flux, ..Default::default() });
+                w.accounts = Some(emerge_ref::world::Accounts { flux, clade: clade.clone(), ..Default::default() });
                 let mut f = std::io::BufWriter::new(f);
                 let _ = writeln!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
                 let _ = writeln!(f, "tick,group,entities,{}", emerge_ref::world::ACCOUNT_COLUMNS.join(","));
@@ -458,14 +463,15 @@ fn run(args: &[String]) -> ExitCode {
                 w.genome_changes.clear();
             }
             if let (Some(f), Some(a)) = (&mut accounts, &mut w.accounts) {
-                let lineage = |l: usize| names.get(l).map(|n| n.to_string()).or_else(|| inject.as_ref().map(|(n, _)| n.clone())).unwrap_or_default();
+                let in_clade = a.clade.is_some();
+                let lineage = |l: usize| if in_clade { ["rest", "clade"][l].to_string() } else { names.get(l).map(|n| n.to_string()).or_else(|| inject.as_ref().map(|(n, _)| n.clone())).unwrap_or_default() };
                 let label = |g: usize| match a.flux {
                     None => lineage(g),
                     Some(_) => format!("{}/{}", lineage(g / 2), if g % 2 == 1 { "carrier" } else { "other" }),
                 };
                 let mut count = vec![0u64; a.totals.len()];
                 for e in &w.entities {
-                    let g = emerge_ref::world::Accounts::group_of(a.flux, &w.chem, e);
+                    let g = a.group_of(&w.chem, e);
                     if count.len() <= g {
                         count.resize(g + 1, 0);
                         a.totals.resize(g + 1, Default::default());

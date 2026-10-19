@@ -250,11 +250,14 @@ impl Sink {
 
 /// Per-group energy and flux accounting (`emerge run --accounts`), read only: turning it on
 /// changes nothing in the run. A group is a lineage, split into carriers (an active reaction
-/// gene with rate > 0 that makes `flux`) and the rest when `flux` is set. Entities are grouped
-/// at the start of each tick; a birth counts in the parent's group.
+/// gene with rate > 0 that makes `flux`) and the rest when `flux` is set. With `clade`, the
+/// clade (the listed IDs and all their descendants) and the rest take the place of lineages.
+/// Entities are grouped at the start of each tick; a birth counts in the parent's group.
 #[derive(Debug, Clone, Default)]
 pub struct Accounts {
     pub flux: Option<SubstanceId>,
+    /// IDs in the clade, if one is followed; children of members join it at birth.
+    pub clade: Option<std::collections::HashSet<u64>>,
     /// Each entity's group this tick.
     pub group: Vec<usize>,
     /// Totals by group since the last `take`, indexed by `ACCOUNT_COLUMNS`.
@@ -291,14 +294,19 @@ impl Accounts {
         self.totals[g][k] += x;
     }
 
-    /// The group of an entity: `lineage`, or `2 × lineage + carrier` when `flux` is set.
-    pub fn group_of(flux: Option<SubstanceId>, chem: &Chemistry, e: &Entity) -> usize {
-        let Some(f) = flux else { return e.lineage };
+    /// The group of an entity: `base`, or `2 × base + carrier` when `flux` is set, where `base`
+    /// is the lineage, or 1 in the clade and 0 outside it.
+    pub fn group_of(&self, chem: &Chemistry, e: &Entity) -> usize {
+        let base = match &self.clade {
+            Some(c) => c.contains(&e.id) as usize,
+            None => e.lineage,
+        };
+        let Some(f) = self.flux else { return base };
         let carrier = e.genome.slots.iter().enumerate().any(|(g, slot)| {
             e.genome.active(g)
                 && matches!(slot.gene, Gene::React { reaction, rate, .. } if rate > 0 && chem.reactions[reaction].outputs.iter().any(|o| o.0 == f))
         });
-        2 * e.lineage + carrier as usize
+        2 * base + carrier as usize
     }
 }
 
@@ -670,9 +678,8 @@ impl World {
         }
 
         if let Some(a) = &mut self.accounts {
-            let flux = a.flux;
-            a.group.clear();
-            a.group.extend(self.entities.iter().map(|e| Accounts::group_of(flux, &self.chem, e)));
+            let group = self.entities.iter().map(|e| a.group_of(&self.chem, e)).collect();
+            a.group = group;
         }
 
         // ---- 1 Set ----
@@ -946,6 +953,11 @@ impl World {
             if let Some(a) = &mut self.accounts {
                 let g = a.group[i];
                 a.add(g, A_BIRTHS, 1);
+                if let Some(c) = &mut a.clade {
+                    if c.contains(&parent.id) {
+                        c.insert(id);
+                    }
+                }
             }
             if self.record_events {
                 self.events.push(Event::Born { tick, parent: parent.id, child: id });
