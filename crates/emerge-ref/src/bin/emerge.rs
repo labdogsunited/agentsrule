@@ -334,6 +334,8 @@ fn run(args: &[String]) -> ExitCode {
             extra += &format!(",share_{n}");
         }
     }
+    // Run manifest: what made this file, before the column header (the summary repeats it).
+    println!("# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
     println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,carriers,producers,mean_active_genes,stolen_mu,thieves,ms_per_tick{extra}");
     let (mut births, mut deaths, mut made, mut stolen, mut guarded) = (0, 0, 0, 0, 0);
     let (mut windows, mut with_births, mut with_flux) = (0, 0, 0);
@@ -455,7 +457,7 @@ fn run(args: &[String]) -> ExitCode {
         !w.entities.is_empty(),
         if hopeless { " stopped=cannot_pass" } else { "" }
     );
-    println!("# binary={} args={}", binary_digest(), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
+    println!("# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
     if census > 0 {
         print_census(&w, &field, census, flux);
     }
@@ -480,7 +482,11 @@ fn run(args: &[String]) -> ExitCode {
 
 /// FNV-1a of this executable's bytes, so a result names the build that made it.
 fn binary_digest() -> String {
-    let bytes = std::env::current_exe().and_then(std::fs::read).unwrap_or_default();
+    digest(&std::env::current_exe().and_then(std::fs::read).unwrap_or_default())
+}
+
+/// FNV-1a, as `fnv64:<hex>`.
+fn digest(bytes: &[u8]) -> String {
     let h = bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
     format!("fnv64:{h:016x}")
 }
