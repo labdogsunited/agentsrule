@@ -9,7 +9,7 @@
 //! item's path (`language.md` §14); `--json` prints one JSON object per line. It exits with
 //! 1 if there is an error.
 //!
-//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--features] [--cell S] [--producers F] [--census N] [--accounts FILE]`
+//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--features] [--cell S] [--producers F] [--census N] [--accounts FILE] [--changes FILE]`
 //! compiles the world, seeds it with the lineages and runs it on the CPU reference runner,
 //! auditing the ledger every `--every` ticks. It prints a CSV row per window and a final
 //! `#` summary line (spec §16, exit criteria 7–9). Children mutate (spec §8.1) unless
@@ -49,7 +49,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N] [--accounts FILE]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N] [--accounts FILE] [--changes FILE]");
     eprintln!("       emerge census <file.em> --lineage A [--flux S] [--lines N] [--generations N]");
     ExitCode::from(2)
 }
@@ -217,6 +217,7 @@ fn run(args: &[String]) -> ExitCode {
     let mut ancestry_every = 0u64;
     let mut inject: Option<(String, u64)> = None;
     let mut accounts_path: Option<String> = None;
+    let mut changes_path: Option<String> = None;
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
         if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" || flag == "--features" || flag == "--blocked" || flag == "--dump" || flag == "--one-per-substance" {
@@ -239,6 +240,7 @@ fn run(args: &[String]) -> ExitCode {
             },
             ("--flux", _) => flux_name = Some(value.to_string()),
             ("--accounts", _) if !value.is_empty() => accounts_path = Some(value.to_string()),
+            ("--changes", _) if !value.is_empty() => changes_path = Some(value.to_string()),
             ("--cell", _) => cell_name = Some(value.to_string()),
             ("--mutation", _) if value == "off" || value == "on" => mutation = value == "on",
             ("--seed", Some(n)) => seed = n,
@@ -309,6 +311,23 @@ fn run(args: &[String]) -> ExitCode {
     w.record_events = false;
     w.track = flux;
     w.record_transfers = false;
+    // Genome changes at birth, one row per change, in their own CSV file.
+    let mut changes = match &changes_path {
+        None => None,
+        Some(p) => match std::fs::File::create(p) {
+            Ok(f) => {
+                w.record_genome_changes = true;
+                let mut f = std::io::BufWriter::new(f);
+                let _ = writeln!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
+                let _ = writeln!(f, "tick,parent,child,change,at,gene");
+                Some(f)
+            }
+            Err(e) => {
+                eprintln!("{p}: {e}");
+                return ExitCode::from(2);
+            }
+        },
+    };
     // Per-group accounts, one row per group and window, in their own CSV file.
     let mut accounts = match &accounts_path {
         None => None,
@@ -434,6 +453,10 @@ fn run(args: &[String]) -> ExitCode {
                 mean(pay), mean_flux, cell_flux, carriers, producers, genes, w.stolen - stolen, thieves,
                 clock.elapsed().as_secs_f64() * 1_000.0 / every as f64,
             );
+            if let Some(f) = &mut changes {
+                write_changes(f, &w, &field);
+                w.genome_changes.clear();
+            }
             if let (Some(f), Some(a)) = (&mut accounts, &mut w.accounts) {
                 let lineage = |l: usize| names.get(l).map(|n| n.to_string()).or_else(|| inject.as_ref().map(|(n, _)| n.clone())).unwrap_or_default();
                 let label = |g: usize| match a.flux {
@@ -519,6 +542,26 @@ fn run(args: &[String]) -> ExitCode {
         ancestry.print(flux_label);
     }
     ExitCode::SUCCESS
+}
+
+/// One row per genome change at birth: the change's kind, its slot in the child (in the parent
+/// for `removed`) and the gene in `.em` syntax (`old => new` for `changed`).
+fn write_changes(f: &mut impl Write, w: &World, field: &str) {
+    use emerge_ref::diff::Change;
+    let gene = |g: &Gene| emerge_ref::print::gene(w, g, field).replace('"', "'");
+    for (tick, parent, child, cs) in &w.genome_changes {
+        for c in cs {
+            let (kind, at, text) = match c {
+                Change::Added { at, gene: g } => ("added", *at, gene(g)),
+                Change::Removed { at, gene: g } => ("removed", *at, gene(g)),
+                Change::Changed { at, from, to, .. } => ("changed", *at, format!("{} => {}", gene(from), gene(to))),
+                Change::Expressed { at, on } => (if *on { "expressed" } else { "silenced" }, *at, String::new()),
+                Change::Module { index, on } => (if *on { "module_on" } else { "module_off" }, *index, String::new()),
+                Change::Keep { signals } => ("keep", *signals, String::new()),
+            };
+            let _ = writeln!(f, "{tick},{parent},{child},{kind},{at},\"{text}\"");
+        }
+    }
 }
 
 /// FNV-1a of this executable's bytes, so a result names the build that made it.
