@@ -247,6 +247,7 @@ reaction build : energy + carbon + nitrate -> heat + body
 
 - **The ledger does not see it.** The catalyst is not part of the formula, so element balance, canonical form, `ΔG` and the reaction's persistent ID are unchanged. Two reactions with the same canonical form are the same reaction whatever their catalysts. The included reaction's catalyst wins, as for names and rates (§4.3).
 - **Rate.** With `c` µ of the catalyst present, the reaction's cap becomes `max_rate × (1 + (boost − 1) × c / (c + half))`, rounded down to whole µ; a world reaction's `bp` rate is scaled by the same factor. Without the catalyst the reaction runs as before. `boost` MUST be at least `1.0` and `half` greater than `0mu`, so a catalyst only ever speeds a reaction up. An entity reaction gene still scales this by its speed signal (§5.2).
+- **When it is read.** The amount `c` is read when the reaction runs: for an entity's reaction gene, in Transform, after the genes before it have run; for a world reaction, in each cell when that rule runs. `emerge-ref` implements this ahead of P1 and computes the factor in `f64`; a GPU runner must match that rounding.
 - **Generated reactions** have no catalysts in P1. To give one a catalyst, a world declares that reaction by hand with its catalyst and includes it; the included reaction then replaces the generated one (§4.3).
 
 Catalysts give creatures a reason to collect and keep substances they never use up, such as trace metals or cofactors, to make a pathway faster.

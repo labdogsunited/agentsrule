@@ -27,6 +27,24 @@ pub struct Reaction {
     pub name: String,
     pub inputs: Vec<(SubstanceId, u32)>,
     pub outputs: Vec<(SubstanceId, u32)>,
+    /// Not part of the formula, so the ledger does not see it (spec §4.5).
+    pub catalyst: Option<Catalyst>,
+}
+
+/// A substance that speeds a reaction up where it is present, without being consumed (spec §4.5).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Catalyst {
+    pub s: SubstanceId,
+    pub half: Mu,
+    pub boost: f32,
+}
+
+impl Catalyst {
+    /// `cap × (1 + (boost − 1) × c / (c + half))` with `c` µ of the catalyst present, rounded down.
+    pub fn scale(&self, cap: Mu, c: Mu) -> Mu {
+        let (c, half) = (c as f64, self.half as f64);
+        (cap as f64 * (1.0 + (self.boost as f64 - 1.0) * c / (c + half))).floor() as Mu
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,7 +91,7 @@ impl Chemistry {
         inputs: &[(SubstanceId, u32)],
         outputs: &[(SubstanceId, u32)],
     ) -> Result<ReactionId, ChemError> {
-        let r = Reaction { name: name.to_string(), inputs: inputs.to_vec(), outputs: outputs.to_vec() };
+        let r = Reaction { name: name.to_string(), inputs: inputs.to_vec(), outputs: outputs.to_vec(), catalyst: None };
         self.check(&r)?;
         self.reactions.push(r);
         Ok(self.reactions.len() - 1)
@@ -109,7 +127,7 @@ impl Chemistry {
         let mut found = Vec::new();
         for i in &ins {
             for o in &outs {
-                let r = Reaction { name: String::new(), inputs: i.clone(), outputs: o.clone() };
+                let r = Reaction { name: String::new(), inputs: i.clone(), outputs: o.clone(), catalyst: None };
                 if self.check(&r).is_ok() {
                     found.push((i.clone(), o.clone()));
                 }

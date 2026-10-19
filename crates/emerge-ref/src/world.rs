@@ -806,7 +806,11 @@ impl World {
                 }
                 if let Gene::React { reaction, .. } = e.genome.slots[g].gene {
                     let r = &self.chem.reactions[reaction];
-                    let mut extent = plans[i].react_caps[g];
+                    let cap = match r.catalyst {
+                        Some(k) => k.scale(plans[i].react_caps[g], e.store.amounts[k.s]),
+                        None => plans[i].react_caps[g],
+                    };
+                    let mut extent = cap;
                     for &(s, c) in &r.inputs {
                         extent = extent.min(e.store.amounts[s] / c);
                     }
@@ -815,7 +819,6 @@ impl World {
                     }
                     if let Some(b) = &mut self.blocked {
                         let b = &mut b[reaction];
-                        let cap = plans[i].react_caps[g];
                         match r.inputs.iter().find(|&&(s, c)| e.store.amounts[s] < c) {
                             _ if extent > 0 && extent == cap => b.full += 1,
                             _ if extent > 0 => b.limited += 1,
@@ -860,6 +863,7 @@ impl World {
             if let Law::React { reaction, rate_bp } = *law {
                 let r = &self.chem.reactions[reaction];
                 for cell in &mut self.cells {
+                    let rate_bp = r.catalyst.map_or(rate_bp, |k| k.scale(rate_bp, cell.amounts[k.s]));
                     let mut extent = Mu::MAX;
                     for &(s, c) in &r.inputs {
                         extent = extent.min((cell.amounts[s] as u64 * rate_bp as u64 / 10_000 / c as u64) as Mu);

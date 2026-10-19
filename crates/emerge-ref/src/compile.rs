@@ -242,14 +242,14 @@ impl<'a> Compiler<'a> {
                     substances.insert(name.clone(), chem.substance(name, &terms, *potential));
                 }
                 WDecl::Reaction { name, formula, catalyze } => {
-                    if catalyze.is_some() {
-                        return err("E1001", p(&format!("reactions.{name}")), "catalysts are not supported by emerge-ref yet");
-                    }
                     let side = |terms: &[ast::Term]| -> Vec<(SubstanceId, u32)> {
                         terms.iter().map(|t| (substances[&t.name], t.coeff.unwrap_or(1) as u32)).collect()
                     };
                     let (i, o) = (side(&formula.inputs), side(&formula.outputs));
                     let r = chem.reaction(name, &i, &o).map_err(|e| Error { code: "E0401", pos: Pos::default(), path: p(&format!("reactions.{name}")), message: format!("{e:?}") })?;
+                    if let Some(c) = catalyze {
+                        chem.reactions[r].catalyst = Some(catalyst(c, &substances, &p(&format!("reactions.{name}.catalyze")))?);
+                    }
                     reactions.insert(name.clone(), r);
                 }
                 _ => {}
@@ -1359,6 +1359,21 @@ fn opt_arg<'c>(c: &'c ast::Call, key: &str) -> Option<&'c Expr> {
         Value::Expr(e) => Some(e),
         _ => None,
     })
+}
+
+/// `catalyze s(half: 100mu, boost: 10.0)` (spec §4.5).
+fn catalyst(c: &ast::Call, substances: &HashMap<String, SubstanceId>, path: &str) -> Result<crate::chem::Catalyst, Error> {
+    only_args(c, &["half", "boost"], path)?;
+    let s = lookup(substances, &c.name, path, "substance")?;
+    let half = amount(arg(c, "half", path)?, path)?;
+    let boost = float(arg(c, "boost", path)?, path)?;
+    if half == 0 {
+        return err("E0204", path, "`half` must be greater than 0mu");
+    }
+    if !(boost >= 1.0 && boost.is_finite()) {
+        return err("E0204", path, "`boost` must be at least 1.0, so a catalyst only speeds a reaction up");
+    }
+    Ok(crate::chem::Catalyst { s, half, boost })
 }
 
 fn arg<'c>(c: &'c ast::Call, key: &str, path: &str) -> Result<&'c Expr, Error> {
