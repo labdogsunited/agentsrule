@@ -909,7 +909,8 @@ impl World {
             }
             self.deaths += 1;
             if self.record_genome_changes {
-                self.deaths_log.push((tick, self.entities[i].id, cause, self.entities[i].age as u32));
+                // The age it would have reached this tick: `max_age` for a death of age.
+                self.deaths_log.push((tick, self.entities[i].id, cause, self.entities[i].age as u32 + 1));
             }
             if let Some(a) = &mut self.accounts {
                 let g = a.group[i];
@@ -1285,12 +1286,9 @@ impl World {
             }
             if let (Some(a), true) = (&mut self.accounts, delivered > 0) {
                 let (pay, flux, x) = (self.upkeep.pay, a.flux, delivered as u64);
-                let (taken, stolen_in, stolen_out) = match s {
-                    _ if s == pay => (A_PAY_TAKEN, A_PAY_IN, A_PAY_OUT),
-                    _ if Some(s) == flux => (A_FLUX_TAKEN, A_FLUX_IN, A_FLUX_OUT),
-                    _ => (usize::MAX, 0, 0),
-                };
-                if taken != usize::MAX {
+                // The pay and flux columns are counted separately, so both count when they coincide.
+                let columns = [(s == pay).then_some((A_PAY_TAKEN, A_PAY_IN, A_PAY_OUT)), (Some(s) == flux).then_some((A_FLUX_TAKEN, A_FLUX_IN, A_FLUX_OUT))];
+                for (taken, stolen_in, stolen_out) in columns.into_iter().flatten() {
                     match (unpack(r.origin), unpack(r.dest)) {
                         (End::Cell(_), End::Entity(d)) => a.add(a.group[d], taken, x),
                         (End::Entity(o), End::Entity(d)) if r.steal => {

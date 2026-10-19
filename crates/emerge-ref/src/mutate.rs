@@ -166,7 +166,7 @@ impl Modules {
 }
 
 /// Every signal a gene reads or writes, in place, so they can be renumbered.
-fn signals_mut(g: &mut Gene) -> Vec<&mut usize> {
+pub(crate) fn signals_mut(g: &mut Gene) -> Vec<&mut usize> {
     fn src(i: &mut Input) -> Option<&mut usize> {
         match i {
             Input::Signal(s) => Some(s),

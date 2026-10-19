@@ -518,6 +518,7 @@ impl<'a> Compiler<'a> {
         let subs = |params: &[(String, ast::Param)]| -> Result<Vec<SubstanceId>, Error> {
             match params.iter().find(|(k, _)| k == "s").map(|(_, p)| p) {
                 Some(ast::Param::Any(kind)) if kind == "substance" => Ok((0..n).collect()),
+                Some(ast::Param::Name(name)) => Ok(vec![self.substance(name, &path)?]),
                 Some(ast::Param::Choices(names)) => {
                     let mut ids = names.iter().map(|x| self.substance(x, &path)).collect::<Result<Vec<_>, _>>()?;
                     ids.sort_unstable();

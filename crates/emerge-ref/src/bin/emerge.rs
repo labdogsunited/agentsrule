@@ -334,6 +334,15 @@ fn run(args: &[String]) -> ExitCode {
             }
         },
     };
+    if let Some(c) = &clade {
+        if accounts_path.is_none() {
+            eprintln!("warning: --clade has no effect without --accounts");
+        }
+        let missing: Vec<_> = c.iter().filter(|id| !w.entities.iter().any(|e| e.id == **id)).collect();
+        if !missing.is_empty() {
+            eprintln!("warning: --clade: no entity alive at the start has ID {missing:?}");
+        }
+    }
     // Genome changes at birth, one row per change, in their own CSV file.
     let mut changes = match &changes_path {
         None => None,
@@ -481,27 +490,8 @@ fn run(args: &[String]) -> ExitCode {
                 w.genome_changes.clear();
                 w.deaths_log.clear();
             }
-            if let (Some(f), Some(a)) = (&mut accounts, &mut w.accounts) {
-                let in_clade = a.clade.is_some();
-                let lineage = |l: usize| if in_clade { ["rest", "clade"][l].to_string() } else { names.get(l).map(|n| n.to_string()).or_else(|| inject.as_ref().map(|(n, _)| n.clone())).unwrap_or_default() };
-                let label = |g: usize| match a.flux {
-                    None => lineage(g),
-                    Some(_) => format!("{}/{}", lineage(g / 2), if g % 2 == 1 { "carrier" } else { "other" }),
-                };
-                let mut count = vec![0u64; a.totals.len()];
-                for e in &w.entities {
-                    let g = a.group_of(&w.chem, e);
-                    if count.len() <= g {
-                        count.resize(g + 1, 0);
-                        a.totals.resize(g + 1, Default::default());
-                    }
-                    count[g] += 1;
-                }
-                for (g, t) in a.totals.iter().enumerate() {
-                    let cols = t.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
-                    let _ = writeln!(f, "{},{},{},{cols}", w.tick, label(g), count[g]);
-                }
-                a.totals.iter_mut().for_each(|t| *t = Default::default());
+            if let Some(f) = &mut accounts {
+                write_accounts(f, &mut w, &names, &inject);
             }
             windows += 1;
             last_row = w.tick;
@@ -532,6 +522,15 @@ fn run(args: &[String]) -> ExitCode {
                 hopeless = true;
                 break;
             }
+        }
+    }
+    // The ticks after the last row, so the recording files miss nothing.
+    if w.tick != last_row {
+        if let Some(f) = &mut changes {
+            write_changes(f, &w, &field);
+        }
+        if let Some(f) = &mut accounts {
+            write_accounts(f, &mut w, &names, &inject);
         }
     }
     // Why the run ended: `end` is the requested horizon; the others stop early.
@@ -575,6 +574,31 @@ fn run(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// One row per accounts group since the last write, then the totals start again.
+fn write_accounts(f: &mut impl Write, w: &mut World, names: &[&str], inject: &Option<(String, u64)>) {
+    let Some(a) = &mut w.accounts else { return };
+        let in_clade = a.clade.is_some();
+        let lineage = |l: usize| if in_clade { ["rest", "clade"][l].to_string() } else { names.get(l).map(|n| n.to_string()).or_else(|| inject.as_ref().map(|(n, _)| n.clone())).unwrap_or_default() };
+        let label = |g: usize| match a.flux {
+            None => lineage(g),
+            Some(_) => format!("{}/{}", lineage(g / 2), if g % 2 == 1 { "carrier" } else { "other" }),
+        };
+        let mut count = vec![0u64; a.totals.len()];
+        for e in &w.entities {
+            let g = a.group_of(&w.chem, e);
+            if count.len() <= g {
+                count.resize(g + 1, 0);
+                a.totals.resize(g + 1, Default::default());
+            }
+            count[g] += 1;
+        }
+        for (g, t) in a.totals.iter().enumerate() {
+            let cols = t.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+            let _ = writeln!(f, "{},{},{},{cols}", w.tick, label(g), count[g]);
+        }
+        a.totals.iter_mut().for_each(|t| *t = Default::default());
+}
+
 /// One row per genome change at birth (`none` for a birth with no change), and one per death
 /// (`starved` or `aged`): the change's kind, its slot in the child (in the parent
 /// for `removed`) and the gene in `.em` syntax (`old => new` for `changed`).
@@ -587,7 +611,7 @@ fn write_changes(f: &mut impl Write, w: &World, field: &str) {
         }
         for c in cs {
             let (kind, at, text) = match c {
-                Change::Added { at, gene: g } => ("added", *at, gene(g)),
+                Change::Added { at, gene: g, expressed } => ("added", *at, format!("{}{}", if *expressed { "" } else { "dormant " }, gene(g))),
                 Change::Removed { at, gene: g } => ("removed", *at, gene(g)),
                 Change::Changed { at, from, to, .. } => ("changed", *at, format!("{} => {}", gene(from), gene(to))),
                 Change::Expressed { at, on } => (if *on { "expressed" } else { "silenced" }, *at, String::new()),
