@@ -248,6 +248,60 @@ impl Sink {
     }
 }
 
+/// Per-group energy and flux accounting (`emerge run --accounts`), read only: turning it on
+/// changes nothing in the run. A group is a lineage, split into carriers (an active reaction
+/// gene with rate > 0 that makes `flux`) and the rest when `flux` is set. Entities are grouped
+/// at the start of each tick; a birth counts in the parent's group.
+#[derive(Debug, Clone, Default)]
+pub struct Accounts {
+    pub flux: Option<SubstanceId>,
+    /// Each entity's group this tick.
+    pub group: Vec<usize>,
+    /// Totals by group since the last `take`, indexed by `ACCOUNT_COLUMNS`.
+    pub totals: Vec<[u64; ACCOUNT_COLUMNS.len()]>,
+}
+
+/// What `Accounts` counts, in µ unless named otherwise. `pay` is the upkeep substance.
+pub const ACCOUNT_COLUMNS: [&str; 15] = [
+    "births", "starved", "aged", "upkeep_mu", "fees_mu", "pay_made_mu", "pay_used_mu", "pay_taken_mu",
+    "pay_stolen_in_mu", "pay_stolen_out_mu", "flux_made_mu", "flux_taken_mu", "flux_stolen_in_mu",
+    "flux_stolen_out_mu", "flux_used_mu",
+];
+const A_BIRTHS: usize = 0;
+const A_STARVED: usize = 1;
+const A_AGED: usize = 2;
+const A_UPKEEP: usize = 3;
+const A_FEES: usize = 4;
+const A_PAY_MADE: usize = 5;
+const A_PAY_USED: usize = 6;
+const A_PAY_TAKEN: usize = 7;
+const A_PAY_IN: usize = 8;
+const A_PAY_OUT: usize = 9;
+const A_FLUX_MADE: usize = 10;
+const A_FLUX_TAKEN: usize = 11;
+const A_FLUX_IN: usize = 12;
+const A_FLUX_OUT: usize = 13;
+const A_FLUX_USED: usize = 14;
+
+impl Accounts {
+    fn add(&mut self, g: usize, k: usize, x: u64) {
+        if self.totals.len() <= g {
+            self.totals.resize(g + 1, [0; ACCOUNT_COLUMNS.len()]);
+        }
+        self.totals[g][k] += x;
+    }
+
+    /// The group of an entity: `lineage`, or `2 × lineage + carrier` when `flux` is set.
+    pub fn group_of(flux: Option<SubstanceId>, chem: &Chemistry, e: &Entity) -> usize {
+        let Some(f) = flux else { return e.lineage };
+        let carrier = e.genome.slots.iter().enumerate().any(|(g, slot)| {
+            e.genome.active(g)
+                && matches!(slot.gene, Gene::React { reaction, rate, .. } if rate > 0 && chem.reactions[reaction].outputs.iter().any(|o| o.0 == f))
+        });
+        2 * e.lineage + carrier as usize
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cause {
     Starved,
@@ -363,6 +417,8 @@ pub struct World {
     pub entity_extent: Vec<u64>,
     /// Cumulative µ delivered by `steal`, over all substances.
     pub stolen: u64,
+    /// Per-group accounting, if set (`--accounts`).
+    pub accounts: Option<Accounts>,
     /// Cumulative µ of `steal` requests dropped by `guard`.
     pub guarded: u64,
     /// If set, why reaction genes ran or not, by reaction (`--blocked`).
@@ -439,6 +495,7 @@ impl World {
             deaths: 0,
             entity_extent: vec![0; reactions],
             stolen: 0,
+            accounts: None,
             guarded: 0,
             blocked: None,
             one_per_substance: false,
@@ -606,6 +663,12 @@ impl World {
             self.near = crate::near::Index::build(space, self.snap_pos.iter().copied());
         }
 
+        if let Some(a) = &mut self.accounts {
+            let flux = a.flux;
+            a.group.clear();
+            a.group.extend(self.entities.iter().map(|e| Accounts::group_of(flux, &self.chem, e)));
+        }
+
         // ---- 1 Set ----
         // Senses read the snapshot, minds run, action genes become intents (spec §7.1).
         let mut plans: Vec<Plan> = (0..n).map(|i| self.set(i)).collect();
@@ -618,17 +681,25 @@ impl World {
             if e.store.amounts[self.upkeep.pay] as u64 >= cost {
                 e.store.amounts[self.upkeep.pay] -= cost as Mu;
                 add_elements(&mut self.absorbed, &self.chem, self.upkeep.becomes, cost as Mu);
+                if let Some(a) = &mut self.accounts {
+                    let g = a.group[i];
+                    a.add(g, A_UPKEEP, cost);
+                }
             } else {
                 dying[i] = true;
                 plans[i].intents.iter_mut().for_each(|x| x.live = false);
             }
         }
         // 2.2 Attempt fees, in genome order.
-        for (e, plan) in self.entities.iter_mut().zip(&mut plans) {
+        for (i, (e, plan)) in self.entities.iter_mut().zip(&mut plans).enumerate() {
             for x in plan.intents.iter_mut().filter(|x| x.live && x.fee > 0) {
                 if e.store.amounts[self.upkeep.pay] >= x.fee {
                     e.store.amounts[self.upkeep.pay] -= x.fee;
                     add_elements(&mut self.absorbed, &self.chem, self.upkeep.becomes, x.fee);
+                    if let Some(a) = &mut self.accounts {
+                        let g = a.group[i];
+                        a.add(g, A_FEES, x.fee as u64);
+                    }
                 } else {
                     x.live = false;
                 }
@@ -742,6 +813,27 @@ impl World {
                     }
                     apply_reaction(&mut e.store, r, extent);
                     self.entity_extent[reaction] += extent as u64;
+                    if let Some(a) = &mut self.accounts {
+                        let (g, pay, flux) = (a.group[i], self.upkeep.pay, a.flux);
+                        for &(s, c) in &r.inputs {
+                            let x = c as u64 * extent as u64;
+                            if s == pay {
+                                a.add(g, A_PAY_USED, x);
+                            }
+                            if Some(s) == flux {
+                                a.add(g, A_FLUX_USED, x);
+                            }
+                        }
+                        for &(s, c) in &r.outputs {
+                            let x = c as u64 * extent as u64;
+                            if s == pay {
+                                a.add(g, A_PAY_MADE, x);
+                            }
+                            if Some(s) == flux {
+                                a.add(g, A_FLUX_MADE, x);
+                            }
+                        }
+                    }
                     if let Some(t) = self.track {
                         e.made += r.outputs.iter().filter(|o| o.0 == t).map(|o| o.1 as u64 * extent as u64).sum::<u64>();
                     }
@@ -800,6 +892,10 @@ impl World {
                 }
             }
             self.deaths += 1;
+            if let Some(a) = &mut self.accounts {
+                let g = a.group[i];
+                a.add(g, if cause == Cause::Starved { A_STARVED } else { A_AGED }, 1);
+            }
             if self.record_events {
                 self.events.push(Event::Died { tick, id: self.entities[i].id, cause });
             }
@@ -841,6 +937,10 @@ impl World {
             let id = self.next_id;
             self.next_id += 1;
             self.births += 1;
+            if let Some(a) = &mut self.accounts {
+                let g = a.group[i];
+                a.add(g, A_BIRTHS, 1);
+            }
             if self.record_events {
                 self.events.push(Event::Born { tick, parent: parent.id, child: id });
             }
@@ -1154,6 +1254,24 @@ impl World {
             }
             if r.steal {
                 self.stolen += delivered as u64;
+            }
+            if let (Some(a), true) = (&mut self.accounts, delivered > 0) {
+                let (pay, flux, x) = (self.upkeep.pay, a.flux, delivered as u64);
+                let (taken, stolen_in, stolen_out) = match s {
+                    _ if s == pay => (A_PAY_TAKEN, A_PAY_IN, A_PAY_OUT),
+                    _ if Some(s) == flux => (A_FLUX_TAKEN, A_FLUX_IN, A_FLUX_OUT),
+                    _ => (usize::MAX, 0, 0),
+                };
+                if taken != usize::MAX {
+                    match (unpack(r.origin), unpack(r.dest)) {
+                        (End::Cell(_), End::Entity(d)) => a.add(a.group[d], taken, x),
+                        (End::Entity(o), End::Entity(d)) if r.steal => {
+                            a.add(a.group[d], stolen_in, x);
+                            a.add(a.group[o], stolen_out, x);
+                        }
+                        _ => {}
+                    }
+                }
             }
             if let Some(b) = &mut self.binding {
                 let c = b.transfers.entry((transfer_kind(r), s)).or_default();

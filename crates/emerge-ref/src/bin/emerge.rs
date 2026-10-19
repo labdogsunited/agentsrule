@@ -9,7 +9,7 @@
 //! item's path (`language.md` §14); `--json` prints one JSON object per line. It exits with
 //! 1 if there is an error.
 //!
-//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--features] [--cell S] [--producers F] [--census N]`
+//! `emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--features] [--cell S] [--producers F] [--census N] [--accounts FILE]`
 //! compiles the world, seeds it with the lineages and runs it on the CPU reference runner,
 //! auditing the ledger every `--every` ticks. It prints a CSV row per window and a final
 //! `#` summary line (spec §16, exit criteria 7–9). Children mutate (spec §8.1) unless
@@ -27,6 +27,7 @@
 //! run yet (signal fields and their rules, menu items it does not implement) is refused unless `--partial` is given. `--flux S` reports the µ of `S`
 //! produced by entity reactions.
 
+use std::io::Write;
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -48,7 +49,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N] [--accounts FILE]");
     eprintln!("       emerge census <file.em> --lineage A [--flux S] [--lines N] [--generations N]");
     ExitCode::from(2)
 }
@@ -215,6 +216,7 @@ fn run(args: &[String]) -> ExitCode {
     let (mut blocked, mut dump, mut one_per_substance) = (false, false, false);
     let mut ancestry_every = 0u64;
     let mut inject: Option<(String, u64)> = None;
+    let mut accounts_path: Option<String> = None;
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
         if flag == "--partial" || flag == "--stop-when-sustained" || flag == "--stop-when-hopeless" || flag == "--features" || flag == "--blocked" || flag == "--dump" || flag == "--one-per-substance" {
@@ -236,6 +238,7 @@ fn run(args: &[String]) -> ExitCode {
                 _ => return usage(),
             },
             ("--flux", _) => flux_name = Some(value.to_string()),
+            ("--accounts", _) if !value.is_empty() => accounts_path = Some(value.to_string()),
             ("--cell", _) => cell_name = Some(value.to_string()),
             ("--mutation", _) if value == "off" || value == "on" => mutation = value == "on",
             ("--seed", Some(n)) => seed = n,
@@ -306,6 +309,23 @@ fn run(args: &[String]) -> ExitCode {
     w.record_events = false;
     w.track = flux;
     w.record_transfers = false;
+    // Per-group accounts, one row per group and window, in their own CSV file.
+    let mut accounts = match &accounts_path {
+        None => None,
+        Some(p) => match std::fs::File::create(p) {
+            Ok(f) => {
+                w.accounts = Some(emerge_ref::world::Accounts { flux, ..Default::default() });
+                let mut f = std::io::BufWriter::new(f);
+                let _ = writeln!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
+                let _ = writeln!(f, "tick,group,entities,{}", emerge_ref::world::ACCOUNT_COLUMNS.join(","));
+                Some(f)
+            }
+            Err(e) => {
+                eprintln!("{p}: {e}");
+                return ExitCode::from(2);
+            }
+        },
+    };
     w.one_per_substance = one_per_substance;
     // Ancestry needs each birth's parent; recording events changes no state.
     w.record_events = ancestry_every > 0 && flux.is_some();
@@ -414,6 +434,27 @@ fn run(args: &[String]) -> ExitCode {
                 mean(pay), mean_flux, cell_flux, carriers, producers, genes, w.stolen - stolen, thieves,
                 clock.elapsed().as_secs_f64() * 1_000.0 / every as f64,
             );
+            if let (Some(f), Some(a)) = (&mut accounts, &mut w.accounts) {
+                let lineage = |l: usize| names.get(l).map(|n| n.to_string()).or_else(|| inject.as_ref().map(|(n, _)| n.clone())).unwrap_or_default();
+                let label = |g: usize| match a.flux {
+                    None => lineage(g),
+                    Some(_) => format!("{}/{}", lineage(g / 2), if g % 2 == 1 { "carrier" } else { "other" }),
+                };
+                let mut count = vec![0u64; a.totals.len()];
+                for e in &w.entities {
+                    let g = emerge_ref::world::Accounts::group_of(a.flux, &w.chem, e);
+                    if count.len() <= g {
+                        count.resize(g + 1, 0);
+                        a.totals.resize(g + 1, Default::default());
+                    }
+                    count[g] += 1;
+                }
+                for (g, t) in a.totals.iter().enumerate() {
+                    let cols = t.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
+                    let _ = writeln!(f, "{},{},{},{cols}", w.tick, label(g), count[g]);
+                }
+                a.totals.iter_mut().for_each(|t| *t = Default::default());
+            }
             windows += 1;
             last_row = w.tick;
             with_births += (w.births > births) as u64;
