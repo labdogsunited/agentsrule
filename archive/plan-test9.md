@@ -2,6 +2,8 @@
 
 Status: archived 2026-10-19. Test 9 closed as partly passed: 7 of 20 seeds in the deciding run (`~/test9guard/`, seeds 1, 7, 9, 12, 15, 17, 19), below the agreed 10 of 20. Recorded in spec §15.1. Steps 6–9 moved to `proposals/plan-next.md`.
 
+**Reopened once and passed (2026-10-19):** the bounded `duplicate_gene` 0.005 → 0.02 batch (item 2 under the deferred experiments below, `~/test9dup/`, dish saved as `archive/test9-dish.em`) sustained producers in 13 of 20 seeds, against the rule of 10 set before the run. Spec §15.1 and `proposals/plan-next.md` have the details.
+
 Context: in the v0.7.8 runs, `steal` spread to 98–100% of entities and body producers stayed rare (spec §15.1). Test 9 now counts producers (at least 2%). The rerun with this measure is pending.
 
 ## Next
