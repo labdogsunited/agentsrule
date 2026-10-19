@@ -72,6 +72,9 @@ pub fn genome(w: &World, g: &Genome, field: &str) -> String {
                 Gene::Steal { s, max, src, threshold, .. } => {
                     format!("action steal(s: {}, max: {}, from: neighbour){}", substance(*s), amount(*max), source(*src, *threshold))
                 }
+                Gene::Guard { s, src, threshold, .. } => {
+                    format!("action guard(s: {}){}", substance(*s), source(*src, *threshold))
+                }
                 Gene::Divide { split_bp, src, threshold, .. } => {
                     format!("action divide(split: {:?}){}", *split_bp as f32 / 10_000.0, source(*src, *threshold))
                 }

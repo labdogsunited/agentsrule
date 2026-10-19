@@ -385,6 +385,7 @@ Contact senses read the snapshot. "Nearest" is the same everywhere: squared dist
 - `take` and `drop` act on `cell_at(pos)`, using the entity's position at the start of the tick.
 - `give` and `steal` act on the **nearest living entity** in the snapshot within `max_interaction_radius`, measured with wrapping. Ties go to the lower entity ID. An entity never targets itself. Several contact genes of one entity all act on that same entity.
 - If the target is dying this tick (§7.2), the transfer is dropped in Move, and the attempt fee is kept.
+- `guard(s: any substance)` (experimental, 2026-10-19, `plan-test9.md`) has no size and no target. When it fires, its fee is paid whether or not anyone steals, and every `steal` of `s` against the entity this tick is dropped in Move; the thief's fee is kept. It needs `max_interaction_radius`. Point mutation changes its substance or its threshold.
 - If an action has no target (no neighbour in range, or a cell that cannot hold the substance), its intent is dropped in Set and **pays no fee**, like a duplicate action.
 
 **Fees.** Fees are attempt fees (§7.2). `per distance` fees are charged on the **requested** distance, before movement is resolved.

@@ -313,8 +313,18 @@ fn run(args: &[String]) -> ExitCode {
     if let Some((n, _)) = &inject {
         extra += &format!(",share_{n}");
     }
+    let guard = w.menus.guard.is_some();
+    if guard {
+        extra += ",guarders,guarded_mu";
+    }
+    // With more than one lineage, each one's share of the population, in `--lineages` order.
+    if names.len() > 1 {
+        for n in &names {
+            extra += &format!(",share_{n}");
+        }
+    }
     println!("tick,population,births,deaths,{flux_label}_synthesis_mu,mean_{pay_name}_u,mean_{flux_label}_u,cell_{flux_label}_u,carriers,producers,mean_active_genes,stolen_mu,thieves,ms_per_tick{extra}");
-    let (mut births, mut deaths, mut made, mut stolen) = (0, 0, 0, 0);
+    let (mut births, mut deaths, mut made, mut stolen, mut guarded) = (0, 0, 0, 0, 0);
     let (mut windows, mut with_births, mut with_flux) = (0, 0, 0);
     let mut last_row = 0;
     // Exit test 9: flux above zero, made by at least `threshold` of the population in every
@@ -370,6 +380,21 @@ fn run(args: &[String]) -> ExitCode {
                 let n = w.entities.iter().filter(|e| Some(e.lineage) == injected).count();
                 extra += &format!(",{:.4}", n as f64 / pop);
             }
+            if guard {
+                let guarders = w.entities.iter().filter(|e| guards(e)).count() as f64 / pop;
+                extra += &format!(",{guarders:.4},{}", w.guarded - guarded);
+            }
+            if names.len() > 1 {
+                let mut n = vec![0usize; names.len()];
+                for e in &w.entities {
+                    if let Some(k) = n.get_mut(e.lineage) {
+                        *k += 1;
+                    }
+                }
+                for k in n {
+                    extra += &format!(",{:.4}", k as f64 / pop);
+                }
+            }
             println!(
                 "{},{},{},{},{},{:.2},{:.2},{:.3},{:.4},{:.4},{:.2},{},{:.4},{:.1}{extra}",
                 w.tick, w.entities.len(), w.births - births, w.deaths - deaths, now - made,
@@ -384,7 +409,7 @@ fn run(args: &[String]) -> ExitCode {
             if streak >= 10_000 && sustained.is_none() {
                 sustained = Some(w.tick);
             }
-            (births, deaths, made, stolen) = (w.births, w.deaths, now, w.stolen);
+            (births, deaths, made, stolen, guarded) = (w.births, w.deaths, now, w.stolen, w.guarded);
             // Before the reset below, so `made` still holds this window.
             if features && (w.tick >= ticks || w.entities.is_empty()) {
                 print_features(&w);
@@ -751,6 +776,11 @@ fn steals(e: &emerge_ref::Entity) -> bool {
     e.genome.slots.iter().enumerate().any(|(g, slot)| e.genome.active(g) && matches!(slot.gene, Gene::Steal { .. }))
 }
 
+/// Whether an entity has an active `guard` gene.
+fn guards(e: &emerge_ref::Entity) -> bool {
+    e.genome.slots.iter().enumerate().any(|(g, slot)| e.genome.active(g) && matches!(slot.gene, Gene::Guard { .. }))
+}
+
 /// µ of `s` produced by entity reactions so far.
 fn produced(w: &World, s: usize) -> u64 {
     w.chem
@@ -792,6 +822,7 @@ fn feature_labels(w: &World, e: &emerge_ref::Entity) -> std::collections::BTreeS
             Gene::Drop { s, .. } => format!("action drop({})", sub(*s)),
             Gene::Give { s, .. } => format!("action give({})", sub(*s)),
             Gene::Steal { s, .. } => format!("action steal({})", sub(*s)),
+            Gene::Guard { s, .. } => format!("action guard({})", sub(*s)),
             Gene::Divide { .. } => "action divide".to_string(),
         });
     }

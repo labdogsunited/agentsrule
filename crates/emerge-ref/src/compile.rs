@@ -575,6 +575,7 @@ impl<'a> Compiler<'a> {
             drop: action("drop", "max")?,
             give: action("give", "max")?.filter(|_| contact),
             steal: action("steal", "max")?.filter(|_| contact),
+            guard: self.actions.get("guard").map(|a| a.cost).filter(|_| contact),
             divide,
             reactions: self.space.clone(),
         })
@@ -1104,6 +1105,11 @@ impl<'a> Compiler<'a> {
                                     _ => Gene::Steal { s, max, fee, src, threshold },
                                 }
                             }
+                            "guard" => {
+                                self.reach("guard", &path)?;
+                                let s = self.substance(name_of(arg(c, "s", &path)?, &path)?, &path)?;
+                                Gene::Guard { s, fee, src, threshold }
+                            }
                             "divide" => {
                                 let Some(requires) = def.requires else { return err("E0116", path, "`divide` needs a `requires` condition") };
                                 let split = float(arg(c, "split", &path)?, &path)?;
@@ -1328,7 +1334,7 @@ fn call(e: &Expr, path: &str) -> Result<ast::Call, Error> {
 /// Menu items emerge-ref runs. Other items are left out of a partial run.
 const SENSES: &[&str] = &["inventory", "gradient", "probe", "crowd", "neighbour", "clock", "delta"];
 const REGULATION: &[&str] = &["weigh", "product"];
-const ACTIONS: &[&str] = &["move", "turn", "take", "drop", "give", "steal", "divide"];
+const ACTIONS: &[&str] = &["move", "turn", "take", "drop", "give", "steal", "guard", "divide"];
 
 fn opt_arg<'c>(c: &'c ast::Call, key: &str) -> Option<&'c Expr> {
     c.args.iter().find(|a| a.name.as_deref() == Some(key)).and_then(|a| match &a.value {

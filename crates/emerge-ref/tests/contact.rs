@@ -111,6 +111,41 @@ fn a_dying_entity_cannot_be_stolen_from() {
 }
 
 #[test]
+fn guard_drops_steals_of_its_substance_and_the_thief_keeps_paying() {
+    let (mut w, d) = dish(0, 0);
+    small(&mut w);
+    let guard = Gene::Guard { s: d.body, fee: 20, src: ONE, threshold: 0.0 };
+    let thief = w.spawn_at([4.0, 4.0], [1.0, 0.0], Genome::simple(vec![steal(d.body, U), steal(d.energy, U)]));
+    let victim = w.spawn_at([5.0, 4.0], [1.0, 0.0], Genome::simple(vec![guard]));
+    w.endow(End::Entity(thief), d.energy, 100);
+    w.endow(End::Entity(victim), d.energy, 5 * U);
+    w.endow(End::Entity(victim), d.body, 5 * U);
+    w.step().unwrap();
+    let get = |e: usize, s: usize| w.entities[e].store.amounts[s];
+    // Body is guarded: nothing moves. Energy is not: 1u moves. Both thief fees are paid,
+    // and the guard pays 20mu.
+    assert_eq!((get(thief, d.body), get(victim, d.body)), (0, 5 * U));
+    assert_eq!((get(thief, d.energy), get(victim, d.energy)), (100 - 60 + U, 4 * U - 20));
+    assert_eq!((w.stolen, w.guarded), (U as u64, U as u64));
+}
+
+#[test]
+fn guard_pays_its_fee_with_no_thief_and_does_nothing_below_threshold() {
+    let (mut w, d) = dish(0, 0);
+    small(&mut w);
+    let on = Gene::Guard { s: d.body, fee: 20, src: ONE, threshold: 0.0 };
+    let off = Gene::Guard { s: d.body, fee: 20, src: ONE, threshold: 1.0 };
+    w.spawn_at([1.0, 1.0], [1.0, 0.0], Genome::simple(vec![on]));
+    w.spawn_at([5.0, 5.0], [1.0, 0.0], Genome::simple(vec![off]));
+    for e in 0..2 {
+        w.endow(End::Entity(e), d.energy, 100);
+    }
+    w.step().unwrap();
+    let energy: Vec<_> = w.entities.iter().map(|e| e.store.amounts[d.energy]).collect();
+    assert_eq!(energy, [80, 100]);
+}
+
+#[test]
 fn neighbour_reports_the_ranked_others_inventory_and_crowd_counts_them() {
     let reading = |s: Sense| {
         let (mut w, d) = dish(0, 0);

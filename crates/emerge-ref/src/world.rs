@@ -99,6 +99,8 @@ pub enum Act {
     /// To or from the entity at this index (the nearest in range, in the snapshot).
     Give { s: SubstanceId, amount: Mu, other: usize },
     Steal { s: SubstanceId, amount: Mu, other: usize },
+    /// Drops every `steal` of `s` against this entity this tick.
+    Guard { s: SubstanceId },
     Divide,
 }
 
@@ -361,6 +363,8 @@ pub struct World {
     pub entity_extent: Vec<u64>,
     /// Cumulative µ delivered by `steal`, over all substances.
     pub stolen: u64,
+    /// Cumulative µ of `steal` requests dropped by `guard`.
+    pub guarded: u64,
     /// If set, why reaction genes ran or not, by reaction (`--blocked`).
     pub blocked: Option<Vec<Blocked>>,
     /// Experimental (`--one-per-substance`, not in the spec): only the first firing gene of
@@ -435,6 +439,7 @@ impl World {
             deaths: 0,
             entity_extent: vec![0; reactions],
             stolen: 0,
+            guarded: 0,
             blocked: None,
             one_per_substance: false,
             binding: None,
@@ -638,15 +643,22 @@ impl World {
                 requests.push(Req { origin: pack(origin), dest: pack(dest), s: s as u16, overflow, requested: amount, steal });
             }
         };
+        // Bit `s`: a live `guard(s)` intent, which drops every `steal` of `s` against the entity.
+        let guards: Vec<u32> = plans
+            .iter()
+            .map(|p| p.intents.iter().filter(|x| x.live).fold(0, |m, x| if let Act::Guard { s } = x.act { m | 1 << s } else { m }))
+            .collect();
         for (i, (e, plan)) in self.entities.iter().zip(&plans).enumerate() {
             for x in plan.intents.iter().filter(|x| x.live) {
                 match x.act {
+                    // The thief's fee is kept.
+                    Act::Steal { s, amount, other } if guards[other] & (1 << s) != 0 => self.guarded += amount as u64,
                     Act::Take { s, amount } => request(End::Cell(e.cell), End::Entity(i), s, amount, None, false),
                     Act::Drop { s, amount } => request(End::Entity(i), End::Cell(e.cell), s, amount, None, false),
                     // A dying entity takes part in no transfer, as origin or destination.
                     Act::Give { s, amount, other } if !dying[other] => request(End::Entity(i), End::Entity(other), s, amount, None, false),
                     Act::Steal { s, amount, other } if !dying[other] => request(End::Entity(other), End::Entity(i), s, amount, None, true),
-                    Act::Give { .. } | Act::Steal { .. } | Act::Move { .. } | Act::Turn { .. } | Act::Divide => {}
+                    Act::Give { .. } | Act::Steal { .. } | Act::Guard { .. } | Act::Move { .. } | Act::Turn { .. } | Act::Divide => {}
                 }
             }
         }
@@ -980,6 +992,12 @@ impl World {
                     if value(&e.signals, src) > threshold && !divides {
                         divides = true;
                         plan.intents.push(Intent { gene: g, act: Act::Divide, fee, live: true });
+                    }
+                }
+                Gene::Guard { s, fee, src, threshold } => {
+                    // Needs no target: the fee is paid whether or not anyone steals.
+                    if value(&e.signals, src) > threshold {
+                        plan.intents.push(Intent { gene: g, act: Act::Guard { s }, fee, live: true });
                     }
                 }
                 Gene::Sense { .. } | Gene::Weigh { .. } | Gene::Product { .. } => {}

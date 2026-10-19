@@ -83,6 +83,8 @@ pub enum Gene {
     Give { s: SubstanceId, max: Mu, fee: Mu, src: Input, threshold: f32 },
     /// `steal(s, max, from: neighbour)`: moves `s` from the nearest other entity in range.
     Steal { s: SubstanceId, max: Mu, fee: Mu, src: Input, threshold: f32 },
+    /// `guard(s)`: this tick, every `steal` of `s` against this entity is dropped.
+    Guard { s: SubstanceId, fee: Mu, src: Input, threshold: f32 },
     /// `split_bp` is the child's share in basis points; `requires` is `(substance, amount)`.
     Divide { split_bp: u32, requires: (SubstanceId, Mu), fee: Mu, src: Input, threshold: f32 },
 }
@@ -134,6 +136,7 @@ impl Gene {
             | Gene::Drop { src, .. }
             | Gene::Give { src, .. }
             | Gene::Steal { src, .. }
+            | Gene::Guard { src, .. }
             | Gene::Divide { src, .. } => signal(*src),
         }
     }

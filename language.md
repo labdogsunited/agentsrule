@@ -337,6 +337,7 @@ regulation {
 - Sense, action and regulation kind names are fixed by the engine; a menu chooses which ones exist in the world and narrows their parameter ranges. An unknown name is `E0501`.
 - Every action states its fee, including `0u`. Fees are paid in the upkeep `pay` substance (spec §3.3), so the fee has no substance name.
 - `per distance` is the only fee modifier in P0.
+- `action guard(s: any substance) cost 20mu;` (experimental) takes no range: while it fires, `steal`s of `s` against the entity fail (spec §5.5).
 - `requires` is an expression in the Requirement context (§5).
 
 ### 6.8 Genesis
