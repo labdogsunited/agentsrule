@@ -119,6 +119,16 @@ fn reach_notes(w: &World) -> Vec<Diagnostic> {
     out
 }
 
+/// `steal` of the `pay` substance as net income (`proposals/budget-check.md`).
+fn budget_notes(w: &World) -> Vec<Diagnostic> {
+    let Some((gain, spend)) = emerge_ref::budget::steal_pays(w) else { return Vec::new() };
+    let pay = &w.chem.substances[w.upkeep.pay].name;
+    let message = format!(
+        "`steal({pay})` is net income: one gene takes up to {gain}µ per tick for {spend}µ (fee plus gene upkeep), whenever a neighbour holds `{pay}`"
+    );
+    vec![Diagnostic { code: "N1103", severity: "note", path: String::new(), line: 0, col: 0, message, fix: None }]
+}
+
 fn check(args: &[String]) -> ExitCode {
     let (json, files): (Vec<&String>, Vec<&String>) = args.iter().partition(|a| *a == "--json");
     let [file_path] = files[..] else { return usage() };
@@ -143,6 +153,7 @@ fn check(args: &[String]) -> ExitCode {
                     Ok(c) => {
                         out.extend(c.partial.into_iter().map(|e| diag(e, "warning")));
                         out.extend(reach_notes(&c.world));
+                        out.extend(budget_notes(&c.world));
                     }
                 }
             }

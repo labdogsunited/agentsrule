@@ -41,6 +41,8 @@ pub struct Capacity {
 pub struct ActionMenu {
     pub range: (f32, f32),
     pub fee: Mu,
+    /// For substance actions, the substances its `s` may name (all of them for `any substance`).
+    pub substances: Vec<SubstanceId>,
 }
 
 /// What mutation may produce: the world's menus as the runner supports them, and the
@@ -72,8 +74,8 @@ pub struct Menus {
     pub drop: Option<ActionMenu>,
     pub give: Option<ActionMenu>,
     pub steal: Option<ActionMenu>,
-    /// `guard`: its fee; it has no range.
-    pub guard: Option<Mu>,
+    /// `guard`: its range is unused.
+    pub guard: Option<ActionMenu>,
     pub divide: Option<(ActionMenu, (SubstanceId, Mu))>,
     /// The reaction space in mutation order, with each reaction's maximum gene rate.
     pub reactions: Vec<(ReactionId, Mu)>,
@@ -270,13 +272,13 @@ fn point(d: &mut Draws, g: &mut Gene, menus: &Menus, sigma: f32) {
             (Some(m), true) => *angle_deg = perturb(d, *angle_deg, m.range, sigma),
             _ => threshold(d, t),
         },
-        Gene::Take { s, max, threshold: t, .. } => substance_action(d, menus, &menus.take, s, max, t, sigma),
-        Gene::Drop { s, max, threshold: t, .. } => substance_action(d, menus, &menus.drop, s, max, t, sigma),
-        Gene::Give { s, max, threshold: t, .. } => substance_action(d, menus, &menus.give, s, max, t, sigma),
-        Gene::Steal { s, max, threshold: t, .. } => substance_action(d, menus, &menus.steal, s, max, t, sigma),
+        Gene::Take { s, max, threshold: t, .. } => substance_action(d, &menus.take, s, max, t, sigma),
+        Gene::Drop { s, max, threshold: t, .. } => substance_action(d, &menus.drop, s, max, t, sigma),
+        Gene::Give { s, max, threshold: t, .. } => substance_action(d, &menus.give, s, max, t, sigma),
+        Gene::Steal { s, max, threshold: t, .. } => substance_action(d, &menus.steal, s, max, t, sigma),
         Gene::Guard { s, threshold: t, .. } => {
             if d.chance(0.5) {
-                *s = pick(d, &menus.substances).unwrap_or(*s);
+                *s = menus.guard.as_ref().and_then(|a| pick(d, &a.substances)).unwrap_or(*s);
             } else {
                 threshold(d, t);
             }
@@ -291,9 +293,9 @@ fn point(d: &mut Draws, g: &mut Gene, menus: &Menus, sigma: f32) {
     }
 }
 
-fn substance_action(d: &mut Draws, menus: &Menus, menu: &Option<ActionMenu>, s: &mut SubstanceId, max: &mut Mu, t: &mut f32, sigma: f32) {
+fn substance_action(d: &mut Draws, menu: &Option<ActionMenu>, s: &mut SubstanceId, max: &mut Mu, t: &mut f32, sigma: f32) {
     match d.below(3) {
-        0 => *s = pick(d, &menus.substances).unwrap_or(*s),
+        0 => *s = menu.as_ref().and_then(|a| pick(d, &a.substances)).unwrap_or(*s),
         1 => {
             if let Some(a) = menu {
                 *max = perturb_mu(d, *max, a.range, sigma);
@@ -380,12 +382,12 @@ fn random_gene(d: &mut Draws, m: &mut Modules, menus: &Menus, cap: &Capacity) ->
         }
         7 => {
             let a = menus.take.clone()?;
-            let s = pick(d, &menus.substances)?;
+            let s = pick(d, &a.substances)?;
             Gene::Take { s, max: uniform(d, a.range).round() as Mu, fee: a.fee, src: ONE, threshold: 0.0 }
         }
         8 => {
             let a = menus.drop.clone()?;
-            let s = pick(d, &menus.substances)?;
+            let s = pick(d, &a.substances)?;
             Gene::Drop { s, max: uniform(d, a.range).round() as Mu, fee: a.fee, src: ONE, threshold: 0.0 }
         }
         9 => {
@@ -408,11 +410,14 @@ fn random_gene(d: &mut Draws, m: &mut Modules, menus: &Menus, cap: &Capacity) ->
             let s = pick(d, &menus.substances)?;
             Gene::Sense { sense: Sense::Delta(s), out: m.fresh(cap)?, out2: None }
         }
-        17 => Gene::Guard { s: pick(d, &menus.substances)?, fee: menus.guard?, src: ONE, threshold: 0.0 },
+        17 => {
+            let a = menus.guard.as_ref()?;
+            Gene::Guard { s: pick(d, &a.substances)?, fee: a.fee, src: ONE, threshold: 0.0 }
+        }
         13 => Gene::Sense { sense: Sense::Clock { period: whole(d, menus.clock?).max(1) }, out: m.fresh(cap)?, out2: None },
         _ => {
             let a = if k == 14 { menus.give.clone()? } else { menus.steal.clone()? };
-            let s = pick(d, &menus.substances)?;
+            let s = pick(d, &a.substances)?;
             let max = uniform(d, a.range).round() as Mu;
             if k == 14 {
                 Gene::Give { s, max, fee: a.fee, src: ONE, threshold: 0.0 }
@@ -656,18 +661,18 @@ pub fn validate(g: &Genome, cap: &Capacity, menus: &Menus) -> Result<(), String>
             Gene::Move { speed, threshold, .. } => menus.moves.as_ref().is_some_and(|a| within(*speed, a.range)) && t_ok(*threshold),
             Gene::Turn { angle_deg, threshold, .. } => menus.turn.as_ref().is_some_and(|a| within(*angle_deg, a.range)) && t_ok(*threshold),
             Gene::Take { s, max, threshold, .. } => {
-                menus.take.as_ref().is_some_and(|a| within(*max as f32, a.range)) && menus.substances.contains(s) && t_ok(*threshold)
+                menus.take.as_ref().is_some_and(|a| within(*max as f32, a.range) && a.substances.contains(s)) && t_ok(*threshold)
             }
             Gene::Drop { s, max, threshold, .. } => {
-                menus.drop.as_ref().is_some_and(|a| within(*max as f32, a.range)) && menus.substances.contains(s) && t_ok(*threshold)
+                menus.drop.as_ref().is_some_and(|a| within(*max as f32, a.range) && a.substances.contains(s)) && t_ok(*threshold)
             }
             Gene::Give { s, max, threshold, .. } => {
-                menus.give.as_ref().is_some_and(|a| within(*max as f32, a.range)) && menus.substances.contains(s) && t_ok(*threshold)
+                menus.give.as_ref().is_some_and(|a| within(*max as f32, a.range) && a.substances.contains(s)) && t_ok(*threshold)
             }
             Gene::Steal { s, max, threshold, .. } => {
-                menus.steal.as_ref().is_some_and(|a| within(*max as f32, a.range)) && menus.substances.contains(s) && t_ok(*threshold)
+                menus.steal.as_ref().is_some_and(|a| within(*max as f32, a.range) && a.substances.contains(s)) && t_ok(*threshold)
             }
-            Gene::Guard { s, threshold, .. } => menus.guard.is_some() && menus.substances.contains(s) && t_ok(*threshold),
+            Gene::Guard { s, threshold, .. } => menus.guard.as_ref().is_some_and(|a| a.substances.contains(s)) && t_ok(*threshold),
             Gene::Divide { split_bp, threshold, .. } => {
                 menus.divide.as_ref().is_some_and(|(a, _)| within(*split_bp as f32 / 10_000.0, a.range)) && t_ok(*threshold)
             }

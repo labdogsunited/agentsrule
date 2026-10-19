@@ -25,6 +25,7 @@
 //! Not covered yet: see `DISCREPANCIES.md`.
 
 pub mod arbitrate;
+pub mod budget;
 pub mod chem;
 pub mod compile;
 pub mod mind;

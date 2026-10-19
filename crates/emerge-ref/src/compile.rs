@@ -513,9 +513,23 @@ impl<'a> Compiler<'a> {
                 _ => err("E0116", path.clone(), format!("the menu gives no range for `{key}`")),
             }
         };
+        // The substances an action's `s` may name: all for `any substance`, else the listed ones.
+        let n = self.world.chem.substances.len();
+        let subs = |params: &[(String, ast::Param)]| -> Result<Vec<SubstanceId>, Error> {
+            match params.iter().find(|(k, _)| k == "s").map(|(_, p)| p) {
+                Some(ast::Param::Any(kind)) if kind == "substance" => Ok((0..n).collect()),
+                Some(ast::Param::Choices(names)) => {
+                    let mut ids = names.iter().map(|x| self.substance(x, &path)).collect::<Result<Vec<_>, _>>()?;
+                    ids.sort_unstable();
+                    ids.dedup();
+                    Ok(ids)
+                }
+                _ => Ok(Vec::new()),
+            }
+        };
         let action = |name: &str, key: &str| -> Result<Option<ActionMenu>, Error> {
             match self.actions.get(name) {
-                Some(a) => Ok(Some(ActionMenu { range: range(&a.params, key)?, fee: a.cost })),
+                Some(a) => Ok(Some(ActionMenu { range: range(&a.params, key)?, fee: a.cost, substances: subs(&a.params)? })),
                 None => Ok(None),
             }
         };
@@ -542,7 +556,7 @@ impl<'a> Compiler<'a> {
         };
         let divide = match self.actions.get("divide") {
             Some(a) => match a.requires {
-                Some(r) => Some((ActionMenu { range: range(&a.params, "split")?, fee: a.cost }, r)),
+                Some(r) => Some((ActionMenu { range: range(&a.params, "split")?, fee: a.cost, substances: Vec::new() }, r)),
                 None => None,
             },
             None => None,
@@ -575,7 +589,10 @@ impl<'a> Compiler<'a> {
             drop: action("drop", "max")?,
             give: action("give", "max")?.filter(|_| contact),
             steal: action("steal", "max")?.filter(|_| contact),
-            guard: self.actions.get("guard").map(|a| a.cost).filter(|_| contact),
+            guard: match self.actions.get("guard") {
+                Some(a) if contact => Some(ActionMenu { range: (0.0, 0.0), fee: a.cost, substances: subs(&a.params)? }),
+                _ => None,
+            },
             divide,
             reactions: self.space.clone(),
         })
