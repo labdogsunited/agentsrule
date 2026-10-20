@@ -9,7 +9,8 @@
 //! - curves are the division-free `sigmoid_d` and `tanh_d`;
 //! - there is no `sin`, `cos`, `sqrt`, division, `exp` or `ln` (their results differ between
 //!   implementations): `sincos` is a polynomial, a heading is renormalised with one Newton
-//!   step, and a normal draw is the sum of twelve uniform draws.
+//!   step, and a normal draw is the sum of twelve uniform draws;
+//! - a catalyst's rate factor is computed in integers (`catalyst_scale`), not in `f64`.
 //!
 //! Off by default (`World::contract`); the default runner is unchanged.
 
@@ -127,6 +128,22 @@ pub fn amount_diff(a: u32, b: u32, k: f32) -> f32 {
 /// Squared distance for the contact index: `dx·dx + dy·dy` fused.
 pub fn distance2(dx: f32, dy: f32) -> f32 {
     fma(dx, dx, dy * dy)
+}
+
+/// A catalyst's `boost − 1` in units of `2^-16`, rounded to nearest (computed once, on the host).
+pub fn catalyst_k(boost: f32) -> u32 {
+    ((boost as f64 - 1.0) * 65_536.0 + 0.5).floor() as u32
+}
+
+/// `cap × (1 + (boost − 1) × c / (c + half))` rounded down, in integers: the fraction
+/// `c / (c + half)` to `2^-16` (rounded down), times `k = catalyst_k(boost)`, gives the extra
+/// factor in units of `2^-32`. Saturates at `u32::MAX`. The default mode uses `Catalyst::scale`.
+pub fn catalyst_scale(cap: u32, c: u32, half: u32, k: u32) -> u32 {
+    let frac = ((c as u64) << 16) / (c as u64 + half as u64);
+    let g = k as u64 * frac;
+    let (hi, lo) = (g >> 32, g & 0xffff_ffff);
+    let extra = cap as u64 * hi + ((cap as u64 * lo) >> 32);
+    (cap as u64 + extra).min(u32::MAX as u64) as u32
 }
 
 /// A standard normal as twelve uniform draws summed, minus 6 (mean 0, variance 1).

@@ -45,6 +45,11 @@ impl Catalyst {
         let (c, half) = (c as f64, self.half as f64);
         (cap as f64 * (1.0 + (self.boost as f64 - 1.0) * c / (c + half))).floor() as Mu
     }
+
+    /// `scale`, or in contract mode its integer form (`contract::catalyst_scale`).
+    pub fn scale_in(&self, contract: bool, cap: Mu, c: Mu) -> Mu {
+        if contract { crate::contract::catalyst_scale(cap, c, self.half, crate::contract::catalyst_k(self.boost)) } else { self.scale(cap, c) }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

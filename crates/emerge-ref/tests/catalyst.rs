@@ -20,6 +20,27 @@ fn the_cap_grows_with_the_amount_present() {
     assert_eq!(Catalyst { s: 0, half: U, boost: 1.0 }.scale(777, 5 * U), 777);
 }
 
+#[test]
+fn the_contract_form_is_exact_where_it_can_be_and_close_elsewhere() {
+    let k = Catalyst { s: 0, half: U, boost: 4.0 };
+    for (cap, c) in [(U, 0), (U, U), (U, 3 * U), (777, 0)] {
+        assert_eq!(k.scale_in(true, cap, c), k.scale(cap, c), "cap {cap}, c {c}");
+    }
+    assert_eq!(Catalyst { s: 0, half: U, boost: 1.0 }.scale_in(true, 777, 5 * U), 777);
+    assert_eq!(Catalyst { s: 0, half: 1, boost: 70_000.0 }.scale_in(true, u32::MAX, u32::MAX), u32::MAX);
+    // Elsewhere it is below the f64 form by at most the two roundings: c / (c + half) to 2^-16 and
+    // boost − 1 to 2^-16 (a relative error of about (boost + 1) × 2^-16), plus one µ.
+    let mut x = 12345u64;
+    let mut next = || { x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (x >> 33) as u32 };
+    for _ in 0..100_000 {
+        let k = Catalyst { s: 0, half: next() % (100 * U) + 1, boost: 1.0 + (next() % 20_000) as f32 / 1000.0 };
+        let (cap, c) = (next() % (100 * U), next() % (1000 * U));
+        let (exact, contract) = (k.scale(cap, c) as f64, k.scale_in(true, cap, c) as f64);
+        let slack = cap as f64 * (k.boost as f64 + 1.0) / 65_536.0 + 1.0;
+        assert!((exact - contract).abs() <= slack, "boost {} half {} cap {cap} c {c}: {exact} against {contract}", k.boost, k.half);
+    }
+}
+
 /// One entity with 10u of sugar and `nitrate` µ of nitrate, running respiration at 1u for one tick.
 fn respired(catalyst: Option<Catalyst>, nitrate: u32) -> (u32, u32) {
     let (mut w, d) = dish(0, 0);

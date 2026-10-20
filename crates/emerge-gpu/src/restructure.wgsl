@@ -39,7 +39,7 @@ fn flow_add(kind: u32, s: u32, x: u32) {
 }
 
 
-const RX = 20u;
+const RX = 24u;
 const P_MAXAGE = 40u;
 const P_MAXENT = 41u;
 const P_NEXTID_LO = 42u;

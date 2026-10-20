@@ -92,7 +92,7 @@ pub const P_NEXTID_HI: usize = 43;
 pub const P_DECOMP: usize = 44;
 pub const P_CHILDOFF: usize = 45;
 pub const P_NALIVE: usize = 46;
-pub const RX: usize = 20;
+pub const RX: usize = 24;
 pub const LAW: usize = 28;
 
 /// Output record codes (word 0). 0 is no intent.
@@ -419,7 +419,6 @@ pub fn pack_transform(world: &World, p: &mut Packed) {
     use emerge_ref::Law;
     p.reactions.clear();
     for r in &world.chem.reactions {
-        assert!(r.catalyst.is_none(), "the GPU runtime does not support catalysts yet");
         assert!(r.inputs.len() <= 4 && r.outputs.len() <= 4, "at most four inputs and four outputs per reaction");
         let mut w = [0u32; RX];
         w[0] = r.inputs.len() as u32;
@@ -429,6 +428,10 @@ pub fn pack_transform(world: &World, p: &mut Packed) {
         }
         for (k, &(s, c)) in r.outputs.iter().enumerate() {
             (w[10 + 2 * k], w[11 + 2 * k]) = (s as u32, c);
+        }
+        // The catalyst: substance + 1 (0 for none), `half`, and `boost − 1` in units of 2^-16.
+        if let Some(k) = r.catalyst {
+            (w[18], w[19], w[20]) = (k.s as u32 + 1, k.half, emerge_ref::contract::catalyst_k(k.boost));
         }
         p.reactions.extend_from_slice(&w);
     }

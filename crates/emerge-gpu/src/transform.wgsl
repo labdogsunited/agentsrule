@@ -15,7 +15,7 @@
 @group(0) @binding(12) var<storage, read_write> stats: array<atomic<u32>>;
 @group(0) @binding(13) var<storage, read_write> flows: array<atomic<u32>>;   // entity-reaction extent by reaction
 
-const RX = 20u;
+const RX = 24u;
 fn flow_add(kind: u32, s: u32, x: u32) {
     if (x == 0u) { return; }
     let i = (kind * params[P_NS] + s) * 2u;
@@ -25,6 +25,15 @@ fn flow_add(kind: u32, s: u32, x: u32) {
 
 const P_NWASTE = 38u;
 const P_LAWIDX = 49u;
+
+// A reaction's cap (or rate) scaled by its catalyst, `c` µ of which is present: the integer form of
+// `cap × (1 + (boost − 1) × c / (c + half))`, as `contract::catalyst_scale` on the CPU.
+fn catalysed(r: u32, cap: u32, c: u32) -> u32 {
+    let frac = (u64(c) << 16u) / (u64(c) + u64(reactions[r + 19u]));
+    let g = u64(reactions[r + 20u]) * frac;
+    let extra = u64(cap) * (g >> 32u) + ((u64(cap) * (g & u64(0xffffffffu))) >> 32u);
+    return u32(min(u64(cap) + extra, u64(0xffffffffu)));
+}
 
 @compute @workgroup_size(64)
 fn react_entities(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -39,6 +48,8 @@ fn react_entities(@builtin(global_invocation_id) id: vec3<u32>) {
         let base = roff + (n_genes - 1u - q) * REC;
         let r = rec[base + 4u] * RX;
         var extent = rec[base + 3u];
+        let cat = reactions[r + 18u];
+        if (cat != 0u) { extent = catalysed(r, extent, amounts[e * ns + cat - 1u]); }
         let n_in = reactions[r];
         let n_out = reactions[r + 1u];
         for (var k = 0u; k < n_in; k++) {
@@ -64,7 +75,9 @@ fn react_cells(@builtin(global_invocation_id) id: vec3<u32>) {
     if (c * ns >= arrayLength(&camt)) { return; }
     let l = params[P_LAWIDX];
     let r = rlaws[l * 2u] * RX;
-    let rate = u64(rlaws[l * 2u + 1u]);
+    var rate = u64(rlaws[l * 2u + 1u]);
+    let cat = reactions[r + 18u];
+    if (cat != 0u) { rate = u64(min(catalysed(r, u32(rate), camt[c * ns + cat - 1u]), 10000u)); }
     var extent = 0xffffffffu;
     let n_in = reactions[r];
     let n_out = reactions[r + 1u];

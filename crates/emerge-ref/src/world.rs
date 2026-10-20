@@ -883,6 +883,7 @@ impl World {
     /// Transform (spec §7.3): entity reactions, world reactions and venting.
     pub fn transform_phase(&mut self, plans: &[Plan], dying: &[bool]) {
         // ---- 3 Transform ----
+        let contract = self.contract;
         for (i, e) in self.entities.iter_mut().enumerate() {
             if dying[i] {
                 continue;
@@ -894,7 +895,7 @@ impl World {
                 if let Gene::React { reaction, .. } = e.genome.slots[g].gene {
                     let r = &self.chem.reactions[reaction];
                     let cap = match r.catalyst {
-                        Some(k) => k.scale(plans[i].react_caps[g], e.store.amounts[k.s]),
+                        Some(k) => k.scale_in(contract, plans[i].react_caps[g], e.store.amounts[k.s]),
                         None => plans[i].react_caps[g],
                     };
                     let mut extent = cap;
@@ -950,7 +951,8 @@ impl World {
             if let Law::React { reaction, rate_bp } = *law {
                 let r = &self.chem.reactions[reaction];
                 for cell in &mut self.cells {
-                    let rate_bp = r.catalyst.map_or(rate_bp, |k| k.scale(rate_bp, cell.amounts[k.s]));
+                    // At most the whole input: a catalysed rate above 10_000bp would take more than the cell holds.
+                    let rate_bp = r.catalyst.map_or(rate_bp, |k| k.scale_in(contract, rate_bp, cell.amounts[k.s]).min(10_000));
                     let mut extent = Mu::MAX;
                     for &(s, c) in &r.inputs {
                         extent = extent.min((cell.amounts[s] as u64 * rate_bp as u64 / 10_000 / c as u64) as Mu);

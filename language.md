@@ -998,7 +998,7 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | Signal fields, and rules on them (`fade`, `blur`) | yes | left out | left out |
 | Elements, substances, `second_law`, sources, sinks, `waste`, `remains`, `decompose` | yes | yes | yes, at most 32 substances |
 | Reactions, `reaction_space` | yes | yes | yes, at most 4 inputs and 4 outputs per reaction |
-| Catalysts, `catalyze` (§6.5) | yes | yes, for entity and world reactions | refused at start |
+| Catalysts, `catalyze` (§6.5) | yes | yes, for entity and world reactions | yes |
 | `upkeep` (`base`, `per_gene`, `per_signal`, `per_signal_keep`, `per_carried_u`) | yes | yes | yes |
 | `limits`, `max_age`, `child_offset`, `mind_steps` | yes | yes | yes; at most 524_288 entities |
 | `rounds`, `per_round`, rule `rounds k` and `every N ticks` (§6.6) | not parsed | — | — |
