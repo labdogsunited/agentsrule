@@ -231,6 +231,8 @@ pub enum Stmt {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lineage {
     pub name: String,
+    /// `lineage B extends A in W`: the lineage `B` starts from (see `expand`).
+    pub base: Option<String>,
     pub world: String,
     pub decls: Vec<Node<LDecl>>,
 }
@@ -277,6 +279,8 @@ pub struct GeneDecl {
     pub dormant: bool,
     pub body: GeneBody,
     pub label: Option<String>,
+    /// `after @label`, in a lineage that extends another: where the gene goes in the module.
+    pub after: Option<String>,
 }
 
 // ---------- rulesets, views, charts, explore, patches ----------

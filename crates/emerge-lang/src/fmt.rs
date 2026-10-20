@@ -170,7 +170,10 @@ fn item(out: &mut Out, indent: usize, it: &Item) {
             decls.sort_by_key(|d| decl_order(&d.node));
             out.block(indent, vec![t(format!("world {}", w.name))], &decls, wdecl);
         }
-        Item::Lineage(l) => out.block(indent, vec![t(format!("lineage {} in {}", l.name, l.world))], &l.decls, ldecl),
+        Item::Lineage(l) => {
+            let extends = l.base.as_ref().map(|b| format!(" extends {b}")).unwrap_or_default();
+            out.block(indent, vec![t(format!("lineage {}{extends} in {}", l.name, l.world))], &l.decls, ldecl)
+        }
         Item::Ruleset(r) => out.block(indent, vec![t(format!("ruleset {}", r.name))], &r.rules, |o, i, r| {
             let mut line = vec![t(format!("rule {} weight {} : ", r.name, float(&r.weight)))];
             line.extend(pattern(&r.from));
@@ -482,6 +485,9 @@ fn gene_pieces(g: &GeneDecl) -> Vec<P> {
     }
     if let Some(l) = &g.label {
         line.push(t(format!(" @{l}")));
+    }
+    if let Some(a) = &g.after {
+        line.push(t(format!(" after @{a}")));
     }
     line.push(t(";"));
     line

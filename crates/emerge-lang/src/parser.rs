@@ -219,9 +219,10 @@ impl Parser {
             }
             "lineage" => {
                 let name = self.ident()?;
+                let base = if self.eat_word("extends") { Some(self.ident()?) } else { None };
                 self.expect_word("in")?;
                 let world = self.ident()?;
-                Item::Lineage(Lineage { name, world, decls: self.many(Self::ldecl)? })
+                Item::Lineage(Lineage { name, base, world, decls: self.many(Self::ldecl)? })
             }
             "ruleset" => {
                 let name = self.ident()?;
@@ -765,8 +766,16 @@ impl Parser {
             return self.expected("a gene (`sense`, `regulate`, `reaction` or `action`)");
         };
         let label = self.label();
+        let after = if self.eat_word("after") {
+            match self.label() {
+                Some(l) => Some(l),
+                None => return self.expected("a gene label such as `@respiration`"),
+            }
+        } else {
+            None
+        };
         self.expect(";")?;
-        Ok(GeneDecl { dormant, body, label })
+        Ok(GeneDecl { dormant, body, label, after })
     }
 
     // ---------- rulesets, views, explore, patches ----------

@@ -25,6 +25,11 @@ pub struct Problem {
 }
 
 pub fn check(file: &File) -> Vec<Problem> {
+    // Lineages that extend another are checked in full.
+    let file = &match crate::expand::expand(file) {
+        Ok(f) => f,
+        Err(p) => return vec![p],
+    };
     let mut out = Vec::new();
     for item in &file.items {
         match &item.node {

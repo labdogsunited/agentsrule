@@ -84,6 +84,8 @@ impl Default for Options {
 /// Parses and checks `src`, then builds its world seeded with `lineages`, in that order.
 pub fn compile(src: &str, lineages: &[&str], options: Options) -> Result<Compiled, Error> {
     let file = emerge_lang::parse(src).map_err(|d| Error { code: d.code, pos: Pos { line: d.line, col: d.col }, path: String::new(), message: d.message })?;
+    // Lineages that `extends` another are built in full.
+    let file = emerge_lang::expand(&file).map_err(|p| Error { code: p.code, pos: p.pos, path: p.path, message: p.message })?;
     if let Some(p) = emerge_lang::check::check(&file).into_iter().next() {
         return Err(Error { code: p.code, pos: p.pos, path: p.path, message: p.message });
     }

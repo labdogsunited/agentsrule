@@ -102,3 +102,47 @@ fn a_signal_field_with_several_writers_declares_how_they_combine() {
     let wrong = ("field scent : Grid(w: 256, h: 256) signal;", "field scent : Grid(w: 256, h: 256) signal combine any;");
     assert_eq!(problems(&[wrong])[0].code, "E0305");
 }
+
+/// `dish.em` with a lineage appended, and the codes of the problems it gives.
+fn codes_with(extra: &str) -> Vec<&'static str> {
+    let src = format!("{DISH}\n{extra}");
+    check(&parse(&src).unwrap_or_else(|d| panic!("{d}"))).iter().map(|p| p.code).collect()
+}
+
+const EXTRA_GENE: &str = "reaction build rate 50mu @extra";
+
+fn child(body: &str) -> String {
+    format!("lineage Kid extends Drifter in Dish {{\n    seed genome {{\n        module metabolism {{\n            {body};\n        }}\n    }}\n}}\n")
+}
+
+#[test]
+fn extends_is_checked_in_full() {
+    assert_eq!(codes_with(&child(EXTRA_GENE)), Vec::<&str>::new());
+    assert_eq!(codes_with(&child(&format!("{EXTRA_GENE} after @respiration"))), Vec::<&str>::new());
+}
+
+#[test]
+fn extends_reports_a_bad_base_label_or_position() {
+    assert_eq!(codes_with(&child("reaction build rate 50mu @extra").replace("Drifter", "Nobody")), ["E0114"]);
+    assert_eq!(codes_with(&child(&format!("{EXTRA_GENE} after @nothing"))), ["E0114"]);
+    assert_eq!(codes_with(&child("reaction build rate 50mu @eat_light")), ["E0118"]);
+    assert_eq!(codes_with("lineage Kid2 extends Kid in Dish {}\n").first(), Some(&"E0114"));
+    let chained = format!("{}\nlineage Kid2 extends Kid in Dish {{}}\n", child(EXTRA_GENE));
+    assert_eq!(codes_with(&chained), ["E0117"]);
+}
+
+#[test]
+fn after_needs_a_lineage_that_extends() {
+    let plain = child(&format!("{EXTRA_GENE} after @respiration")).replace(" extends Drifter", "");
+    assert_eq!(codes_with(&plain), ["E0118"]);
+}
+
+#[test]
+fn extends_formats_and_parses_back() {
+    let src = format!("{DISH}\n{}", child(&format!("{EXTRA_GENE} after @respiration")));
+    let file = parse(&src).unwrap();
+    let text = emerge_lang::format(&file);
+    assert!(text.contains("lineage Kid extends Drifter in Dish {"));
+    assert!(text.contains("@extra after @respiration;"));
+    assert_eq!(parse(&text).unwrap(), file);
+}

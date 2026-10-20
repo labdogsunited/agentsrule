@@ -498,6 +498,21 @@ lineage Drifter in Dish {
 - The `profile` sets the genome's capacity (spec §5.7). The seed MUST fit in it (`E0801`).
 - The `mutation` block sets the rate of each operator in spec §8.1. Omitted operators have rate `0.0`.
 - Names inside a lineage resolve in the scope of its world, so `spark` means `Dish.spark`. `heading` defaults to a uniform random angle.
+- **`extends`.** `lineage Builder extends Drifter in Dish { ... }` starts from a copy of `Drifter` and merges its own parts in, before checking, so the checker and the runner see the full lineage. One level only: the base MUST be in the same world and MUST NOT extend another (`E0117`); an unknown base is `E0114`. `emerge fmt` keeps the `extends` form. The merge:
+  - `profile NAME` and `mutation`: entries with the same key replace the base's; other entries are added. A profile the base lacks is added.
+  - `seed genome`: signals are added (a repeated name is `E0118`). A module with the base's name gets the new genes; any other module is added at the end (a different `dormant` flag is `E0118`). A gene goes at the end of its module, or after the gene named by `after @label` (an unknown label is `E0114`). A label already used in the base is `E0118`. `after` outside an extending lineage is `E0118`.
+  - `genesis`: replaces the base's.
+
+  ```
+  lineage Builder extends Drifter in Dish {
+      seed genome {
+          module metabolism {
+              reaction build rate 50mu @build after @respiration;
+              action take(s: nitrate, max: 250mu) @eat_nitrate after @eat_carbon;
+          }
+      }
+  }
+  ```
 
 ### 8.2 Seed genomes and genes
 
@@ -749,7 +764,7 @@ stmt        := 'let' IDENT '=' expr ';'
              | IDENT ':' expr ';'               // lineage genesis: count
 
 // ---- lineages and genomes ----
-lineage     := 'lineage' IDENT 'in' IDENT '{' ldecl* '}'
+lineage     := 'lineage' IDENT ('extends' IDENT)? 'in' IDENT '{' ldecl* '}'
 ldecl       := 'profile' IDENT '{' entry* '}'
              | 'mutation' '{' entry* '}'
              | seed
@@ -757,7 +772,7 @@ ldecl       := 'profile' IDENT '{' entry* '}'
 seed        := 'seed' 'genome' '{' sigdecl* module+ '}'
 sigdecl     := 'signal' IDENT 'keep' FLOAT ';'
 module      := 'dormant'? 'module' IDENT '{' gene* '}'
-gene        := 'dormant'? gbody LABEL? ';'
+gene        := 'dormant'? gbody LABEL? ('after' LABEL)? ';'   // `after`: only in a lineage that extends another
 gbody       := 'sense' call '->' IDENT (',' IDENT)?
              | 'regulate' call '<-' '[' sep(input) ']' '->' IDENT
              | 'reaction' IDENT 'rate' AMOUNT ('<-' source)?
@@ -926,6 +941,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E0114` | an unknown name: field, source, sink, substance, reaction, lineage |
 | `E0115` | an unknown setting or block |
 | `E0116` | a required declaration or argument is missing |
+| `E0117`, `E0118` | `extends`: a base in another world or that extends too (`E0117`); a repeated signal or label, a `dormant` mismatch, or `after` outside an extending lineage (`E0118`) |
 | `E0203`–`E0205` | values: out of their type's range (`E0203`: `second_law.min_drop` below 1 or not a whole number; `E0204`: a fraction above `10_000bp`, an amount that does not fit `f32` exactly, §3.5 of the spec), or of the wrong kind (`E0205`) |
 | `E0301` | an effect not allowed in this context |
 | `E0305` | a value written by several rules without a declared `combine`, or with one that does not apply to it |

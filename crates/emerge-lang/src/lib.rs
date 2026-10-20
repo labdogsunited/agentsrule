@@ -7,11 +7,13 @@
 
 pub mod ast;
 pub mod check;
+pub mod expand;
 pub mod fmt;
 pub mod lexer;
 pub mod parser;
 
 pub use ast::File;
+pub use expand::expand;
 
 /// A diagnostic with its code (`language.md` §14) and position.
 #[derive(Debug, Clone, PartialEq, Eq)]
