@@ -787,8 +787,7 @@ fn bucket_sort(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_
     let off = sb_out[b];
     let cnt = atomicLoad(&sb_in[b]);
     if (cnt > 256u) {
-        // More requests in one bucket than the tile holds: say so loudly (the host checks this word).
-        atomicStore(&flows[3u * params[P_NS] * 2u], 1u);
+        bucket_sort_big(off, cnt, lid.x);
         return;
     }
     var v = U64_MAX();
@@ -815,6 +814,42 @@ fn bucket_sort(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_
         }
     }
     if (lid.x < cnt) { list[off + lid.x] = btile[lid.x]; }
+}
+
+// A bucket larger than the tile (one store asked by many, or keys that share a bucket): the same
+// workgroup sorts it where it lies in `scr`, then copies it to `list`. Slow, but rare and correct.
+// Every step compares upwards (the first step of each merge pairs i with the mirror place), so the
+// places past `cnt`, which count as the largest key, never move and are never touched.
+fn bucket_sort_big(off: u32, cnt: u32, t: u32) {
+    var size = 2u;
+    while (size < cnt) { size = size * 2u; }
+    let half = size / 2u;
+    for (var k = 2u; k <= size; k = k * 2u) {
+        for (var p = t; p < half; p += 256u) {
+            let w = p % (k / 2u);
+            let i = (p / (k / 2u)) * k + w;
+            big_exchange(off, cnt, i, i + k - 1u - 2u * w);
+        }
+        storageBarrier();
+        for (var j = k / 4u; j > 0u; j = j / 2u) {
+            for (var p = t; p < half; p += 256u) {
+                let i = (p / j) * 2u * j + p % j;
+                big_exchange(off, cnt, i, i + j);
+            }
+            storageBarrier();
+        }
+    }
+    for (var i = t; i < cnt; i += 256u) { list[off + i] = scr[off + i]; }
+}
+
+fn big_exchange(off: u32, cnt: u32, i: u32, l: u32) {
+    if (l >= cnt) { return; }
+    let a = scr[off + i];
+    let c = scr[off + l];
+    if (a > c) {
+        scr[off + i] = c;
+        scr[off + l] = a;
+    }
 }
 
 // The starts of the buckets: an exclusive scan of the counts by one workgroup (each thread scans a slice).

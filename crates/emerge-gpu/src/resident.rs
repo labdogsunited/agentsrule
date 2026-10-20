@@ -13,6 +13,7 @@ const SB_MAX: usize = 32768;
 const P_NBT: usize = 50;
 const P_ISX: usize = 51;
 const P_ISY: usize = 52;
+const P_SBCAP: usize = 57;
 
 /// A snapshot of the device state for comparison.
 pub struct Snapshot {
@@ -214,6 +215,12 @@ impl<'a> Resident<'a> {
         assert!(p.gw.len() < pool_words && p.mw.len() < pool_words);
         let (menus, rates_t) = pack_menus(world);
         let max_genes = world.variation.iter().flatten().map(|(_, c)| c.genes).chain(p.genes.iter().map(Vec::len)).max().unwrap_or(1).max(1);
+        // The kernels hold these in fixed tables (per-entity requests, mutation scratch, the ledger sums
+        // and the guard mask), so a world beyond them is refused here rather than run wrong.
+        for (_, c) in world.variation.iter().flatten() {
+            assert!(c.genes <= MAXG && c.signals <= NSIG && c.modules <= MAXMOD, "a lineage may grow to {} genes, {} signals, {} modules; the GPU runtime holds {MAXG}, {NSIG}, {MAXMOD}", c.genes, c.signals, c.modules);
+        }
+        assert!(ns <= 32, "the GPU runtime holds at most 32 substances ({ns})");
         if std::env::var_os("EMERGE_GPU_BREAK").is_some() {
             p.params[P_BECOMES] = 4; // upkeep counted as a different element: the audit must notice
         }
@@ -285,8 +292,9 @@ impl<'a> Resident<'a> {
             sum_lo: zeros((nc + cap) * ns),
             sum_hi: zeros((nc + cap) * ns),
             stats: zeros(2 * (p.reactions.len() / RX + 1)),
-            consts: gpu.storage_with(&(0..64u32).collect::<Vec<_>>()),
-            flows: zeros(3 * ns * 2 + 2),
+            // Small integers copied into `params` by the recorded commands: the stage and every reaction-law index.
+            consts: gpu.storage_with(&(0..p.params[P_NRLAWS].max(64)).collect::<Vec<_>>()),
+            flows: zeros(3 * ns * 2),
             sb_in: zeros(SB_MAX + 1),
             sb_out: zeros(SB_MAX + 1),
             sb_blocks: zeros(SB_MAX / 256 + 2),
@@ -330,7 +338,14 @@ impl<'a> Resident<'a> {
         self.gpu.queue.write_buffer(&self.b.params, (index * 4) as u64, bytemuck::bytes_of(&value));
     }
 
-    fn ensure(&self, buf: &mut wgpu::Buffer, have: &mut usize, bytes: usize) {
+    /// Caps the buckets of the request grouping sort (0: no cap but the built-in one). For tests: with
+    /// few buckets, distinct keys share one and buckets outgrow the shared-memory tile.
+    pub fn limit_buckets(&mut self, most: u32) {
+        assert!(most == 0 || most.is_power_of_two());
+        self.write_param(P_SBCAP, most);
+    }
+
+    fn ensure(&self,buf: &mut wgpu::Buffer, have: &mut usize, bytes: usize) {
         if *have < bytes {
             let want = bytes.next_power_of_two();
             *buf = self.gpu.storage(want);
@@ -666,8 +681,6 @@ impl<'a> Resident<'a> {
             if self.tick % 8 != 0 {
                 // The pools are checked every eighth tick (a read-back is a wait).
             } else {
-            let errors: Vec<u32> = gpu.read_at(&self.b.flows, 3 * self.ns * 2, 1);
-            assert_eq!(errors[0], 0, "a bucket of the request grouping sort overflowed its tile");
             let tops: Vec<u32> = gpu.read(&self.b.pool, 2);
             assert!((tops[0] as usize) < self.pool_words - 4096 && (tops[1] as usize) < self.pool_words - 4096, "the genome pools are full ({} and {} of {} words)", tops[0], tops[1], self.pool_words);
             assert!(self.live_after_gc < self.pool_words / 2, "the live genomes fill half of the pools ({} of {} words): raise EMERGE_GPU_POOL_WORDS", self.live_after_gc, self.pool_words);

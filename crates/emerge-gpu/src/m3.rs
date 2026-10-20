@@ -221,9 +221,15 @@ pub fn run_restructure_cmd(args: &[String]) {
 /// The whole tick on the GPU, kept there, against the CPU's `run_tick`, every `every` ticks
 /// (the GPU runs every tick).
 pub fn compare_full(world: &mut World, gpu: &Gpu, ticks: u64, every: u64, verbose: bool) -> (u64, u64, u64) {
+    compare_full_with(world, gpu, ticks, every, verbose, |_| {})
+}
+
+/// `compare_full`, with `setup` applied to the GPU world before the first tick.
+pub fn compare_full_with(world: &mut World, gpu: &Gpu, ticks: u64, every: u64, verbose: bool, setup: impl FnOnce(&mut crate::resident::Resident)) -> (u64, u64, u64) {
     use crate::resident::Resident;
     assert!(world.contract);
     let mut gpu_world = Resident::new(gpu, world);
+    setup(&mut gpu_world);
     let (mut states, mut bad_entities, mut bad_cells) = (0, 0, 0);
     let mut shown = 0;
     for tick in 0..ticks {

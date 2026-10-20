@@ -13,4 +13,6 @@ None. Spec v0.7.8 settled what implementing mutation and contact found (Appendix
 
 ## Not yet covered by the runner
 
-The `channel` sense; `delay` and arithmetic regulation kinds; `emit` and field signals (so mutation cannot insert `emit` genes yet); rewrite rulesets; rounds and `every N ticks` (`core.md` §6.5); `rate: evolvable`; recombination; derived edges; `charge` laws in their general form (only upkeep); catalysts; the birth log and attribution counters.
+The `channel` sense; `delay` and arithmetic regulation kinds; `emit` and field signals (so mutation cannot insert `emit` genes yet); rewrite rulesets; rounds and `every N ticks` (`core.md` §6.5); `rate: evolvable`; recombination; derived edges; `charge` laws in their general form (only upkeep); the birth log and attribution counters.
+
+Catalysts (§4.5) run on the CPU, for entity and world reactions (`tests/catalyst.rs`); the GPU runtime refuses a world that has them.

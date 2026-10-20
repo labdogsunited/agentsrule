@@ -8,6 +8,7 @@
 @group(0) @binding(3) var<storage, read_write> rlist: array<atomic<u32>>;
 
 const P_SBN = 56u;
+const P_SBCAP = 57u;        // a cap on the buckets, for tests (0: none)
 const SB_MAXC = 32768u;     // one workgroup per bucket, and a dimension holds at most 65535
 
 @compute @workgroup_size(1)
@@ -17,6 +18,7 @@ fn plan_buckets() {
     var buckets = 1u;
     if (want > 1u) { buckets = 1u << (32u - countLeadingZeros(want - 1u)); }   // the next power of two
     buckets = min(buckets, SB_MAXC);
+    if (params[P_SBCAP] != 0u) { buckets = min(buckets, params[P_SBCAP]); }
     params[P_SBN] = buckets;
     ind[0] = (m + 63u) / 64u;
     ind[1] = 1u;
