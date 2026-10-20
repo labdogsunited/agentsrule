@@ -178,7 +178,7 @@ fn set_rq(i: u32, origin: u32, dest: u32, s: u32, ovf: u32, requested: u32, stea
 fn gen_requests(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = id.x;
     if (i >= params[P_RTOT]) { return; }
-    set_rq(i, 0u, 0u, 0u, NONE, 0u, 0u);
+    rq[i * RQ + 4u] = 0u;     // empty unless set below; only this word is read for an empty slot
     let ns = params[P_NS];
     if (i < params[P_R0]) {
         let e = rec_ent[i];
@@ -366,7 +366,7 @@ fn share(@builtin(global_invocation_id) id: vec3<u32>) {
 @compute @workgroup_size(64)
 fn init_stage2(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = id.x;
-    if (i >= params[P_RTOT]) { return; }
+    if (i >= params[P_RTOT] || rq[i * RQ + 4u] == 0u) { return; }
     rq[i * RQ + 7u] = rq[i * RQ + 6u];
 }
 

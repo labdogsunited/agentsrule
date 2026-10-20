@@ -213,13 +213,23 @@ impl Gpu {
     /// Runs the dispatches in order, in one submission. It does not wait: a `read` after it does.
     pub fn dispatch(&self, steps: &[(&wgpu::ComputePipeline, &wgpu::BindGroup, u32)]) {
         let mut enc = self.device.create_command_encoder(&Default::default());
-        for (pipeline, group, groups) in steps {
+        {
+            // One pass for all steps: wgpu puts the barriers between dispatches itself.
             let mut pass = enc.begin_compute_pass(&Default::default());
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, *group, &[]);
-            pass.dispatch_workgroups(*groups, 1, 1);
+            for (pipeline, group, groups) in steps {
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, *group, &[]);
+                pass.dispatch_workgroups(*groups, 1, 1);
+            }
         }
         // No wait: a later `read` is queued behind this work.
+        self.queue.submit([enc.finish()]);
+    }
+
+    /// Sets a buffer to zero on the GPU (no upload).
+    pub fn clear(&self, buf: &wgpu::Buffer) {
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        enc.clear_buffer(buf, 0, None);
         self.queue.submit([enc.finish()]);
     }
 

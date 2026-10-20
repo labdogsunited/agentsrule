@@ -232,6 +232,9 @@ pub fn compare_full(world: &mut World, gpu: &Gpu, ticks: u64, every: u64, verbos
         if tick % every == 0 || tick + 1 == ticks {
             let s = gpu_world.snapshot();
             states += 1;
+            if verbose && std::env::var_os("EMERGE_GPU_POOLS").is_some() {
+                println!("  tick {tick}: {} entities, pools {:?}, collected {}", s.n, gpu_world.pool_tops(), gpu_world.collections);
+            }
             let mut note = |what: String| {
                 if verbose && shown < 8 {
                     shown += 1;
@@ -255,6 +258,9 @@ pub fn compare_full(world: &mut World, gpu: &Gpu, ticks: u64, every: u64, verbos
                 break; // later ticks only repeat the first difference
             }
         }
+    }
+    if verbose {
+        println!("genome pools collected {} times; {:?} words in use", gpu_world.collections, gpu_world.pool_tops());
     }
     (states, bad_entities, bad_cells)
 }

@@ -16,6 +16,7 @@
 
 fn pf(i: u32) -> f32 { return bitcast<f32>(params[i]); }
 const P_NBT = 50u;
+const P_LAWTOT = 39u;
 const P_ISX = 51u;
 const P_ISY = 52u;
 
@@ -53,4 +54,13 @@ fn set_roff(@builtin(global_invocation_id) id: vec3<u32>) {
     ent[e * ENT + 8u] = roff * REC;
     let n_genes = ent[e * ENT + 5u];
     for (var k = 0u; k < n_genes; k++) { rec_ent[roff + k] = e; }
+}
+
+// The record total (and so where the world rules' requests start) is known only on the device.
+@compute @workgroup_size(1)
+fn finish_prep() {
+    let n = params[P_N];
+    let total = gen_out[n - 1u] + gen_in[n - 1u];
+    params[34u] = total;                       // P_R0
+    params[35u] = total + params[P_LAWTOT];    // P_RTOT
 }

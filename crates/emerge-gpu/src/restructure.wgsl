@@ -278,3 +278,18 @@ fn sort_merge_local(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invoca
     }
     if (i < size) { list[i] = tile[lid.x]; }
 }
+
+// After the scans: survivors, division candidates and the children that fit, for the host and the later kernels.
+@compute @workgroup_size(1)
+fn finish_scans() {
+    let n = params[P_N];
+    let alive = alive_out[n - 1u] + alive_in[n - 1u];
+    let cand = cand_out[n - 1u] + cand_in[n - 1u];
+    var children = 0u;
+    if (params[P_MAXENT] > alive) { children = min(cand, params[P_MAXENT] - alive); }
+    params[P_NALIVE] = alive;
+    params[54u] = children;     // P_NCHILD
+    atomicStore(&counters[1], alive);
+    atomicStore(&counters[2], cand);
+    atomicStore(&counters[3], children);
+}

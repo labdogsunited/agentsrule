@@ -64,7 +64,15 @@ pub struct Resident<'a> {
     rs_m: Module,
     prep_m: Module,
     mut_m: Module,
+    gc_m: Module,
     pool_words: usize,
+    /// How many times the genome pools have been collected.
+    pub collections: u32,
+    gc_pending: bool,
+    /// The most active genes a genome may hold (the largest capacity of any lineage, or of the first population).
+    max_genes: usize,
+    /// Words of the larger pool after the last collection: the next one waits until twice that.
+    live_after_gc: usize,
     // persistent state (the second of each pair is the destination of Restructure)
     b: Buffers,
 }
@@ -85,6 +93,11 @@ struct Buffers {
     ccap: wgpu::Buffer,
     gw: wgpu::Buffer,
     mw: wgpu::Buffer,
+    gw2: wgpu::Buffer,
+    mw2: wgpu::Buffer,
+    gv_in: wgpu::Buffer,
+    gv_out: wgpu::Buffer,
+    gv_blocks: wgpu::Buffer,
     pool: wgpu::Buffer,
     menus: wgpu::Buffer,
     rates: wgpu::Buffer,
@@ -171,6 +184,7 @@ impl<'a> Resident<'a> {
         let pool_words: usize = std::env::var("EMERGE_GPU_POOL_WORDS").ok().and_then(|v| v.parse().ok()).unwrap_or(48 << 20);
         assert!(p.gw.len() < pool_words && p.mw.len() < pool_words);
         let (menus, rates_t) = pack_menus(world);
+        let max_genes = world.variation.iter().flatten().map(|(_, c)| c.genes).chain(p.genes.iter().map(Vec::len)).max().unwrap_or(1).max(1);
         let ce = |words: usize| gpu.storage(cap * words * 4);
         let pad = |v: &[u32]| -> Vec<u32> { v.iter().copied().chain([0u32, 0]).collect() };
         let zeros = |count: usize| gpu.storage(count.max(1) * 4);
@@ -200,6 +214,11 @@ impl<'a> Resident<'a> {
             ccap: gpu.storage_with(&p.ccap),
             gw: pool_buffer(gpu, &p.gw, pool_words),
             mw: pool_buffer(gpu, &p.mw, pool_words),
+            gw2: gpu.storage(pool_words * 4),
+            mw2: gpu.storage(pool_words * 4),
+            gv_in: zeros(cap),
+            gv_out: zeros(cap),
+            gv_blocks: zeros(cap.div_ceil(256) + 1),
             pool: gpu.storage_with(&[p.mw.len() as u32, p.gw.len() as u32, 0, 0]),
             menus: gpu.storage_with(&menus),
             rates: gpu.storage_with(&rates_t),
@@ -248,12 +267,14 @@ impl<'a> Resident<'a> {
         let move_m = module(gpu, &format!("{common}\n{}", include_str!("move.wgsl")), 22, &["upkeep_fees", "collect_guards", "gen_requests", "sums", "flag_over", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
         let tr_m = module(gpu, &format!("{}\n{}", shader::constants(), include_str!("transform.wgsl")), 13, &["react_entities", "react_cells", "vent"]);
         let rs_src = format!("{common}\n{}\n{}\n{}", include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"));
-        let rs_m = module(gpu, &rs_src, 29, &["mark", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
+        let rs_m = module(gpu, &rs_src, 29, &["mark", "finish_scans", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
         let prep_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("prep.wgsl"), crate::scan::kernels("bkt", "params[P_NBT]", "atomicLoad(&{name}_in[i])"), crate::scan::kernels("gen", "params[P_N]", "{name}_in[i]"));
-        let prep_m = module(gpu, &prep_src, 12, &["assign", "finish_nstart", "scatter", "set_roff", "bkt_local", "bkt_scan_blocks", "bkt_add", "gen_local", "gen_scan_blocks", "gen_add"]);
+        let prep_m = module(gpu, &prep_src, 12, &["assign", "finish_nstart", "finish_prep", "scatter", "set_roff", "bkt_local", "bkt_scan_blocks", "bkt_add", "gen_local", "gen_scan_blocks", "gen_add"]);
         let mut_src = format!("{common}\n{}\n{}", include_str!("mutate.wgsl"), include_str!("mutate_children.wgsl"));
         let mut_m = module(gpu, &mut_src, 9, &["mutate_children"]);
-        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), parity: false, set_m, move_m, tr_m, rs_m, prep_m, mut_m, pool_words, b }
+        let gc_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("gc.wgsl"), crate::scan::kernels("gm", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("gv", "params[P_N]", "{name}_in[i]"));
+        let gc_m = module(gpu, &gc_src, 12, &["gc_sizes", "gc_copy", "gm_local", "gm_scan_blocks", "gm_add", "gv_local", "gv_scan_blocks", "gv_add"]);
+        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), parity: false, set_m, move_m, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, max_genes, live_after_gc: 0, b }
     }
 
     fn write_param(&mut self, index: usize, value: u32) {
@@ -281,6 +302,10 @@ impl<'a> Resident<'a> {
         self.write_param(P_STAGE, 0);
         self.write_param(P_NEXTID_LO, self.next_id as u32);
         self.write_param(P_NEXTID_HI, (self.next_id >> 32) as u32);
+        if self.gc_pending {
+            self.collect_garbage();
+            self.gc_pending = false;
+        }
 
         let mut mark = std::time::Instant::now();
         let mut lap = |me: &mut Self, k: usize| {
@@ -292,32 +317,9 @@ impl<'a> Resident<'a> {
             }
         };
         // ---- preparation: buckets and record offsets ----
-        let zero = vec![0u8; (self.nbt + 1) * 4];
-        gpu.queue.write_buffer(&self.b.bkt_in, 0, &zero);
-        gpu.queue.write_buffer(&self.b.cursor, 0, &zero);
-        // The record buffers must be big enough before the offsets are known: records <= n * MAXG.
-        let max_records = n * MAXG;
-        let _ = max_records;
-        {
-            // rec_ent is written by the preparation, so it needs its size first: read the gene total.
-            let b = &self.b;
-            let g = gpu.group(&self.prep_m.bgl, &[&b.params, &b.ent, &b.epos, &b.bkt_in, &b.bkt_out, &b.bkt_blocks, &b.cursor, &b.norder, &b.gen_in, &b.gen_out, &b.gen_blocks, &b.rec_ent]);
-            let pipe = |name: &str| self.prep_m.pipe(name);
-            gpu.dispatch(&[
-                (pipe("assign"), &g, wg(n)),
-                (&pipe("bkt_local"), &g, wg256(self.nbt)),
-                (&pipe("bkt_scan_blocks"), &g, 1),
-                (&pipe("bkt_add"), &g, wg256(self.nbt)),
-                (&pipe("finish_nstart"), &g, 1),
-                (&pipe("scatter"), &g, wg(n)),
-                (&pipe("gen_local"), &g, wg256(n)),
-                (&pipe("gen_scan_blocks"), &g, 1),
-                (&pipe("gen_add"), &g, wg256(n)),
-            ]);
-        }
-        let last_gen: Vec<u32> = gpu.read_at(&self.b.gen_out, n - 1, 1);
-        let last_in: Vec<u32> = gpu.read_at(&self.b.gen_in, n - 1, 1);
-        let records = (last_gen[0] + last_in[0]) as usize;
+        // The record total is only known on the device, so the buffers are sized for the most the
+        // genomes can hold (`max_genes` active genes each) and the kernels stop at the real total.
+        let records = n * self.max_genes;
         let rq_slots = records + self.params[P_LAWTOT] as usize;
         let (mut rec, mut rec_ent, mut rq, mut list, mut scr) = (
             std::mem::replace(&mut self.b.rec, gpu.storage(4)),
@@ -342,14 +344,26 @@ impl<'a> Resident<'a> {
             self.sort_cache.clear(); // the bind groups point at the old buffers
         }
         (self.b.rec_cap, self.b.rq_cap, self.b.list_cap) = (rc, qc, lc);
-        // rec_ent depends on the new buffer: run the offsets kernel (it was skipped above, as rec_ent had no room).
+        gpu.clear(&self.b.bkt_in);
+        gpu.clear(&self.b.cursor);
         {
             let b = &self.b;
             let g = gpu.group(&self.prep_m.bgl, &[&b.params, &b.ent, &b.epos, &b.bkt_in, &b.bkt_out, &b.bkt_blocks, &b.cursor, &b.norder, &b.gen_in, &b.gen_out, &b.gen_blocks, &b.rec_ent]);
-            gpu.dispatch(&[(self.prep_m.pipe("set_roff"), &g, wg(n))]);
+            let pipe = |name: &str| self.prep_m.pipe(name);
+            gpu.dispatch(&[
+                (pipe("assign"), &g, wg(n)),
+                (pipe("bkt_local"), &g, wg256(self.nbt)),
+                (pipe("bkt_scan_blocks"), &g, 1),
+                (pipe("bkt_add"), &g, wg256(self.nbt)),
+                (pipe("finish_nstart"), &g, 1),
+                (pipe("scatter"), &g, wg(n)),
+                (pipe("gen_local"), &g, wg256(n)),
+                (pipe("gen_scan_blocks"), &g, 1),
+                (pipe("gen_add"), &g, wg256(n)),
+                (pipe("finish_prep"), &g, 1),
+                (pipe("set_roff"), &g, wg(n)),
+            ]);
         }
-        self.write_param(P_R0, records as u32);
-        self.write_param(P_RTOT, rq_slots as u32);
 
         lap(self, 0);
         // ---- Set ----
@@ -462,9 +476,10 @@ impl<'a> Resident<'a> {
         let wg = |count: usize| (count.max(1) as u32).div_ceil(64);
         let group = self.move_group(&self.b.sortp0);
         // The sums start at zero every tick.
-        gpu.queue.write_buffer(&self.b.sum_lo, 0, &vec![0u8; keys * 4]);
-        gpu.queue.write_buffer(&self.b.sum_hi, 0, &vec![0u8; keys * 4]);
-        gpu.queue.write_buffer(&self.b.counters, 0, &[0u8; 16]);
+        gpu.clear(&self.b.sum_lo);
+        gpu.clear(&self.b.sum_hi);
+        gpu.clear(&self.b.counters);
+        let _ = keys;
         {
             let m = &self.move_m;
             gpu.dispatch(&[(m.pipe("upkeep_fees"), &group, wg(n)), (m.pipe("collect_guards"), &group, wg(n)), (m.pipe("gen_requests"), &group, wg(r))]);
@@ -474,9 +489,9 @@ impl<'a> Resident<'a> {
             if stage == 1 {
                 gpu.queue.write_buffer(&self.b.params, (P_STAGE * 4) as u64, bytemuck::bytes_of(&1u32));
                 gpu.dispatch(&[(self.move_m.pipe("init_stage2"), &group, wg(r))]);
-                gpu.queue.write_buffer(&self.b.sum_lo, 0, &vec![0u8; keys * 4]);
-                gpu.queue.write_buffer(&self.b.sum_hi, 0, &vec![0u8; keys * 4]);
-                gpu.queue.write_buffer(&self.b.counters, 0, &[0u8; 16]);
+                gpu.clear(&self.b.sum_lo);
+                gpu.clear(&self.b.sum_hi);
+                gpu.clear(&self.b.counters);
             }
             gpu.dispatch(&[(self.move_m.pipe("sums"), &group, wg(r)), (self.move_m.pipe("flag_over"), &group, wg(r))]);
             let m = gpu.read::<u32>(&self.b.counters, 4)[0] as usize;
@@ -498,6 +513,35 @@ impl<'a> Resident<'a> {
         }
     }
 
+    /// Copies every live genome into fresh pools. The pool bind groups depend on the buffers, so the
+    /// cached sort groups are dropped.
+    fn collect_garbage(&mut self) {
+        let gpu = self.gpu;
+        let n = self.n;
+        let wg256 = (n.max(1) as u32).div_ceil(256);
+        let b = &self.b;
+        let g = gpu.group(&self.gc_m.bgl, &[&b.params, &b.ent, &b.mw, &b.gw, &b.mw2, &b.gw2, &b.alive_in, &b.alive_out, &b.alive_blocks, &b.gv_in, &b.gv_out, &b.gv_blocks]);
+        let m = &self.gc_m;
+        gpu.dispatch(&[(m.pipe("gc_sizes"), &g, (n as u32).div_ceil(64))]);
+        // The scans of the two size arrays use the kernels' own names: gm_* reads alive_in (bound as gm_in).
+        gpu.dispatch(&[(m.pipe("gm_local"), &g, wg256), (m.pipe("gm_scan_blocks"), &g, 1), (m.pipe("gm_add"), &g, wg256)]);
+        gpu.dispatch(&[(m.pipe("gv_local"), &g, wg256), (m.pipe("gv_scan_blocks"), &g, 1), (m.pipe("gv_add"), &g, wg256)]);
+        let last = |inb: &wgpu::Buffer, outb: &wgpu::Buffer| -> u32 {
+            let a: Vec<u32> = gpu.read_at(inb, n - 1, 1);
+            let c: Vec<u32> = gpu.read_at(outb, n - 1, 1);
+            a[0] + c[0]
+        };
+        let (tm, tv) = (last(&b.alive_in, &b.alive_out), last(&b.gv_in, &b.gv_out));
+        gpu.dispatch(&[(m.pipe("gc_copy"), &g, (n as u32).div_ceil(64))]);
+        gpu.queue.write_buffer(&b.pool, 0, bytemuck::cast_slice(&[tm, tv]));
+        let b = &mut self.b;
+        std::mem::swap(&mut b.mw, &mut b.mw2);
+        std::mem::swap(&mut b.gw, &mut b.gw2);
+        self.sort_cache.clear();
+        self.collections += 1;
+        self.live_after_gc = tm.max(tv) as usize;
+    }
+
     fn rs_group(&self, sortp: &wgpu::Buffer) -> wgpu::BindGroup {
         let b = &self.b;
         self.gpu.group(
@@ -515,20 +559,18 @@ impl<'a> Resident<'a> {
         gpu.queue.write_buffer(&self.b.counters, 0, &[0u8; 16]);
         {
             let m = &self.rs_m;
-            gpu.dispatch(&[(m.pipe("mark"), &group, wg(n))]);
+            let mut steps = vec![(m.pipe("mark"), &group, wg(n))];
             for name in ["alive", "cand"] {
-                gpu.dispatch(&[(m.pipe(&format!("{name}_local")), &group, wg256), (m.pipe(&format!("{name}_scan_blocks")), &group, 1), (m.pipe(&format!("{name}_add")), &group, wg256)]);
+                steps.push((m.pipe(&format!("{name}_local")), &group, wg256));
+                steps.push((m.pipe(&format!("{name}_scan_blocks")), &group, 1));
+                steps.push((m.pipe(&format!("{name}_add")), &group, wg256));
             }
+            steps.push((m.pipe("finish_scans"), &group, 1));
+            gpu.dispatch(&steps);
         }
-        let total = |inb: &wgpu::Buffer, outb: &wgpu::Buffer| -> usize {
-            let a: Vec<u32> = gpu.read_at(inb, n - 1, 1);
-            let b: Vec<u32> = gpu.read_at(outb, n - 1, 1);
-            (a[0] + b[0]) as usize
-        };
-        let alive = total(&self.b.alive_in, &self.b.alive_out);
-        let candidates = total(&self.b.cand_in, &self.b.cand_out);
-        gpu.queue.write_buffer(&self.b.params, (P_NALIVE * 4) as u64, bytemuck::bytes_of(&(alive as u32)));
-        let removed = gpu.read::<u32>(&self.b.counters, 4)[0] as usize;
+        // removed, survivors, division candidates, children that fit
+        let c: Vec<u32> = gpu.read(&self.b.counters, 4);
+        let (removed, alive, _candidates, children) = (c[0] as usize, c[1] as usize, c[2] as usize, c[3] as usize);
         if removed > 0 {
             self.sort_groups(1, removed.next_power_of_two().max(2));
             let mut steps = self.sort_steps(1, removed, &self.rs_m);
@@ -536,16 +578,21 @@ impl<'a> Resident<'a> {
             gpu.dispatch(&steps);
         }
         gpu.dispatch(&[(self.rs_m.pipe("divide"), &group, wg(n)), (self.rs_m.pipe("compact"), &group, wg(n))]);
-        let max = self.params[P_MAXENT] as usize;
-        let children = candidates.min(max.saturating_sub(alive));
         // Children of lineages with variation get mutated genomes.
-        gpu.queue.write_buffer(&self.b.params, (54 * 4) as u64, bytemuck::bytes_of(&(children as u32)));
         if children > 0 {
             let b = &self.b;
             let g = gpu.group(&self.mut_m.bgl, &[&b.params, &b.menus, &b.rates, &b.mw, &b.ent, &b.ent2, &b.gw, &b.pool, &b.work]);
             gpu.dispatch(&[(self.mut_m.pipe("mutate_children"), &g, wg(children))]);
+            if self.tick % 8 != 0 {
+                // The pools are checked every eighth tick (a read-back is a wait).
+            } else {
             let tops: Vec<u32> = gpu.read(&self.b.pool, 2);
             assert!((tops[0] as usize) < self.pool_words - 4096 && (tops[1] as usize) < self.pool_words - 4096, "the genome pools are full ({} and {} of {} words)", tops[0], tops[1], self.pool_words);
+            let limit = (self.pool_words / 2).max(2 * self.live_after_gc);
+            if tops[0] as usize > limit || tops[1] as usize > limit {
+                self.gc_pending = true;
+            }
+            }
         }
         assert!(alive + children <= self.cap, "more entities than the device arrays hold ({})", self.cap);
         // The destination arrays become the state.
@@ -562,6 +609,12 @@ impl<'a> Resident<'a> {
         self.deaths += removed as u64;
         self.next_id += children as u64;
         self.tick += 1;
+    }
+
+    /// Words used in the master and view pools.
+    pub fn pool_tops(&self) -> (u32, u32) {
+        let t: Vec<u32> = self.gpu.read(&self.b.pool, 2);
+        (t[0], t[1])
     }
 
     pub fn snapshot(&self) -> Snapshot {
