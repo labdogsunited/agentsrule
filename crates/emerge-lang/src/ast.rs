@@ -356,12 +356,15 @@ pub enum PatchOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AddItem {
     Decl(WDecl),
+    /// An entry of a menu, added `after` or `before` another entry of it.
+    MenuItem(MenuItem),
     Gene(GeneDecl),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Patch {
     pub target: String,
-    pub base: i64,
+    /// The revision the patch was written against; a patch applied to a file has none.
+    pub base: Option<i64>,
     pub ops: Vec<Node<PatchOp>>,
 }

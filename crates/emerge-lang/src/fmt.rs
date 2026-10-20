@@ -205,7 +205,10 @@ fn item(out: &mut Out, indent: usize, it: &Item) {
             }
             ExploreItem::Entry(e) => entry(o, i, e),
         }),
-        Item::Patch(p) => out.block(indent, vec![t(format!("patch {} base {}", p.target, int(p.base)))], &p.ops, patch_op),
+        Item::Patch(p) => {
+            let base = p.base.map(|b| format!(" base {}", int(b))).unwrap_or_default();
+            out.block(indent, vec![t(format!("patch {}{base}", p.target))], &p.ops, patch_op)
+        }
     }
 }
 
@@ -537,6 +540,7 @@ fn patch_op(out: &mut Out, i: usize, op: &PatchOp) {
             let start = out.lines.len();
             match decl.as_ref() {
                 AddItem::Decl(d) => wdecl(out, i, d),
+                AddItem::MenuItem(m) => menu_item(out, i, m),
                 AddItem::Gene(g) => gene(out, i, g),
             }
             let first = &mut out.lines[start];

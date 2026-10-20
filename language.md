@@ -730,9 +730,13 @@ patch Dish base 41 {
 ```
 
 - **Paths inside `patch Dish { ... }` are relative to `Dish`:** `upkeep.base` means `Dish.upkeep.base`. The JSON form has no enclosing target, so it always uses full paths. A full path inside a text patch is an error (`E0902`), so each form has one spelling.
-- `base` states the revision the patch was written against. The engine resolves every path at that revision, and rejects the patch as stale if the world has moved on (spec §13.2).
+- `base` states the revision the patch was written against. The engine resolves every path at that revision, and rejects the patch as stale if the world has moved on (spec §13.2). A patch in a file has no revision, so `base` is optional there.
 - A patch is applied as one unit. It is validated, compiled and preflighted in full before commit.
 - Removing a substance or field, or lowering a cap below current balances, MUST say where the contents go (`move_to:`), or the patch is rejected (`E0901`).
+- **Patches on files (`--patch`).** Every `emerge` command that reads a `.em` file also takes `--patch FILE` (a file of `patch` items) and `--set TARGET.PATH=VALUE` (one `set`, such as `--set Dish.rules.rotting@react_rot.rate=500bp`), repeated and applied in order after the file is read. The patched tree is checked and run in place of the file: a variant is the base plus a small patch, and world and lineage names do not change. `emerge expand FILE --patch P` prints the result; `emerge fmt` does not take patches. Diagnostics on a patched file refer to the patched file as `expand` prints it. A patch names an item as written in the file, so a patch on a lineage does not reach what it takes from a lineage it `extends`. Supported so far:
+  - `set` on: a world setting (`max_age`) or one argument of its call (`space.max_interaction_radius`); an entry of a config block (`upkeep.per_gene`); a constant (`consts.NAME`); a menu entry's cost or one parameter (`actions.steal.cost = 200mu`, `actions.steal.max = 0u..1u`, or a list of names); an argument of a labelled rule statement (`rules.sunlight@transfer_light.amount`); a reaction's `catalyze` (`reactions.respiration.catalyze = nitrate(half: 1u, boost: 4.0)`); in a lineage, `mutation.KEY` and `profiles.NAME.KEY`. The item must exist (`E0114`), the value must have the right kind (`E0205`).
+  - `add` of a world declaration, appended (`add decompose: rot;`), or placed `after`/`before` a rule, reaction, substance or constant (`rules.weather`) or a setting or block (`remains`); and of a menu entry `after`/`before` another entry of that menu (`add after actions.steal: action guard(...) cost 20mu;`). A name already declared is `E0111`. `emerge fmt` sorts world declarations by kind but keeps the order within a kind, so a position matters for rules and for where a setting lands among the settings.
+  - Not yet (`E0904`): `replace`, `remove`, `rename`, and adding genes to a lineage (use `extends`). A file given to `--patch` that holds anything but `patch` items is `E0903`.
 - The API accepts the same operations as JSON: `{"base_revision": 41, "ops": [{"op": "set", "path": "Dish.upkeep.base", "value": "25mu"}]}`.
 
 ---
@@ -813,9 +817,9 @@ xitem       := 'vary' path 'in' expr ';'
              | entry
 
 // ---- patches ----
-patch       := 'patch' IDENT 'base' INT '{' pop* '}'
+patch       := 'patch' IDENT ('base' INT)? '{' pop* '}'
 pop         := 'set' path '=' value ';'
-             | 'add' (('after' | 'before') path ':')? (wdecl | gene)
+             | 'add' (('after' | 'before') path ':')? (wdecl | gene | menu_item)
              | 'replace' path block
              | 'remove' path ('move_to' ':' IDENT)? ';'
              | 'rename' path 'to' IDENT ';'
@@ -961,6 +965,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E0116` | a required declaration or argument is missing |
 | `E0119` | constants that wait on each other in a circle |
 | `E0117`, `E0118` | `extends`: a base in another world or that extends too (`E0117`); a repeated signal or label, a `dormant` mismatch, or `after` outside an extending lineage (`E0118`) |
+| `E0903`, `E0904` | patch files: an item that is not a patch; an operation not supported on files yet |
 | `E0203`–`E0205` | values: out of their type's range (`E0203`: `second_law.min_drop` below 1 or not a whole number; `E0204`: a fraction above `10_000bp`, an amount that does not fit `f32` exactly, §3.5 of the spec), or of the wrong kind (`E0205`) |
 | `E0301` | an effect not allowed in this context |
 | `E0305` | a value written by several rules without a declared `combine`, or with one that does not apply to it |

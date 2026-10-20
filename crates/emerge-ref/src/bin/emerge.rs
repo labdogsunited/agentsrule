@@ -39,8 +39,75 @@ use emerge_ref::compile::{compile, Options};
 use emerge_ref::Gene;
 use emerge_ref::World;
 
+/// `--patch FILE` and `--set PATH=VALUE`, in command-line order (`emerge_lang::patch`).
+static PATCHES: std::sync::OnceLock<Vec<(bool, String)>> = std::sync::OnceLock::new();
+
+/// The arguments without `--patch`/`--set` pairs; those go to `PATCHES`.
+fn take_patches(args: Vec<String>) -> Option<Vec<String>> {
+    let (mut rest, mut patches) = (Vec::new(), Vec::new());
+    let mut it = args.into_iter();
+    while let Some(a) = it.next() {
+        if a == "--patch" || a == "--set" {
+            patches.push((a == "--set", it.next()?));
+        } else {
+            rest.push(a);
+        }
+    }
+    PATCHES.set(patches).ok();
+    Some(rest)
+}
+
+/// The base file's text with the patches applied and printed in canonical form, so every
+/// command works on the variant. Positions in later diagnostics refer to that text.
+fn apply_patches(path: &str, src: String) -> Option<String> {
+    let patches = PATCHES.get().map(Vec::as_slice).unwrap_or(&[]);
+    if patches.is_empty() {
+        return Some(src);
+    }
+    let mut file = match emerge_lang::parse(&src) {
+        Ok(f) => f,
+        Err(d) => {
+            eprintln!("{path}: {d}");
+            return None;
+        }
+    };
+    for (is_set, what) in patches {
+        let (name, text) = if *is_set {
+            (format!("--set {what}"), what.clone())
+        } else {
+            match std::fs::read_to_string(what) {
+                Ok(t) => (what.clone(), t),
+                Err(e) => {
+                    eprintln!("{what}: {e}");
+                    return None;
+                }
+            }
+        };
+        let parsed = if *is_set { emerge_lang::patch::parse_set(&text) } else { emerge_lang::parse(&text) };
+        let patch = match parsed {
+            Ok(f) => f,
+            Err(d) => {
+                eprintln!("{name}: {d}");
+                return None;
+            }
+        };
+        file = match emerge_lang::patch::apply(&file, &patch) {
+            Ok(f) => f,
+            Err(p) => {
+                eprintln!("{name}:{}:{}: error[{}]: {}: {}", p.pos.line, p.pos.col, p.code, p.path, p.message);
+                return None;
+            }
+        };
+    }
+    Some(emerge_lang::format(&file))
+}
+
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let Some(args) = take_patches(std::env::args().skip(1).collect()) else { return usage() };
+    if args.first().map(String::as_str) == Some("fmt") && !PATCHES.get().is_none_or(|p| p.is_empty()) {
+        eprintln!("emerge fmt does not take --patch or --set; use `emerge expand` to print a patched file");
+        return ExitCode::from(2);
+    }
     match args.first().map(String::as_str) {
         Some("fmt") => fmt(&args[1..]),
         Some("expand") => expand(&args[1..]),
@@ -54,6 +121,7 @@ fn main() -> ExitCode {
 
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
+    eprintln!("       every other command also takes --patch FILE and --set TARGET.PATH=VALUE after the file (repeatable, applied in order)");
     eprintln!("       emerge expand <file.em>");
     eprintln!("       emerge order <file.em> [WORLD]");
     eprintln!("       emerge check [--json] <file.em>");
@@ -63,7 +131,8 @@ fn usage() -> ExitCode {
 }
 
 fn read(path: &str) -> Option<String> {
-    std::fs::read_to_string(path).map_err(|e| eprintln!("{path}: {e}")).ok()
+    let src = std::fs::read_to_string(path).map_err(|e| eprintln!("{path}: {e}")).ok()?;
+    apply_patches(path, src)
 }
 
 fn fmt(args: &[String]) -> ExitCode {

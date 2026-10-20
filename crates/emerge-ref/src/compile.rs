@@ -133,7 +133,10 @@ fn build_at(file: &ast::File, lineages: &[&str], options: Options, at: &Cell<Pos
             ast::Item::View(v) => c.notes.push(format!("view {}: not used by a run", v.name)),
             ast::Item::Chart(ch) => c.notes.push(format!("chart {}: not used by a run", ch.name)),
             ast::Item::Explore(e) => c.notes.push(format!("explore {}: not used by a run", e.name)),
-            ast::Item::Patch(p) => c.notes.push(format!("patch {} base {}: not applied by a run", p.target, p.base)),
+            ast::Item::Patch(p) => c.notes.push(match p.base {
+                Some(b) => format!("patch {} base {b}: not applied by a run", p.target),
+                None => format!("patch {}: not applied by a run (use `--patch`)", p.target),
+            }),
         }
     }
     for name in lineages {

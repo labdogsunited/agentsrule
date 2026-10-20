@@ -251,10 +251,13 @@ impl Parser {
             }
             "patch" => {
                 let target = self.ident()?;
-                self.expect_word("base")?;
-                let base = match self.lit()? {
-                    Lit::Int(i) => i,
-                    _ => return self.expected("a revision number"),
+                let base = if self.eat_word("base") {
+                    match self.lit()? {
+                        Lit::Int(i) => Some(i),
+                        _ => return self.expected("a revision number"),
+                    }
+                } else {
+                    None
                 };
                 Item::Patch(Patch { target, base, ops: self.many(Self::patch_op)? })
             }
@@ -864,7 +867,14 @@ impl Parser {
                 || self.is_word("regulate")
                 || self.is_word("action")
                 || (self.is_word("reaction") && self.is_word_at(2, "rate"));
-            let decl = if gene_ahead { AddItem::Gene(self.gene()?) } else { AddItem::Decl(self.wdecl()?) };
+            let menu_ahead = matches!(&position, Some((_, p)) if matches!(p.root.as_str(), "senses" | "actions" | "regulation"));
+            let decl = if menu_ahead {
+                AddItem::MenuItem(self.menu_item()?)
+            } else if gene_ahead {
+                AddItem::Gene(self.gene()?)
+            } else {
+                AddItem::Decl(self.wdecl()?)
+            };
             return Ok(PatchOp::Add { position, decl: Box::new(decl) });
         }
         if self.eat_word("replace") {
