@@ -110,6 +110,9 @@ impl Gpu {
 
     /// Copies `count` elements starting at element `first` to the host.
     pub fn read_at<T: bytemuck::Pod>(&self, buf: &wgpu::Buffer, first: usize, count: usize) -> Vec<T> {
+        if count == 0 {
+            return Vec::new(); // an empty mapping cannot be cast, and a world can be empty
+        }
         self.flush();
         let size = std::mem::size_of::<T>();
         let (offset, bytes) = ((first * size) as u64, (count * size) as u64);

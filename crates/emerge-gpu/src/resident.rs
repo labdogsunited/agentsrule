@@ -260,7 +260,8 @@ impl<'a> Resident<'a> {
             gv_blocks: zeros(cap.div_ceil(256) + 1),
             pool: gpu.storage_with(&[p.mw.len() as u32, p.gw.len() as u32, 0, 0]),
             menus: gpu.storage_with(&menus),
-            rates: gpu.storage_with(&rates_t),
+            // A world built without lineages has no rates: one row of zeros (no variation) keeps the buffer bindable.
+            rates: gpu.storage_with(if rates_t.is_empty() { &[0u32; RATES][..] } else { &rates_t }),
             work: zeros(cap),
             prev: zeros(cap * ns),
             prev_out: zeros(cap * ns),
