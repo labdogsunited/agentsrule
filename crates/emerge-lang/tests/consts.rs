@@ -87,3 +87,26 @@ fn fmt_keeps_constants_and_expressions() {
     let file = parse(src).unwrap();
     assert_eq!(emerge_lang::format(&file), src);
 }
+
+#[test]
+fn a_variable_cannot_take_a_constants_name() {
+    let dish = include_str!("../../../examples/dish.em");
+    let with = |c: &str| dish.replacen("world Dish {\n", &format!("world Dish {{\n    const {c} = 1;\n"), 1);
+    // `for cell in cells` in the world's genesis.
+    assert_eq!(resolve(&parse(&with("cell")).unwrap()).unwrap_err().code, "E0111");
+    assert!(resolve(&parse(&with("harmless")).unwrap()).is_ok());
+}
+
+#[test]
+fn a_constant_that_waits_on_a_non_constant_is_reported_at_the_root() {
+    assert_eq!(value("    const a = b;\n    const b = nothing;", "1").unwrap_err().0, "E0205");
+}
+
+#[test]
+fn a_constant_cannot_take_a_reserved_or_top_level_name() {
+    let dish = include_str!("../../../examples/dish.em");
+    let with = |c: &str| dish.replacen("world Dish {\n", &format!("world Dish {{\n    const {c} = 1;\n"), 1);
+    for (name, code) in [("tanh", "E0110"), ("tick", "E0110"), ("below", "E0110"), ("take", "E0110"), ("Tinker", "E0111"), ("Drifter", "E0111"), ("Dish", "E0111"), ("C", "E0111")] {
+        assert_eq!(resolve(&parse(&with(name)).unwrap()).unwrap_err().code, code, "{name}");
+    }
+}

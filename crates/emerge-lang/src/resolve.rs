@@ -19,13 +19,44 @@ fn problem(code: &'static str, path: String, pos: Pos, message: String) -> Probl
     Problem { code, path, pos, message, fix: None }
 }
 
+/// Words a constant cannot be named: the keywords of `language.md` §2, the names in
+/// expressions that mean something to the language, and its built-in functions and curves.
+const RESERVED: &[&str] = &[
+    "world", "lineage", "extends", "ruleset", "view", "chart", "explore", "patch", "const", "element", "substance",
+    "potential", "reaction", "field", "holds", "signal", "combine", "source", "sink", "waste", "senses", "sense",
+    "actions", "action", "cost", "per", "requires", "rule", "on", "let", "when", "else", "for", "in", "genesis",
+    "profile", "mutation", "seed", "genome", "module", "regulation", "regulate", "gene", "keep", "inputs", "weight",
+    "dormant", "threshold", "rate", "where", "layer", "vary", "base", "set", "add", "remove", "replace", "rename",
+    "after", "before", "to", "move_to", "any", "act", "reg", "self", "tick", "below", "position", "heading",
+    "evolvable", "none", "true", "false", "not", "and", "or", "linear", "step", "sigmoid", "tanh", "weigh", "product",
+    "amount", "argmax", "argmin", "cap", "ceil", "clamp", "count", "curve", "diffuse_conserved", "f", "float", "floor",
+    "jitter", "max", "mean", "min", "react", "sep", "sum", "take", "drop", "give", "steal", "guard", "emit", "move",
+    "turn", "divide", "transfer", "units", "uniform", "fade", "blur", "gradient", "probe", "inventory", "crowd",
+    "neighbour", "clock",
+];
+
 /// The file with every constant replaced by its value and constant arithmetic folded.
 pub fn resolve(file: &File) -> Result<File, Problem> {
     let mut out = file.clone();
     let mut worlds: HashMap<String, HashMap<String, Lit>> = HashMap::new();
+    let file_names: std::collections::HashSet<&str> = file.items.iter().filter_map(|i| match &i.node {
+        Item::World(w) => Some(w.name.as_str()),
+        Item::Lineage(l) => Some(l.name.as_str()),
+        Item::Ruleset(r) => Some(r.name.as_str()),
+        Item::View(v) => Some(v.name.as_str()),
+        Item::Chart(c) => Some(c.name.as_str()),
+        _ => None,
+    }).collect();
     for item in &mut out.items {
         let Item::World(w) = &mut item.node else { continue };
-        let consts = world_consts(w)?;
+        let consts = world_consts(w, &file_names)?;
+        for d in &w.decls {
+            match &d.node {
+                WDecl::Rule { name, body, .. } => shadow_block(&format!("{}.rules.{name}", w.name), &consts, body)?,
+                WDecl::Genesis(body) => shadow_block(&w.name, &consts, body)?,
+                _ => {}
+            }
+        }
         w.decls.retain(|d| !matches!(d.node, WDecl::Const { .. }));
         for d in &mut w.decls {
             wdecl(&mut d.node, &consts);
@@ -46,11 +77,18 @@ pub fn resolve(file: &File) -> Result<File, Problem> {
 }
 
 /// The values of a world's constants, in any order of declaration.
-fn world_consts(w: &World) -> Result<HashMap<String, Lit>, Problem> {
+fn world_consts(w: &World, file_names: &std::collections::HashSet<&str>) -> Result<HashMap<String, Lit>, Problem> {
     let mut raw: Vec<(&str, &Expr, Pos)> = Vec::new();
     for d in &w.decls {
         if let WDecl::Const { name, value } = &d.node {
             let path = format!("{}.constants.{name}", w.name);
+            if RESERVED.contains(&name.as_str()) {
+                return Err(problem("E0110", path, d.pos, format!("`{name}` is a keyword or built-in name and cannot name a constant")));
+            }
+            let top = file_names.contains(name.as_str()) || w.decls.iter().any(|o| matches!(&o.node, WDecl::Element(e) if e == name));
+            if top {
+                return Err(problem("E0111", path, d.pos, format!("`{name}` is the name of an element or a top-level item")));
+            }
             if raw.iter().any(|r| r.0 == name) || w.decls.iter().any(|o| crate::check::declared(&o.node).is_some_and(|(n, _)| n == name)) {
                 return Err(problem("E0111", path, d.pos, format!("`{name}` is already declared in {}", w.name)));
             }
@@ -74,15 +112,21 @@ fn world_consts(w: &World) -> Result<HashMap<String, Lit>, Problem> {
             break;
         }
     }
-    if let Some((name, value, pos)) = raw.iter().find(|r| !done.contains_key(r.0)) {
-        let path = format!("{}.constants.{name}", w.name);
+    // What is left is either a constant that is not an expression of literals and other
+    // constants (reported first), or constants that wait on each other in a circle.
+    let all: Vec<&str> = raw.iter().map(|r| r.0).collect();
+    let mut circle = None;
+    for (name, value, pos) in raw.iter().filter(|r| !done.contains_key(r.0)) {
         let mut e = (*value).clone();
         expr(&mut e, &done);
-        let waiting = refs(&e, &raw.iter().map(|r| r.0).collect::<Vec<_>>());
-        return Err(match waiting.first() {
-            Some(other) => problem("E0119", path, *pos, format!("constant `{name}` depends on `{other}`, which cannot be worked out (a cycle, or not a constant)")),
-            None => problem("E0205", path, *pos, format!("constant `{name}` is not a constant expression of literals and other constants")),
-        });
+        let path = format!("{}.constants.{name}", w.name);
+        match refs(&e, &all).first() {
+            None => return Err(problem("E0205", path, *pos, format!("constant `{name}` is not a constant expression of literals and other constants"))),
+            Some(other) => circle = circle.or(Some(problem("E0119", path, *pos, format!("constant `{name}` depends on `{other}`, which depends back on it")))),
+        }
+    }
+    if let Some(p) = circle {
+        return Err(p);
     }
     Ok(done)
 }

@@ -119,7 +119,7 @@ world Dish {
 }
 ```
 
-Before checking, every use of a constant (in the world, or in a lineage of it) is replaced by its value, and arithmetic on literals is folded, using the rules of §4.1 and §4.3 (`10_000 + 10_000` is `20_000` everywhere an expression is allowed, with or without a constant). A combination §4.1 does not list, such as `1u + 2`, is left as written, and is an error in a `const` (`E0205`). Constants that depend on each other in a circle are `E0119`. A constant shares the world's namespace, so it cannot repeat the name of a substance, reaction or other declaration, and no `let` or `for` variable may use its name (`E0111`). A constant cannot read the world, a tick or a random draw. Positions that take a literal token cannot use a constant: `potential`, `holds` amounts, menu ranges and costs, and a reaction gene's `rate`. `emerge fmt` keeps constants and expressions as written.
+Before checking, every use of a constant (in the world, or in a lineage of it) is replaced by its value, and arithmetic on literals is folded, using the rules of §4.1 and §4.3 (`10_000 + 10_000` is `20_000` everywhere an expression is allowed, with or without a constant). A combination §4.1 does not list, such as `1u + 2`, is left as written, and is an error in a `const` (`E0205`). Constants that wait on each other in a circle are `E0119`; one that depends on something that is not a constant is reported at that constant (`E0205`). A constant shares the world's namespace, so it cannot repeat the name of a substance, reaction or other declaration, of an element, or of a top-level item, and no `let` or `for` variable may use its name (`E0111`). It cannot be a keyword, a built-in function or curve, or a word such as `self`, `tick` or `below` (`E0110`). A constant cannot read the world, a tick or a random draw. Positions that take a literal token cannot use a constant: `potential`, `holds` amounts, menu ranges and costs, a reaction gene's `rate`, and `uniform(x: a..b)` ranges. `emerge fmt` keeps constants and expressions as written.
 
 A **project** is a directory. `emerge` loads every `.em` file in it as one program. Persistent IDs live in `.emerge/ids.json` in the same directory and are kept in version control with the sources (§10.2).
 
@@ -955,7 +955,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E0114` | an unknown name: field, source, sink, substance, reaction, lineage |
 | `E0115` | an unknown setting or block |
 | `E0116` | a required declaration or argument is missing |
-| `E0119` | constants that depend on each other in a circle |
+| `E0119` | constants that wait on each other in a circle |
 | `E0117`, `E0118` | `extends`: a base in another world or that extends too (`E0117`); a repeated signal or label, a `dormant` mismatch, or `after` outside an extending lineage (`E0118`) |
 | `E0203`–`E0205` | values: out of their type's range (`E0203`: `second_law.min_drop` below 1 or not a whole number; `E0204`: a fraction above `10_000bp`, an amount that does not fit `f32` exactly, §3.5 of the spec), or of the wrong kind (`E0205`) |
 | `E0301` | an effect not allowed in this context |
