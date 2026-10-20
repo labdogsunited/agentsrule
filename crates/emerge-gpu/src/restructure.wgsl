@@ -30,6 +30,14 @@
 @group(0) @binding(26) var<storage, read_write> work: array<u32>;   // parent of each child, by rank
 @group(0) @binding(27) var<storage, read_write> prev_src: array<u32>;   // `prev` as the Set phase left it
 @group(0) @binding(28) var<storage, read_write> prev_dst: array<u32>;
+@group(0) @binding(29) var<storage, read_write> flows: array<atomic<u32>>;
+fn flow_add(kind: u32, s: u32, x: u32) {
+    if (x == 0u) { return; }
+    let i = (kind * params[P_NS] + s) * 2u;
+    let old = atomicAdd(&flows[i], x);
+    if (old + x < old) { atomicAdd(&flows[i + 1u], 1u); }
+}
+
 
 const RX = 20u;
 const P_MAXAGE = 40u;
@@ -138,6 +146,7 @@ fn dispose(@builtin(global_invocation_id) id: vec3<u32>) {
             let amount = amounts[e * ns + s];
             let room = ccap[cell * ns + s] - camt[cell * ns + s];
             camt[cell * ns + s] += min(amount, room);
+            flow_add(1u, s, amount - min(amount, room));
             amounts[e * ns + s] = 0u;
         }
         q++;

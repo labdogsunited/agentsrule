@@ -22,7 +22,7 @@ pub fn shader_source() -> String {
     format!("{}\n{}\n{}", shader::constants(), shader::contract(), include_str!("move.wgsl"))
 }
 
-const BINDINGS: u32 = 22;
+const BINDINGS: u32 = 23;
 
 pub fn run_move(gpu: &Gpu, p: &Packed, rec_in: &[u32]) -> MoveOut {
     let n = p.n;
@@ -56,10 +56,12 @@ pub fn run_move(gpu: &Gpu, p: &Packed, rec_in: &[u32]) -> MoveOut {
     let ecap = gpu.storage_with(&p.ecap);
     let scr = gpu.storage(r.next_power_of_two().max(2) * 8);
     let sortp0 = gpu.storage_with(&[0u32, 0, 0, 0]);
+    let flows = gpu.storage(3 * ns * 8 + 8);
     let all = [&params, &ent, &epos, &amounts, &camt, &ccap, &rec, &rec_ent, &laws, &sinkacc, &nbr, &dying, &guards, &rq, &sum_lo, &sum_hi, &list, &counters, &gw, &ecap, &scr];
     let with_sortp = |sortp: &wgpu::Buffer| {
         let mut b: Vec<&wgpu::Buffer> = all.to_vec();
         b.push(sortp);
+        b.push(&flows);
         gpu.group(&bgl, &b)
     };
     let group = with_sortp(&sortp0);

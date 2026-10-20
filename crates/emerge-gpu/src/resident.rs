@@ -39,6 +39,18 @@ impl Module {
     }
 }
 
+/// The element ledger audit: element totals against what the sources emitted and the sinks absorbed.
+pub struct Audit {
+    start: Vec<i128>,
+    emitted: Vec<i128>,
+    absorbed: Vec<i128>,
+    /// Ticks audited, and ticks whose totals did not match.
+    pub ticks: u64,
+    pub drifted: u64,
+    /// The largest difference seen, in µ of any element.
+    pub worst: i128,
+}
+
 pub struct Resident<'a> {
     gpu: &'a Gpu,
     pub n: usize,
@@ -69,6 +81,8 @@ pub struct Resident<'a> {
     /// How many times the genome pools have been collected.
     pub collections: u32,
     gc_pending: bool,
+    audit: Option<Audit>,
+    comp: Vec<Vec<u32>>,
     /// The most active genes a genome may hold (the largest capacity of any lineage, or of the first population).
     max_genes: usize,
     /// Words of the larger pool after the last collection: the next one waits until twice that.
@@ -133,6 +147,7 @@ struct Buffers {
     sum_lo: wgpu::Buffer,
     sum_hi: wgpu::Buffer,
     stats: wgpu::Buffer,
+    flows: wgpu::Buffer,
     // sized each tick
     rec: wgpu::Buffer,
     rec_ent: wgpu::Buffer,
@@ -185,6 +200,9 @@ impl<'a> Resident<'a> {
         assert!(p.gw.len() < pool_words && p.mw.len() < pool_words);
         let (menus, rates_t) = pack_menus(world);
         let max_genes = world.variation.iter().flatten().map(|(_, c)| c.genes).chain(p.genes.iter().map(Vec::len)).max().unwrap_or(1).max(1);
+        if std::env::var_os("EMERGE_GPU_BREAK").is_some() {
+            p.params[P_BECOMES] = 4; // upkeep counted as a different element: the audit must notice
+        }
         let ce = |words: usize| gpu.storage(cap * words * 4);
         let pad = |v: &[u32]| -> Vec<u32> { v.iter().copied().chain([0u32, 0]).collect() };
         let zeros = |count: usize| gpu.storage(count.max(1) * 4);
@@ -253,6 +271,7 @@ impl<'a> Resident<'a> {
             sum_lo: zeros((nc + cap) * ns),
             sum_hi: zeros((nc + cap) * ns),
             stats: zeros(p.reactions.len() / RX + 1),
+            flows: zeros(3 * ns * 2 + 2),
             rec: zeros(1),
             rec_ent: zeros(1),
             rq: zeros(1),
@@ -264,17 +283,17 @@ impl<'a> Resident<'a> {
         };
         let common = format!("{}\n{}", shader::constants(), shader::contract());
         let set_m = module(gpu, &format!("{common}\n{}", include_str!("set.wgsl")), 13, &["main"]);
-        let move_m = module(gpu, &format!("{common}\n{}", include_str!("move.wgsl")), 22, &["upkeep_fees", "collect_guards", "gen_requests", "sums", "flag_over", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
-        let tr_m = module(gpu, &format!("{}\n{}", shader::constants(), include_str!("transform.wgsl")), 13, &["react_entities", "react_cells", "vent"]);
+        let move_m = module(gpu, &format!("{common}\n{}", include_str!("move.wgsl")), 23, &["upkeep_fees", "collect_guards", "gen_requests", "sums", "flag_over", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
+        let tr_m = module(gpu, &format!("{}\n{}", shader::constants(), include_str!("transform.wgsl")), 14, &["react_entities", "react_cells", "vent", "audit_totals"]);
         let rs_src = format!("{common}\n{}\n{}\n{}", include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"));
-        let rs_m = module(gpu, &rs_src, 29, &["mark", "finish_scans", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
+        let rs_m = module(gpu, &rs_src, 30, &["mark", "finish_scans", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
         let prep_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("prep.wgsl"), crate::scan::kernels("bkt", "params[P_NBT]", "atomicLoad(&{name}_in[i])"), crate::scan::kernels("gen", "params[P_N]", "{name}_in[i]"));
         let prep_m = module(gpu, &prep_src, 12, &["assign", "finish_nstart", "finish_prep", "scatter", "set_roff", "bkt_local", "bkt_scan_blocks", "bkt_add", "gen_local", "gen_scan_blocks", "gen_add"]);
         let mut_src = format!("{common}\n{}\n{}", include_str!("mutate.wgsl"), include_str!("mutate_children.wgsl"));
         let mut_m = module(gpu, &mut_src, 9, &["mutate_children"]);
         let gc_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("gc.wgsl"), crate::scan::kernels("gm", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("gv", "params[P_N]", "{name}_in[i]"));
         let gc_m = module(gpu, &gc_src, 12, &["gc_sizes", "gc_copy", "gm_local", "gm_scan_blocks", "gm_add", "gv_local", "gv_scan_blocks", "gv_add"]);
-        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), parity: false, set_m, move_m, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, max_genes, live_after_gc: 0, b }
+        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), parity: false, set_m, move_m, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
     }
 
     fn write_param(&mut self, index: usize, value: u32) {
@@ -381,7 +400,7 @@ impl<'a> Resident<'a> {
         // ---- Transform ----
         {
             let b = &self.b;
-            let g = gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats]);
+            let g = gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats, &b.flows]);
             let pipe = |name: &str| self.tr_m.pipe(name);
             gpu.dispatch(&[(&pipe("react_entities"), &g, wg(n))]);
             for l in 0..self.params[P_NRLAWS] {
@@ -401,6 +420,9 @@ impl<'a> Resident<'a> {
         // ---- Restructure ----
         self.run_restructure();
         lap(self, 4);
+        if self.audit.is_some() {
+            self.audit_tick();
+        }
         let _ = ns;
     }
 
@@ -455,7 +477,7 @@ impl<'a> Resident<'a> {
         let b = &self.b;
         self.gpu.group(
             &self.move_m.bgl,
-            &[&b.params, &b.ent, &b.epos, &b.amounts, &b.camt, &b.ccap, &b.rec, &b.rec_ent, &b.laws, &b.sinkacc, &b.nbr, &b.dying, &b.guards, &b.rq, &b.sum_lo, &b.sum_hi, &b.list, &b.counters, &b.gw, &b.ecap, &b.scr, sortp],
+            &[&b.params, &b.ent, &b.epos, &b.amounts, &b.camt, &b.ccap, &b.rec, &b.rec_ent, &b.laws, &b.sinkacc, &b.nbr, &b.dying, &b.guards, &b.rq, &b.sum_lo, &b.sum_hi, &b.list, &b.counters, &b.gw, &b.ecap, &b.scr, sortp, &b.flows],
         )
     }
 
@@ -546,7 +568,7 @@ impl<'a> Resident<'a> {
         let b = &self.b;
         self.gpu.group(
             &self.rs_m.bgl,
-            &[&b.params, &b.ent, &b.epos, &b.amounts, &b.ecap, &b.sig, &b.camt, &b.ccap, &b.rec, &b.dying, &b.gw, &b.reactions, &b.ent2, &b.epos2, &b.amounts2, &b.ecap2, &b.sig2, &b.alive_in, &b.alive_out, &b.alive_blocks, &b.cand_in, &b.cand_out, &b.cand_blocks, &b.list, &b.counters, sortp, &b.work, &b.prev_out, &b.prev2],
+            &[&b.params, &b.ent, &b.epos, &b.amounts, &b.ecap, &b.sig, &b.camt, &b.ccap, &b.rec, &b.dying, &b.gw, &b.reactions, &b.ent2, &b.epos2, &b.amounts2, &b.ecap2, &b.sig2, &b.alive_in, &b.alive_out, &b.alive_blocks, &b.cand_in, &b.cand_out, &b.cand_blocks, &b.list, &b.counters, sortp, &b.work, &b.prev_out, &b.prev2, &b.flows],
         )
     }
 
@@ -612,6 +634,60 @@ impl<'a> Resident<'a> {
     }
 
     /// Words used in the master and view pools.
+    fn read_flows(&self) -> Vec<Vec<u128>> {
+        let w: Vec<u32> = self.gpu.read(&self.b.flows, 3 * self.ns * 2);
+        (0..3).map(|k| (0..self.ns).map(|s| { let i = (k * self.ns + s) * 2; w[i] as u128 | (w[i + 1] as u128) << 32 }).collect()).collect()
+    }
+
+    /// Element totals from per-substance totals.
+    fn elements(&self, by_substance: &[u128]) -> Vec<i128> {
+        let ne = self.comp.iter().map(Vec::len).max().unwrap_or(0);
+        (0..ne).map(|el| by_substance.iter().zip(&self.comp).map(|(&t, c)| t as i128 * *c.get(el).unwrap_or(&0) as i128).sum()).collect()
+    }
+
+    fn totals_now(&self) -> Vec<u128> {
+        let wg = ((self.n.max(self.nc)) as u32).div_ceil(64);
+        self.gpu.clear(&self.b.flows);
+        let b = &self.b;
+        let g = self.gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats, &b.flows]);
+        self.gpu.dispatch(&[(self.tr_m.pipe("audit_totals"), &g, wg)]);
+        self.read_flows().remove(2)
+    }
+
+    /// Starts auditing: the element totals now are the baseline, and every tick after this checks that
+    /// totals = baseline + emitted − absorbed, per element.
+    pub fn enable_audit(&mut self) {
+        self.write_param(P_N, self.n as u32);
+        let start = self.elements(&self.totals_now());
+        let ne = start.len();
+        self.audit = Some(Audit { start, emitted: vec![0; ne], absorbed: vec![0; ne], ticks: 0, drifted: 0, worst: 0 });
+        self.gpu.clear(&self.b.flows);
+    }
+
+    pub fn audit(&self) -> Option<&Audit> {
+        self.audit.as_ref()
+    }
+
+    fn audit_tick(&mut self) {
+        let flows = self.read_flows();
+        let emitted = self.elements(&flows[0]);
+        let absorbed = self.elements(&flows[1]);
+        self.write_param(P_N, self.n as u32);
+        let now = self.elements(&self.totals_now());
+        let a = self.audit.as_mut().unwrap();
+        let mut bad = false;
+        for el in 0..now.len() {
+            a.emitted[el] += emitted[el];
+            a.absorbed[el] += absorbed[el];
+            let drift = now[el] - (a.start[el] + a.emitted[el] - a.absorbed[el]);
+            a.worst = a.worst.max(drift.abs());
+            bad |= drift != 0;
+        }
+        a.ticks += 1;
+        a.drifted += u64::from(bad);
+        self.gpu.clear(&self.b.flows);
+    }
+
     pub fn pool_tops(&self) -> (u32, u32) {
         let t: Vec<u32> = self.gpu.read(&self.b.pool, 2);
         (t[0], t[1])

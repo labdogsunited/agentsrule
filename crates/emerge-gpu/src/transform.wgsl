@@ -12,9 +12,17 @@
 @group(0) @binding(9) var<storage, read_write> reactions: array<u32>;
 @group(0) @binding(10) var<storage, read_write> rlaws: array<u32>;
 @group(0) @binding(11) var<storage, read_write> waste: array<u32>;
-@group(0) @binding(12) var<storage, read_write> stats: array<atomic<u32>>;   // entity-reaction extent by reaction
+@group(0) @binding(12) var<storage, read_write> stats: array<atomic<u32>>;
+@group(0) @binding(13) var<storage, read_write> flows: array<atomic<u32>>;   // entity-reaction extent by reaction
 
 const RX = 20u;
+fn flow_add(kind: u32, s: u32, x: u32) {
+    if (x == 0u) { return; }
+    let i = (kind * params[P_NS] + s) * 2u;
+    let old = atomicAdd(&flows[i], x);
+    if (old + x < old) { atomicAdd(&flows[i + 1u], 1u); }
+}
+
 const P_NWASTE = 38u;
 const P_LAWIDX = 49u;
 
@@ -76,5 +84,21 @@ fn vent(@builtin(global_invocation_id) id: vec3<u32>) {
     let e = id.x;
     if (e >= params[P_N]) { return; }
     let ns = params[P_NS];
-    for (var k = 0u; k < params[P_NWASTE]; k++) { amounts[e * ns + waste[k]] = 0u; }
+    for (var k = 0u; k < params[P_NWASTE]; k++) {
+        flow_add(1u, waste[k], amounts[e * ns + waste[k]]);
+        amounts[e * ns + waste[k]] = 0u;
+    }
+}
+
+// The audit: the total of each substance in every store, kind 2 of `flows`.
+@compute @workgroup_size(64)
+fn audit_totals(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    let ns = params[P_NS];
+    if (i < params[P_N]) {
+        for (var s = 0u; s < ns; s++) { flow_add(2u, s, amounts[i * ns + s]); }
+    }
+    if (i < arrayLength(&camt) / ns) {
+        for (var s = 0u; s < ns; s++) { flow_add(2u, s, camt[i * ns + s]); }
+    }
 }

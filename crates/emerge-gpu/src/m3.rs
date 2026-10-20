@@ -297,11 +297,15 @@ pub fn run_gpu_cmd(args: &[String]) {
     let names: Vec<&str> = args[1].split(',').collect();
     let (ticks, seed): (u64, u64) = (args[2].parse().unwrap(), args[3].parse().unwrap());
     let every: u64 = args.get(4).map_or(1000, |v| v.parse().unwrap());
-    let mut world = compile(&src, &names, Options { seed, allow_partial: true, mutation: false }).unwrap_or_else(|e| panic!("{e:?}")).world;
+    let mutation = std::env::var_os("EMERGE_GPU_MUTATION").is_some();
+    let mut world = compile(&src, &names, Options { seed, allow_partial: true, mutation }).unwrap_or_else(|e| panic!("{e:?}")).world;
     world.contract = true;
     let reaction_names: Vec<String> = world.chem.reactions.iter().map(|r| world.chem.formula(&r.inputs, &r.outputs)).collect();
     let gpu = Gpu::new();
     let mut r = Resident::new(&gpu, &mut world);
+    if std::env::var_os("EMERGE_GPU_AUDIT").is_some() {
+        r.enable_audit();
+    }
     println!("run on {}: {} {} seed {seed}, {ticks} ticks, mutation off, contract mode", gpu.name, args[0], args[1]);
     println!("tick,population,births,deaths,ms_per_tick,entity-reaction extent (nonzero)");
     let (mut b0, mut d0, mut e0, mut t0) = (r.births, r.deaths, r.extent.clone(), std::time::Instant::now());
@@ -313,6 +317,9 @@ pub fn run_gpu_cmd(args: &[String]) {
             println!("{tick},{},{},{},{ms:.2},{}", r.n, r.births - b0, r.deaths - d0, extent.join(" "));
             (b0, d0, e0, t0) = (r.births, r.deaths, r.extent.clone(), std::time::Instant::now());
         }
+    }
+    if let Some(a) = r.audit() {
+        println!("ledger audit: {} ticks checked, {} with element totals off, largest difference {} micro-units; genome pools collected {} times", a.ticks, a.drifted, a.worst, r.collections);
     }
     if let Some(p) = r.profile {
         let total: f64 = p.iter().sum();

@@ -24,6 +24,15 @@
 @group(0) @binding(19) var<storage, read_write> ecap: array<u32>;
 @group(0) @binding(20) var<storage, read_write> scr: array<u64>;
 @group(0) @binding(21) var<storage, read_write> sortp: array<u32>;
+@group(0) @binding(22) var<storage, read_write> flows: array<atomic<u32>>;   // emitted, absorbed, (audit) totals by substance, 64-bit as two words
+const P_BECOMES = 55u;
+fn flow_add(kind: u32, s: u32, x: u32) {
+    if (x == 0u) { return; }
+    let i = (kind * params[P_NS] + s) * 2u;
+    let old = atomicAdd(&flows[i], x);
+    if (old + x < old) { atomicAdd(&flows[i + 1u], 1u); }
+}
+
 
 const RQ = 8u;      // words per request: origin, dest, s, overflow, requested, steal, stage1, stage2
 const LAW = 28u;    // words per law
@@ -124,6 +133,7 @@ fn upkeep_fees(@builtin(global_invocation_id) id: vec3<u32>) {
     let have = u64(atomicLoad(&amounts[e * ns + pay]));
     if (have >= cost) {
         atomicSub(&amounts[e * ns + pay], u32(cost));
+        flow_add(1u, params[P_BECOMES], u32(cost));
     } else {
         dead = true;
     }
@@ -138,6 +148,7 @@ fn upkeep_fees(@builtin(global_invocation_id) id: vec3<u32>) {
         if (live && fee > 0u) {
             if (atomicLoad(&amounts[e * ns + pay]) >= fee) {
                 atomicSub(&amounts[e * ns + pay], fee);
+                flow_add(1u, params[P_BECOMES], fee);
             } else {
                 live = false;
             }
@@ -389,6 +400,9 @@ fn commit(@builtin(global_invocation_id) id: vec3<u32>) {
     else if (tag_of(o) == 1u) { atomicSub(&amounts[idx_of(o) * params[P_NS] + s], debit); }
     if (tag_of(d) == 0u) { atomicAdd(&camt[idx_of(d) * params[P_NS] + s], delivered); }
     else if (tag_of(d) == 1u) { atomicAdd(&amounts[idx_of(d) * params[P_NS] + s], delivered); }
+    if (tag_of(o) == 2u) { flow_add(0u, s, debit); }
+    if (tag_of(d) == 3u) { flow_add(1u, s, delivered); }
+    flow_add(1u, s, overflowed);
 }
 
 // ---- movement (2.4), one thread per entity ----

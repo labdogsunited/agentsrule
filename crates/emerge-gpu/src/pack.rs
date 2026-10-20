@@ -82,6 +82,7 @@ pub const P_NSINK: usize = 36;
 pub const P_LAWTOT: usize = 39;
 pub const P_NRLAWS: usize = 37;
 pub const P_NWASTE: usize = 38;
+pub const P_BECOMES: usize = 55;
 pub const P_STAGE: usize = 48;
 pub const P_LAWIDX: usize = 49;
 pub const P_MAXAGE: usize = 40;
@@ -353,6 +354,7 @@ pub fn pack_move(world: &World, p: &mut Packed) {
     let u = &world.upkeep;
     let set = |p: &mut Packed, i: usize, v: u32| p.params[i] = v;
     set(p, P_PAY, u.pay as u32);
+    set(p, P_BECOMES, u.becomes as u32);
     set(p, P_UBASE, u.base);
     set(p, P_UGENE, u.per_gene);
     set(p, P_USIG, u.per_signal);
