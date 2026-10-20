@@ -706,7 +706,21 @@ impl World {
 
     /// Runs one tick without auditing, for long runs that audit every `K` ticks.
     pub fn run_tick(&mut self) {
+        self.begin_tick();
         let n = self.entities.len();
+        // ---- 1 Set ----
+        // Senses read the snapshot, minds run, action genes become intents (spec §7.1).
+        let plans = self.set_phase();
+        self.finish_tick_n(n, plans);
+    }
+
+    /// The contact index of the current snapshot (after `begin_tick`).
+    pub fn near_index(&self) -> &crate::near::Index {
+        &self.near
+    }
+
+    /// Takes the snapshot the tick reads: positions, IDs and the contact index.
+    pub fn begin_tick(&mut self) {
         if let Some(space) = &self.space {
             self.snap_pos.clear();
             self.snap_pos.extend(self.entities.iter().map(|e| e.pos));
@@ -720,12 +734,19 @@ impl World {
             let group = self.entities.iter().map(|e| a.group_of(&self.chem, e)).collect();
             a.group = group;
         }
+    }
 
-        // ---- 1 Set ----
-        // Senses read the snapshot, minds run, action genes become intents (spec §7.1).
-        let mut plans: Vec<Plan> = (0..n).map(|i| self.set(i)).collect();
+    /// Set (spec §7.1) for every entity, after `begin_tick`: updates the signals (and `prev`
+    /// of entities with a `delta` gene) and returns each entity's intents and reaction caps.
+    pub fn set_phase(&mut self) -> Vec<Plan> {
+        (0..self.entities.len()).map(|i| self.set(i)).collect()
+    }
+
+    /// Move (spec §7.2) with the plans `set_phase` returned: upkeep, fees, transfers and
+    /// movement. Returns which entities are dying; the plans' `live` flags are updated.
+    pub fn move_phase(&mut self, plans: &mut Vec<Plan>) -> Vec<bool> {
+        let n = self.entities.len();
         let mut dying = vec![false; n];
-
         // ---- 2 Move ----
         // 2.1 Upkeep, before anything else.
         for (i, e) in self.entities.iter_mut().enumerate() {
@@ -743,7 +764,7 @@ impl World {
             }
         }
         // 2.2 Attempt fees, in genome order.
-        for (i, (e, plan)) in self.entities.iter_mut().zip(&mut plans).enumerate() {
+        for (i, (e, plan)) in self.entities.iter_mut().zip(plans.iter_mut()).enumerate() {
             for x in plan.intents.iter_mut().filter(|x| x.live && x.fee > 0) {
                 if e.store.amounts[self.upkeep.pay] >= x.fee {
                     e.store.amounts[self.upkeep.pay] -= x.fee;
@@ -771,7 +792,7 @@ impl World {
             .iter()
             .map(|p| p.intents.iter().filter(|x| x.live).fold(0, |m, x| if let Act::Guard { s } = x.act { m | 1 << s } else { m }))
             .collect();
-        for (i, (e, plan)) in self.entities.iter().zip(&plans).enumerate() {
+        for (i, (e, plan)) in self.entities.iter().zip(plans.iter()).enumerate() {
             for x in plan.intents.iter().filter(|x| x.live) {
                 match x.act {
                     // The thief's fee is kept.
@@ -812,7 +833,7 @@ impl World {
         self.requests = requests;
         // 2.4 Movement: paid turns, then paid moves. No repulsion in P0 (spec §7.2).
         if let Some(space) = &self.space {
-            for (e, plan) in self.entities.iter_mut().zip(&plans) {
+            for (e, plan) in self.entities.iter_mut().zip(plans.iter()) {
                 for x in plan.intents.iter().filter(|x| x.live) {
                     if let Act::Turn { angle_deg } = x.act {
                         if self.contract {
@@ -840,6 +861,16 @@ impl World {
             }
         }
 
+        dying
+    }
+
+    /// Move, Transform and Restructure (spec §7.2 to §7.5) with the plans `set_phase` returned.
+    pub fn finish_tick(&mut self, plans: Vec<Plan>) {
+        self.finish_tick_n(self.entities.len(), plans)
+    }
+
+    fn finish_tick_n(&mut self, n: usize, mut plans: Vec<Plan>) {
+        let dying = self.move_phase(&mut plans);
         // ---- 3 Transform ----
         for (i, e) in self.entities.iter_mut().enumerate() {
             if dying[i] {
@@ -1247,19 +1278,26 @@ impl World {
                 [(std::f32::consts::TAU * phase).sin(), 0.0]
             }
             Sense::Inventory(s) => [units(e.store.amounts[s]), 0.0],
-            Sense::Delta(s) => [e.prev.get(s).map_or(0.0, |&p| (e.store.amounts[s] - p) as f32 * 0.001), 0.0],
+            // Default mode subtracts as `u32`, which wraps when the amount fell (a bug kept so that
+            // archived runs stay reproducible); contract mode uses the signed difference.
+            Sense::Delta(s) if self.contract => [e.prev.get(s).map_or(0.0, |&p| crate::contract::amount_diff(e.store.amounts[s], p, 0.001)), 0.0],
+            Sense::Delta(s) => [e.prev.get(s).map_or(0.0, |&p| (e.store.amounts[s].wrapping_sub(p)) as f32 * 0.001), 0.0],
             Sense::Cell(s) => [units(self.cells[e.cell].amounts[s]), 0.0],
             Sense::Gradient(s) => {
                 let Some(space) = &self.space else { return [0.0, 0.0] };
                 // Central differences over the neighbouring cells, per unit distance.
-                let at = |dx, dy| units(self.cells[space.offset(e.cell, dx, dy)].amounts[s]);
+                let raw = |dx, dy| self.cells[space.offset(e.cell, dx, dy)].amounts[s];
+                if self.contract {
+                    use crate::contract::{amount_diff, fma};
+                    let (kx, ky) = (0.001f32 * (space.grid_w as f32 / (2.0 * space.w)), 0.001f32 * (space.grid_h as f32 / (2.0 * space.h)));
+                    let (gx, gy) = (amount_diff(raw(1, 0), raw(-1, 0), kx), amount_diff(raw(0, 1), raw(0, -1), ky));
+                    let [hx, hy] = e.heading;
+                    return [fma(gx, hx, gy * hy), fma(gy, hx, -(gx * hy))];
+                }
+                let at = |dx, dy| units(raw(dx, dy));
                 let gx = (at(1, 0) - at(-1, 0)) * (space.grid_w as f32 / (2.0 * space.w));
                 let gy = (at(0, 1) - at(0, -1)) * (space.grid_h as f32 / (2.0 * space.h));
                 let [hx, hy] = e.heading;
-                if self.contract {
-                    use crate::contract::fma;
-                    return [fma(gx, hx, gy * hy), fma(gy, hx, -(gx * hy))];
-                }
                 [gx * hx + gy * hy, -gx * hy + gy * hx]
             }
         }

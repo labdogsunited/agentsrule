@@ -47,7 +47,13 @@ impl Index {
         ix
     }
 
-    fn bucket(&self, p: [f32; 2]) -> usize {
+    /// The index as flat arrays, for a runtime that uploads it: bucket counts, the largest
+    /// radius it answers, `start` (one more than the buckets) and `order`.
+    pub fn raw(&self) -> ([usize; 2], f32, &[u32], &[u32]) {
+        (self.buckets, self.radius, &self.start, &self.order)
+    }
+
+    pub fn bucket(&self, p: [f32; 2]) -> usize {
         let x = ((p[0] / self.side[0]) as usize).min(self.buckets[0] - 1);
         let y = ((p[1] / self.side[1]) as usize).min(self.buckets[1] - 1);
         y * self.buckets[0] + x

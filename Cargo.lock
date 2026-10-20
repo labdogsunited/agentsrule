@@ -152,6 +152,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "emerge-gpu"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "emerge-lang",
+ "emerge-ref",
+ "pollster",
+ "wgpu",
+]
+
+[[package]]
 name = "emerge-gpu-spike"
 version = "0.1.0"
 dependencies = [

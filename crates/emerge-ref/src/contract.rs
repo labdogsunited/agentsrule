@@ -117,6 +117,13 @@ pub fn fit(v: f32, size: f32, wrap: bool) -> f32 {
     }
 }
 
+/// `(a - b) * k` for two amounts, where the difference is taken in integers first (a product
+/// that met a subtraction could be fused either way) and converted once. The sign is split off
+/// so that the conversion of a `u32` to `f32`, exact in no more than 24 bits, is one rounding.
+pub fn amount_diff(a: u32, b: u32, k: f32) -> f32 {
+    if a >= b { (a - b) as f32 * k } else { -(((b - a) as f32) * k) }
+}
+
 /// Squared distance for the contact index: `dx·dx + dy·dy` fused.
 pub fn distance2(dx: f32, dy: f32) -> f32 {
     fma(dx, dx, dy * dy)

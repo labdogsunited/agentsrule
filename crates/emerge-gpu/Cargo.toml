@@ -1,0 +1,15 @@
+[package]
+name = "emerge-gpu"
+version = "0.1.0"
+edition = "2021"
+description = "GPU runtime for emerge-ref worlds (proposals/gpu-runtime.md)"
+publish = false
+
+[dependencies]
+bytemuck = "1"
+emerge-ref = { path = "../emerge-ref" }
+pollster = "1"
+wgpu = "30.0.1"
+
+[dev-dependencies]
+emerge-lang = { path = "../emerge-lang" }
