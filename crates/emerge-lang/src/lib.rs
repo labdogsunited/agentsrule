@@ -14,6 +14,7 @@ pub mod order;
 pub mod parser;
 pub mod patch;
 pub mod resolve;
+pub mod view;
 
 pub use ast::File;
 pub use expand::expand;

@@ -6,7 +6,8 @@
 //!   generated forms reserved;
 //! - seeds (§8.3, §8.1): every signal read is written, and the seed fits its profile;
 //! - upkeep (§6.6): `base` is above `0mu`;
-//! - writers (§6.3): a signal field written by several rules declares how writes combine.
+//! - writers (§6.3): a signal field written by several rules declares how writes combine;
+//! - views and charts (§9.2): see `view.rs`.
 
 use std::collections::HashMap;
 
@@ -49,6 +50,8 @@ pub fn check(file: &File) -> Vec<Problem> {
             _ => {}
         }
     }
+    // Views and charts (their warnings come from `view::check` alone).
+    out.extend(crate::view::check(file).0);
     out
 }
 

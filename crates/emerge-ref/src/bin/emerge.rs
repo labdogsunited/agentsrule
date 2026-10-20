@@ -299,6 +299,11 @@ fn check(args: &[String]) -> ExitCode {
                     }
                 }
             }
+            // Bindings a view may name that are not computed yet (W1201): the file stays valid.
+            if !out.iter().any(|d| d.severity == "error") {
+                let views = emerge_lang::prepare(&file).map(|f| emerge_lang::view::check(&f).1).unwrap_or_default();
+                out.extend(views.into_iter().map(|p| Diagnostic { code: p.code, severity: "warning", path: p.path, line: p.pos.line, col: p.pos.col, message: p.message, fix: None }));
+            }
         }
     }
     for d in &out {

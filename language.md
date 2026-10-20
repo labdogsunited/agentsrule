@@ -647,6 +647,7 @@ chart Health for Dish {
 
 - In a `field` layer, `value` is the field's value at the pixel. In an `agents` layer, entity properties (`heading`, `species_id`, `expressed_genes`, inventory amounts by substance name) are in scope.
 - `x |> f(args)` means `f(x, args)`: the left value becomes the subject of the call on the right. It exists only in views.
+- `emerge check` resolves views and charts (`crates/emerge-lang/src/view.rs`). A field layer shows one field: `field(cells.SUBSTANCE)` for a conserved field, `field(NAME)` for a signal field; `value` is the cell's value, in units for a substance. An agents layer reads `heading`, `position` (directions), `id` and `lineage_id` (identities), `age` and `expressed_genes` (whole numbers), and inventory amounts by substance name (`units(body)` makes one a number). Entries: `color` in both kinds, `glyph` (`arrow(dir: …)` or `dot()`) and `size` in agents layers. `scale(linear | log, range: low..high)` maps a number into `[0, 1]`; a log range must be above 0. Palettes: sequential `greens`, `blues`, `reds`, `grays`, `viridis`, `magma`, `inferno`, `cividis`; diverging `rdbu`; cyclic `twilight` (for a heading or a phase); `categorical` (for identities). A chart line plots `population`, `births` or `deaths`, optionally `by: lineage`. `species_id`, `by: species` and `metrics.…` are valid but not computed yet: `W1201`, and a renderer shows them as unavailable.
 
 ### 9.3 Explore
 
@@ -979,6 +980,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E0801`–`E0803` | limits: a seed larger than its profile, a population above `max_entities`, positions outside the space |
 | `E1001` | not supported by the runner yet |
 | `E1002`, `W1001` | a part of the world the runner cannot run: an error, or with `--partial` a warning naming what was left out |
+| `W1201` | a view or chart names a binding that is valid but not computed yet (`species_id`, `by: species`, `metrics.…`); the file stays valid, and the verdict does not count it |
 | `N1101`, `N1102` | notes from `emerge check`: substances that can never appear (no store starts with them, no inflow adds them, and every reaction that makes one needs one), and reactions, in the reaction space or in rules, that can never run for that reason. An optimistic closure: amounts, order and costs are ignored, so a note is a proof of impossibility, and no note proves nothing |
 
 ---
@@ -1021,7 +1023,8 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | Recombination | not in the language | — | — |
 | **Authoring** (resolved before any runner sees the file) | | | |
 | `const`, `extends` with `after @label`, patch files, `--patch`, `--set`; `emerge fmt`, `expand`, `order` | yes | yes | yes |
-| `view`, `chart`, `explore` | parsed only: their names, fields and types are not checked (an unknown world or field passes) | noted as "not used by a run" | — |
+| `view`, `chart` | yes (names and kinds; `W1201` for bindings not computed yet) | noted as "not used by a run"; no renderer yet | — |
+| `explore` | parsed only | noted as "not used by a run" | — |
 | Hot-swap (a patch at a revision, `world.hotswap` in `emerge-server`) | yes | yes, the Phase 0 subset (`proposals/engine-api.md`: rules, rates and amounts, upkeep costs, limits, `mind_steps`, mutation rates, raised caps); anything else is rejected and changes nothing | yes, the same subset |
 | `core.md` syntax (graph core, rules as data, living scopes) | not parsed | — | — |
 | **Runner output** | | | |

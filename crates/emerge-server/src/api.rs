@@ -235,9 +235,10 @@ pub fn validate(source: &str, lineages: &[String]) -> Value {
     if !problems.is_empty() {
         return json!({"valid": false, "errors": problems});
     }
+    let warnings: Vec<Value> = emerge_lang::prepare(&file).map(|f| emerge_lang::view::check(&f).1).unwrap_or_default().iter().map(|p| json!({"code": p.code, "path": p.path, "message": p.message})).collect();
     let names: Vec<&str> = if lineages.is_empty() { emerge_ref::compile::lineage_names(&file) } else { lineages.iter().map(String::as_str).collect() };
     match emerge_ref::compile::compile(source, &names, emerge_ref::compile::Options { seed: 1, allow_partial: true, mutation: true }) {
-        Ok(c) => json!({"valid": true, "lineages": names, "left_out": c.partial.iter().map(|e| format!("{}: {}", e.path, e.message)).collect::<Vec<_>>(), "notes": c.notes}),
+        Ok(c) => json!({"valid": true, "lineages": names, "left_out": c.partial.iter().map(|e| format!("{}: {}", e.path, e.message)).collect::<Vec<_>>(), "warnings": warnings, "notes": c.notes}),
         Err(e) => json!({"valid": false, "errors": [{"code": e.code, "path": e.path, "line": e.pos.line, "col": e.pos.col, "message": e.message}]}),
     }
 }
