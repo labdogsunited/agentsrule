@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{dish, dish_cell};
+use common::dish;
 use emerge_ref::compile::{compile, Options};
 use emerge_ref::world::{Accounts, Space, ACCOUNT_COLUMNS};
 use emerge_ref::{End, Gene, Genome, World, ONE, U};
