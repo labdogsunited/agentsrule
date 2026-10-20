@@ -123,6 +123,8 @@ Before checking, every use of a constant (in the world, or in a lineage of it) i
 
 `emerge expand FILE` prints the file as the checker and runner see it: lineages that `extends` another written out (§8.1) and constants replaced by their values.
 
+`emerge order FILE [WORLD]` prints the steps of one tick (spec §7.1 to §7.5) with each world rule placed in the phase its effect gives it: signal rules in Set, transfer rules (with source inflows and diffusion) in Move, reaction rules in Transform. A rule that mixes kinds, or has none, is listed as not placed. A test keeps the step names equal to the spec's.
+
 A **project** is a directory. `emerge` loads every `.em` file in it as one program. Persistent IDs live in `.emerge/ids.json` in the same directory and are kept in version control with the sources (§10.2).
 
 ---

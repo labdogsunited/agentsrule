@@ -1,0 +1,89 @@
+//! `emerge order` (`order.rs`): the built-in steps are the numbered steps of spec §7.1 to
+//! §7.5, in the same order, and each world rule of `examples/dish.em` lands in the phase
+//! its effect gives it (spec §7.4).
+
+use emerge_lang::order::{order, step_names};
+
+const DISH: &str = include_str!("../../../examples/dish.em");
+
+fn report(src: &str, world: &str) -> String {
+    let file = emerge_lang::prepare(&emerge_lang::parse(src).unwrap()).unwrap();
+    order(&file, world).unwrap()
+}
+
+/// Bold titles that start a step in spec §7.1 to §7.5: `1. **Senses.**` or `**Venting.**`.
+fn spec_steps() -> Vec<String> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let specs: Vec<_> = std::fs::read_dir(&root)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("spec-v") && n.ends_with(".md"))
+        .collect();
+    assert_eq!(specs.len(), 1, "expected one spec in the repo root, found {specs:?}");
+    let text = std::fs::read_to_string(root.join(&specs[0])).unwrap();
+    let start = text.find("### 7.1 Set").expect("spec §7.1");
+    let end = text.find("### 7.4 World rules").expect("spec §7.4");
+    let restructure = text.find("### 7.5 Restructure").expect("spec §7.5");
+    let after = text.find("## 8. Evolution").expect("spec §8");
+    let mut names = Vec::new();
+    for part in [&text[start..end], &text[restructure..after]] {
+        for line in part.lines() {
+            let rest = line.trim_start_matches(|c: char| c.is_ascii_digit()).trim_start_matches(". ");
+            if line.starts_with(' ') || !rest.starts_with("**") {
+                continue;
+            }
+            let title = rest[2..].split("**").next().unwrap();
+            names.push(title.trim_end_matches('.').to_string());
+        }
+    }
+    names
+}
+
+#[test]
+fn built_in_steps_match_the_spec() {
+    assert_eq!(step_names(), spec_steps());
+}
+
+#[test]
+fn dish_rules_land_in_their_phases() {
+    let r = report(DISH, "Dish");
+    let at = |needle: &str| r.find(needle).unwrap_or_else(|| panic!("missing `{needle}` in\n{r}"));
+    let (signals, transfers, movement) = (at("Field signals"), at("3. Transfers"), at("Movement"));
+    let (world_rx, venting, disposal) = (at("World reactions"), at("Venting"), at("Disposal"));
+    assert!(signals < at("rule smell") && at("rule smell") < at("Move\n"));
+    for rule in ["rule sunlight", "rule weather", "rule spread"] {
+        assert!(transfers < at(rule) && at(rule) < movement, "{rule}");
+    }
+    assert!(at("rule sunlight") < at("rule weather") && at("rule weather") < at("rule spread"));
+    assert!(world_rx < at("rule rotting") && at("rule rotting") < venting);
+    assert!(at("waste heat -> void") > venting && at("waste heat -> void") < disposal);
+    assert!(at("remains: void") > disposal);
+    // Take (a Move step) runs before rotting (Transform), and disposal comes after.
+    assert!(transfers < world_rx && world_rx < disposal);
+}
+
+#[test]
+fn a_rule_that_mixes_kinds_is_reported_not_placed() {
+    let src = DISH.replace(
+        "react(rot, rate: 50bp) @react_rot;",
+        "react(rot, rate: 50bp) @react_rot;\n        diffuse_conserved([sugar], rate: 300bp) @diffuse_conserved;",
+    );
+    let r = report(&src, "Dish");
+    assert!(r.contains("rule rotting on cells: not placed, it mixes kinds of effect"), "{r}");
+    assert!(!r.contains("       rule rotting"), "{r}");
+}
+
+#[test]
+fn an_unknown_world_is_an_error() {
+    let file = emerge_lang::parse(DISH).unwrap();
+    assert_eq!(order(&file, "Nope").unwrap_err(), "no world `Nope`");
+}
+
+#[test]
+fn decompose_is_listed_under_disposal() {
+    let src = DISH.replace("remains: void;", "remains: void;\n    decompose: rot;");
+    let r = report(&src, "Dish");
+    let d = r.find("decompose: rot").unwrap_or_else(|| panic!("{r}"));
+    assert!(r.find("Disposal").unwrap() < d && d < r.find("Division").unwrap());
+}

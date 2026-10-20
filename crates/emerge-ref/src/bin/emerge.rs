@@ -44,6 +44,7 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         Some("fmt") => fmt(&args[1..]),
         Some("expand") => expand(&args[1..]),
+        Some("order") => order(&args[1..]),
         Some("check") => check(&args[1..]),
         Some("run") => run(&args[1..]),
         Some("census") => census(&args[1..]),
@@ -54,6 +55,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
     eprintln!("       emerge expand <file.em>");
+    eprintln!("       emerge order <file.em> [WORLD]");
     eprintln!("       emerge check [--json] <file.em>");
     eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N] [--accounts FILE [--clade ID,…]] [--changes FILE] [--producers-log FILE] [--contact FILE]");
     eprintln!("       emerge census <file.em> --lineage A [--flux S] [--lines N] [--generations N]");
@@ -106,6 +108,48 @@ fn expand(args: &[String]) -> ExitCode {
             eprintln!("{path}:{}:{}: error[{}]: {}", p.pos.line, p.pos.col, p.code, p.message);
             ExitCode::FAILURE
         }
+    }
+}
+
+/// The steps of one tick, with the world's rules placed in their phases.
+fn order(args: &[String]) -> ExitCode {
+    let (path, world) = match args {
+        [p] => (p, None),
+        [p, w] => (p, Some(w.as_str())),
+        _ => return usage(),
+    };
+    let Some(src) = read(path) else { return ExitCode::from(2) };
+    let fail = |m: String| {
+        eprintln!("{path}: {m}");
+        ExitCode::FAILURE
+    };
+    let file = match emerge_lang::parse(&src) {
+        Ok(f) => f,
+        Err(d) => return fail(d.to_string()),
+    };
+    let file = match emerge_lang::prepare(&file) {
+        Ok(f) => f,
+        Err(p) => return fail(format!("{}:{}: error[{}]: {}", p.pos.line, p.pos.col, p.code, p.message)),
+    };
+    let worlds: Vec<&str> = file
+        .items
+        .iter()
+        .filter_map(|i| match &i.node {
+            emerge_lang::ast::Item::World(w) => Some(w.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    let name = match (world, worlds.as_slice()) {
+        (Some(w), _) => w,
+        (None, [only]) => only,
+        (None, _) => return fail(format!("name a world: {}", worlds.join(", "))),
+    };
+    match emerge_lang::order::order(&file, name) {
+        Ok(text) => {
+            print!("{text}");
+            ExitCode::SUCCESS
+        }
+        Err(m) => fail(m),
     }
 }
 

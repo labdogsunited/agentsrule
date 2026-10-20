@@ -638,6 +638,18 @@ fn terms(ts: &[Term]) -> String {
         .join(" + ")
 }
 
+/// A statement as source text on one line (blocks are joined with spaces).
+pub fn stmt_text(s: &Stmt) -> String {
+    let mut out = Out { lines: Vec::new() };
+    stmt(&mut out, 0, s);
+    out.lines.iter().map(|l| l.trim()).collect::<Vec<_>>().join(" ")
+}
+
+/// A setting's value as source text: `rot`, `void`.
+pub fn value_text(v: &Value) -> String {
+    flat(&value(v))
+}
+
 /// A formula as source text: `light + carbon -> sugar`.
 pub fn formula_text(f: &Formula) -> String {
     formula(f)
