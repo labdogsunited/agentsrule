@@ -501,7 +501,7 @@ fn legend(pm: &mut Pixmap, x0: u32, view: &View, frame: &Frame, keys: &[LayerKey
     for key in keys {
         t.draw(pm, lx, y, 15.0, &key.name, INK);
         y += 18.0;
-        y = t.wrapped(pm, lx, y, 12.5, &key.source, MUTED, wrap_w);
+        y = t.wrapped(pm, (lx, y), 12.5, &key.source, MUTED, wrap_w);
         y += 6.0;
         if let Some((pal, lo, hi, log)) = &key.ramp {
             let bw = wrap_w;
@@ -531,11 +531,11 @@ fn legend(pm: &mut Pixmap, x0: u32, view: &View, frame: &Frame, keys: &[LayerKey
             y += 20.0;
         }
         for e in &key.entries {
-            y = t.wrapped(pm, lx, y, 12.0, e, MUTED, wrap_w);
+            y = t.wrapped(pm, (lx, y), 12.0, e, MUTED, wrap_w);
         }
         for u in &key.unavailable {
             swatch(pm, lx, y - 10.0, 14.0, 14.0, UNAVAILABLE);
-            y = t.wrapped(pm, lx + 22.0, y + 1.0, 12.0, &format!("{u}: not computed yet, drawn grey"), MUTED, wrap_w - 22.0);
+            y = t.wrapped(pm, (lx + 22.0, y + 1.0), 12.0, &format!("{u}: not computed yet, drawn grey"), MUTED, wrap_w - 22.0);
         }
         if key.count > 0 && key.source.starts_with("agents") {
             t.draw(pm, lx, y, 12.0, &format!("{} shown", key.count), MUTED);

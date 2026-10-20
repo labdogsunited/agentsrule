@@ -71,7 +71,7 @@ impl Text {
     }
 
     /// Draws `s` broken into lines no wider than `max`; returns the baseline after the last line.
-    pub fn wrapped(&self, pm: &mut Pixmap, x: f32, y: f32, size: f32, s: &str, color: [u8; 3], max: f32) -> f32 {
+    pub fn wrapped(&self, pm: &mut Pixmap, (x, y): (f32, f32), size: f32, s: &str, color: [u8; 3], max: f32) -> f32 {
         let mut line = String::new();
         let mut y = y;
         for word in s.split(' ') {
