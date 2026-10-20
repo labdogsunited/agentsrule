@@ -265,11 +265,34 @@ pub struct Accounts {
 }
 
 /// What `Accounts` counts, in µ unless named otherwise. `pay` is the upkeep substance.
-pub const ACCOUNT_COLUMNS: [&str; 15] = [
+pub const ACCOUNT_COLUMNS: [&str; 29] = [
     "births", "starved", "aged", "upkeep_mu", "fees_mu", "pay_made_mu", "pay_used_mu", "pay_taken_mu",
     "pay_stolen_in_mu", "pay_stolen_out_mu", "flux_made_mu", "flux_taken_mu", "flux_stolen_in_mu",
     "flux_stolen_out_mu", "flux_used_mu",
+    "pay_gift_in_mu", "pay_gift_out_mu", "pay_dropped_mu", "pay_wasted_mu", "pay_died_with_mu",
+    "pay_to_child_mu", "pay_from_parent_mu",
+    "flux_gift_in_mu", "flux_gift_out_mu", "flux_dropped_mu", "flux_wasted_mu", "flux_died_with_mu",
+    "flux_to_child_mu", "flux_from_parent_mu",
 ];
+// Per substance (pay, then flux), the columns that close the budget of a group: its stock
+// changes by made - used + taken + stolen_in - stolen_out + gift_in - gift_out - dropped
+// - wasted - died_with + from_parent - to_child (and, for pay, - upkeep - fees). `died_with` is
+// what the entity held when it died, before `decompose` ran. Entities added by `--inject`
+// or by genesis bring their stock with them and are not counted.
+const A_PAY_GIFT_IN: usize = 15;
+const A_PAY_GIFT_OUT: usize = 16;
+const A_PAY_DROPPED: usize = 17;
+const A_PAY_WASTED: usize = 18;
+const A_PAY_DIED: usize = 19;
+const A_PAY_TO_CHILD: usize = 20;
+const A_PAY_FROM_PARENT: usize = 21;
+const A_FLUX_GIFT_IN: usize = 22;
+const A_FLUX_GIFT_OUT: usize = 23;
+const A_FLUX_DROPPED: usize = 24;
+const A_FLUX_WASTED: usize = 25;
+const A_FLUX_DIED: usize = 26;
+const A_FLUX_TO_CHILD: usize = 27;
+const A_FLUX_FROM_PARENT: usize = 28;
 const A_BIRTHS: usize = 0;
 const A_STARVED: usize = 1;
 const A_AGED: usize = 2;
@@ -875,11 +898,20 @@ impl World {
                 }
             }
         }
-        for e in &mut self.entities {
+        for (i, e) in self.entities.iter_mut().enumerate() {
             for &(s, sink) in &self.waste {
                 debug_assert!(self.sinks[sink].accepts(s));
                 let amount = std::mem::take(&mut e.store.amounts[s]);
                 add_elements(&mut self.absorbed, &self.chem, s, amount);
+                if let Some(a) = &mut self.accounts {
+                    let g = a.group[i];
+                    if s == self.upkeep.pay {
+                        a.add(g, A_PAY_WASTED, amount as u64);
+                    }
+                    if Some(s) == a.flux {
+                        a.add(g, A_FLUX_WASTED, amount as u64);
+                    }
+                }
             }
         }
 
@@ -895,6 +927,13 @@ impl World {
             removed[i] = true;
             let cause = if dying[i] { Cause::Starved } else { Cause::Age };
             let cell = self.entities[i].cell;
+            if let Some(a) = &mut self.accounts {
+                let (g, held) = (a.group[i], &self.entities[i].store.amounts);
+                a.add(g, A_PAY_DIED, held[self.upkeep.pay] as u64);
+                if let Some(f) = a.flux {
+                    a.add(g, A_FLUX_DIED, held[f] as u64);
+                }
+            }
             if let Some(r) = self.decompose {
                 let r = &self.chem.reactions[r];
                 let store = &mut self.entities[i].store;
@@ -1006,7 +1045,19 @@ impl World {
                 let changes = if genome == parent.genome { Vec::new() } else { crate::diff::diff(&parent.genome, &genome) };
                 self.genome_changes.push((tick, parent.id, id, changes));
             }
-            children.push(Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0, lineage, made: 0, shape, prev: Vec::new() });
+            let newborn = Entity { id, cell, pos, heading: parent.heading, store: child, genome, signals, age: 0, lineage, made: 0, shape, prev: Vec::new() };
+            if let Some(a) = &mut self.accounts {
+                // The share the parent hands over leaves its group and enters the child's.
+                let (from, to) = (a.group[i], a.group_of(&self.chem, &newborn));
+                let kinds = [(Some(self.upkeep.pay), A_PAY_TO_CHILD, A_PAY_FROM_PARENT), (a.flux, A_FLUX_TO_CHILD, A_FLUX_FROM_PARENT)];
+                for (s, out_of, into) in kinds {
+                    if let Some(s) = s {
+                        a.add(from, out_of, newborn.store.amounts[s] as u64);
+                        a.add(to, into, newborn.store.amounts[s] as u64);
+                    }
+                }
+            }
+            children.push(newborn);
             living += 1;
         }
         // 4.3 Survivors age and move to the cell under them; newborns join at the end of the
@@ -1291,14 +1342,20 @@ impl World {
             if let (Some(a), true) = (&mut self.accounts, delivered > 0) {
                 let (pay, flux, x) = (self.upkeep.pay, a.flux, delivered as u64);
                 // The pay and flux columns are counted separately, so both count when they coincide.
-                let columns = [(s == pay).then_some((A_PAY_TAKEN, A_PAY_IN, A_PAY_OUT)), (Some(s) == flux).then_some((A_FLUX_TAKEN, A_FLUX_IN, A_FLUX_OUT))];
-                for (taken, stolen_in, stolen_out) in columns.into_iter().flatten() {
+                let columns = [
+                    (s == pay).then_some((A_PAY_TAKEN, A_PAY_IN, A_PAY_OUT, A_PAY_GIFT_IN, A_PAY_GIFT_OUT, A_PAY_DROPPED)),
+                    (Some(s) == flux).then_some((A_FLUX_TAKEN, A_FLUX_IN, A_FLUX_OUT, A_FLUX_GIFT_IN, A_FLUX_GIFT_OUT, A_FLUX_DROPPED)),
+                ];
+                for (taken, stolen_in, stolen_out, gift_in, gift_out, dropped) in columns.into_iter().flatten() {
                     match (unpack(r.origin), unpack(r.dest)) {
                         (End::Cell(_), End::Entity(d)) => a.add(a.group[d], taken, x),
-                        (End::Entity(o), End::Entity(d)) if r.steal => {
-                            a.add(a.group[d], stolen_in, x);
-                            a.add(a.group[o], stolen_out, x);
+                        (End::Entity(o), End::Entity(d)) => {
+                            let (into, out_of) = if r.steal { (stolen_in, stolen_out) } else { (gift_in, gift_out) };
+                            a.add(a.group[d], into, x);
+                            a.add(a.group[o], out_of, x);
                         }
+                        // Everything that leaves the entity counts, including what overflows to a sink.
+                        (End::Entity(o), End::Cell(_) | End::Sink(_)) => a.add(a.group[o], dropped, debit as u64),
                         _ => {}
                     }
                 }
