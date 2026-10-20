@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/emerge-lang", "crates/emerge-ref", "crates/emerge-gpu-spike", "crates/emerge-gpu", "crates/emerge-server"]
+members = ["crates/emerge-lang", "crates/emerge-ref", "crates/emerge-gpu-spike", "crates/emerge-gpu", "crates/emerge-server", "crates/emerge-view"]
 default-members = ["crates/emerge-lang", "crates/emerge-ref"]
 
 [profile.release]

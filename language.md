@@ -1023,7 +1023,8 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | Recombination | not in the language | — | — |
 | **Authoring** (resolved before any runner sees the file) | | | |
 | `const`, `extends` with `after @label`, patch files, `--patch`, `--set`; `emerge fmt`, `expand`, `order` | yes | yes | yes |
-| `view`, `chart` | yes (names and kinds; `W1201` for bindings not computed yet) | noted as "not used by a run"; no renderer yet | — |
+| `view` | yes (names and kinds; `W1201` for bindings not computed yet) | drawn to PNG by `emerge-server render` (exact cells, glyphs, a legend) | drawn the same (the GPU's frame equals the CPU's) |
+| `chart` | yes | not drawn yet | — |
 | `explore` | parsed only | noted as "not used by a run" | — |
 | Hot-swap (a patch at a revision, `world.hotswap` in `emerge-server`) | yes | yes, the Phase 0 subset (`proposals/engine-api.md`: rules, rates and amounts, upkeep costs, limits, `mind_steps`, mutation rates, raised caps); anything else is rejected and changes nothing | yes, the same subset |
 | `core.md` syntax (graph core, rules as data, living scopes) | not parsed | — | — |

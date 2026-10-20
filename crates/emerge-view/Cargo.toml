@@ -1,0 +1,12 @@
+[package]
+name = "emerge-view"
+version = "0.1.0"
+edition = "2021"
+description = "Renders .em views of worlds and runs to images (proposals/visual-language.md)"
+publish = false
+
+[dependencies]
+ab_glyph = "0.2"
+emerge-lang = { path = "../emerge-lang" }
+emerge-ref = { path = "../emerge-ref" }
+tiny-skia = "0.11"

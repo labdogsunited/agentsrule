@@ -256,6 +256,34 @@ impl Run {
         }))
     }
 
+    /// What a view reads now (`emerge_view::Frame`), from either backend.
+    pub fn frame(&self) -> emerge_view::Frame {
+        let field = self.live.field.as_deref().unwrap_or("cells");
+        let mut f = emerge_view::Frame::of_world(&self.live.world, field, &self.spec.lineages, self.revision());
+        if let Backend::Gpu(r) = &self.backend {
+            use emerge_gpu::pack::ENT;
+            let s = r.snapshot();
+            let ns = s.ns;
+            f.tick = r.tick as u64;
+            f.cells = s.camt.clone();
+            f.agents = (0..s.n)
+                .map(|i| {
+                    let e = &s.ent[i * ENT..(i + 1) * ENT];
+                    emerge_view::Agent {
+                        id: e[0] as u64 | (e[1] as u64) << 32,
+                        lineage: e[11] as usize,
+                        pos: [s.epos[4 * i], s.epos[4 * i + 1]],
+                        heading: [s.epos[4 * i + 2], s.epos[4 * i + 3]],
+                        age: e[10] as u64,
+                        expressed_genes: e[5] as usize,
+                        amounts: s.amounts[i * ns..(i + 1) * ns].to_vec(),
+                    }
+                })
+                .collect();
+        }
+        f
+    }
+
     /// The genome of entity `id` in plain language (spec §12.1 `explain`). The CPU runner only:
     /// the GPU keeps genomes as packed words, which are not decoded back yet.
     pub fn explain(&self, id: u64) -> Result<String, String> {
