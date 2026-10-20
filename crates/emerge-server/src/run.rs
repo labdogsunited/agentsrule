@@ -36,6 +36,8 @@ pub struct Run {
     pub device: String,
     /// Pause and compile time of the last committed swap, in seconds.
     pub last_swap: Option<(f64, f64)>,
+    /// The ledger audit after every tick, if on (CPU: ticks checked and ticks off; the GPU counts its own).
+    audit: Option<(u64, u64)>,
 }
 
 impl Run {
@@ -54,7 +56,7 @@ impl Run {
             (Backend::Cpu, "cpu: emerge-ref".to_string())
         };
         journal.header(&spec, &device);
-        Ok(Run { spec, live, backend, journal, device, last_swap: None })
+        Ok(Run { spec, live, backend, journal, device, last_swap: None, audit: None })
     }
 
     pub fn tick(&self) -> u64 {
@@ -80,7 +82,13 @@ impl Run {
         let mut done = 0;
         while done < n && self.population() > 0 {
             match &mut self.backend {
-                Backend::Cpu => self.live.world.run_tick(),
+                Backend::Cpu => {
+                    self.live.world.run_tick();
+                    if let Some((ticks, off)) = &mut self.audit {
+                        *ticks += 1;
+                        *off += u64::from(self.live.world.audit().is_err());
+                    }
+                }
                 Backend::Gpu(r) => r.tick(),
             }
             done += 1;
@@ -112,6 +120,30 @@ impl Run {
                 self.journal.swap(tick, base, patch, reason, Err(&e));
                 Err(e)
             }
+        }
+    }
+
+    /// Checks the element ledger after every tick from now on (spec §15.2): totals equal the start
+    /// plus what sources emitted minus what sinks absorbed.
+    pub fn enable_audit(&mut self) {
+        match &mut self.backend {
+            Backend::Cpu => self.audit = Some((0, 0)),
+            Backend::Gpu(r) => r.enable_audit(),
+        }
+    }
+
+    /// Ticks audited, and ticks whose element totals were off.
+    pub fn audit(&self) -> Option<(u64, u64)> {
+        match &self.backend {
+            Backend::Cpu => self.audit,
+            Backend::Gpu(r) => r.audit().map(|a| (a.ticks, a.drifted)),
+        }
+    }
+
+    pub fn births(&self) -> u64 {
+        match &self.backend {
+            Backend::Cpu => self.live.world.births,
+            Backend::Gpu(r) => r.births,
         }
     }
 
