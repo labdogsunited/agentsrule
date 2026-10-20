@@ -53,7 +53,13 @@ struct Entry {
 pub struct Engine {
     runs: BTreeMap<String, Entry>,
     next: u64,
+    /// Where journals are written, as `<world>.jsonl` (set by whoever starts the server). A caller
+    /// never names a path: the API can be reached by other programs, and must not write files they choose.
+    journal_dir: Option<std::path::PathBuf>,
 }
+
+/// The longest one `run.step` call runs, so that a client waiting on it does not time out.
+pub const STEP_BUDGET_S: f64 = 30.0;
 
 fn text<'a>(p: &'a Value, key: &str) -> Result<&'a str, Fault> {
     p[key].as_str().ok_or_else(|| bad(format!("`{key}` must be a string")))
@@ -69,6 +75,11 @@ fn number(p: &Value, key: &str, default: Option<u64>) -> Result<u64, Fault> {
 impl Engine {
     pub fn new() -> Engine {
         Engine::default()
+    }
+
+    /// An engine that journals every world to `dir/<world>.jsonl`.
+    pub fn with_journals(dir: std::path::PathBuf) -> Engine {
+        Engine { journal_dir: Some(dir), ..Engine::default() }
     }
 
     fn entry(&mut self, p: &Value) -> Result<&mut Entry, Fault> {
@@ -110,13 +121,19 @@ impl Engine {
                     contract: p["contract"].as_bool().unwrap_or(false),
                     gpu: backend == "gpu",
                 };
-                let journal = match p["journal"].as_str() {
-                    Some(path) => Journal::file(path.as_ref()).map_err(|e| fault(-32603, format!("journal `{path}`: {e}")))?,
+                if !p["journal"].is_null() {
+                    return Err(bad("`journal` is not a parameter: the server writes journals where it was told to (`--journal-dir`)"));
+                }
+                self.next += 1;
+                let id = format!("w{}", self.next);
+                let journal = match &self.journal_dir {
+                    Some(dir) => {
+                        let path = dir.join(format!("{id}.jsonl"));
+                        Journal::file(&path).map_err(|e| fault(-32603, format!("journal {}: {e}", path.display())))?
+                    }
                     None => Journal::memory(),
                 };
                 let run = Run::create(spec, journal).map_err(|e| rejected(&e))?;
-                self.next += 1;
-                let id = format!("w{}", self.next);
                 let out = json!({"world": id, "revision": 0, "tick": 0, "population": run.population(), "backend": run.device});
                 self.runs.insert(id, Entry { run, running: false });
                 Ok(out)
@@ -138,8 +155,20 @@ impl Engine {
             "run.step" => {
                 let ticks = number(p, "ticks", Some(1))?;
                 let e = self.entry(p)?;
-                let done = e.run.step(ticks);
-                Ok(json!({"ticks_run": done, "tick": e.run.tick(), "population": e.run.population()}))
+                let t = std::time::Instant::now();
+                let mut done = 0;
+                while done < ticks && t.elapsed().as_secs_f64() < STEP_BUDGET_S {
+                    let n = e.run.step((ticks - done).min(10));
+                    done += n;
+                    if n == 0 {
+                        break; // died out
+                    }
+                }
+                let mut out = json!({"ticks_run": done, "tick": e.run.tick(), "population": e.run.population()});
+                if done < ticks && e.run.population() > 0 {
+                    out["note"] = json!(format!("stopped after {STEP_BUDGET_S} s; call again to run on"));
+                }
+                Ok(out)
             }
             "run.resume" | "run.pause" => {
                 let e = self.entry(p)?;

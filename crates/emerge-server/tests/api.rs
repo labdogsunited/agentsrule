@@ -31,12 +31,20 @@ impl Client {
     }
 }
 
-fn server() -> Client {
+fn start(journals: Option<std::path::PathBuf>) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    std::thread::spawn(move || emerge_server::serve::serve(listener));
+    std::thread::spawn(move || emerge_server::serve::serve(listener, journals));
+    port
+}
+
+fn client(port: u16) -> Client {
     let (ws, _) = connect(format!("ws://127.0.0.1:{port}")).unwrap();
     Client { ws, id: 0 }
+}
+
+fn server() -> Client {
+    client(start(None))
 }
 
 #[test]
@@ -81,4 +89,39 @@ fn the_api_over_websocket() {
     c.ok("run.pause", json!({"world": w}));
     let lines = c.ok("journal.read", json!({"world": w}))["lines"].as_array().unwrap().len();
     assert_eq!(lines, 4, "header, two committed swaps and the stale one");
+}
+
+#[test]
+fn web_pages_cannot_connect() {
+    // Browsers let any site open a socket to localhost; a handshake with an Origin is refused.
+    use tungstenite::client::IntoClientRequest;
+    let port = start(None);
+    let mut req = format!("ws://127.0.0.1:{port}").into_client_request().unwrap();
+    req.headers_mut().insert("Origin", "https://evil.example".parse().unwrap());
+    match connect(req) {
+        Err(tungstenite::Error::Http(resp)) => assert_eq!(resp.status(), 403),
+        other => panic!("a web page got in: {:?}", other.map(|(_, r)| r.status())),
+    }
+}
+
+#[test]
+fn callers_cannot_choose_where_files_are_written() {
+    let source = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 32, h: 32)").replace("count: 2_000;", "count: 50;");
+    let dir = std::env::temp_dir().join(format!("emerge-journals-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut c = client(start(Some(dir.clone())));
+    let target = dir.join("victim.txt");
+    std::fs::write(&target, "keep me").unwrap();
+    let r = c.call("world.create", json!({"source": source, "lineages": ["Drifter"], "journal": target.to_str().unwrap()}));
+    assert_eq!(r["error"]["code"], -32602, "{r}");
+    // The server names journals itself, and never overwrites one: a second server's `w1` fails.
+    c.ok("world.create", json!({"source": source, "lineages": ["Drifter"]}));
+    let first = std::fs::read_to_string(dir.join("w1.jsonl")).unwrap();
+    assert!(first.contains("\"kind\":\"header\""));
+    let mut again = client(start(Some(dir.clone())));
+    let r = again.call("world.create", json!({"source": source, "lineages": ["Drifter"]}));
+    assert!(r["error"]["message"].as_str().unwrap().contains("exists"), "{r}");
+    assert_eq!(std::fs::read_to_string(dir.join("w1.jsonl")).unwrap(), first);
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep me");
+    std::fs::remove_dir_all(&dir).unwrap();
 }

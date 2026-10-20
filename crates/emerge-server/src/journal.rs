@@ -25,9 +25,11 @@ impl Journal {
         Journal::default()
     }
 
-    /// A journal appended to `path` as well (created or truncated).
+    /// A journal written to `path` as well. The file must not exist yet: a journal never
+    /// overwrites anything.
     pub fn file(path: &std::path::Path) -> std::io::Result<Journal> {
-        Ok(Journal { lines: Vec::new(), file: Some(std::fs::File::create(path)?) })
+        let file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+        Ok(Journal { lines: Vec::new(), file: Some(file) })
     }
 
     fn push(&mut self, line: Value) {
