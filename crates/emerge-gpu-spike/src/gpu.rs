@@ -7,6 +7,7 @@ pub struct Gpu {
     pub queue: wgpu::Queue,
     pub name: String,
     pub timestamps: bool,
+    pub period_ns: f32,
 }
 
 impl Gpu {
@@ -27,9 +28,11 @@ impl Gpu {
         let info = adapter.get_info();
         let timestamps = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
         let features = if timestamps { wgpu::Features::TIMESTAMP_QUERY } else { wgpu::Features::empty() };
-        let desc = wgpu::DeviceDescriptor { label: None, required_features: features, ..Default::default() };
+        // The adapter's own limits: the defaults cap a storage binding at 128 MB.
+        let desc = wgpu::DeviceDescriptor { label: None, required_features: features, required_limits: adapter.limits(), ..Default::default() };
         let (device, queue) = pollster::block_on(adapter.request_device(&desc)).expect("request_device");
-        Gpu { device, queue, name: format!("{} ({:?})", info.name, info.backend), timestamps }
+        let period_ns = queue.get_timestamp_period();
+        Gpu { device, queue, name: format!("{} ({:?})", info.name, info.backend), timestamps, period_ns }
     }
 
     pub fn pipeline(&self, wgsl: &str, entry: &str) -> wgpu::ComputePipeline {
@@ -117,5 +120,56 @@ impl Gpu {
         self.queue.submit([enc.finish()]);
         self.device.poll(wgpu::PollType::wait_indefinitely()).expect("poll");
         t.elapsed()
+    }
+
+    /// `reps` dispatches in one compute pass: (GPU ms per dispatch from timestamps, if the
+    /// adapter has them; wall ms per dispatch).
+    pub fn bench(&self, pipeline: &wgpu::ComputePipeline, buffers: &[&wgpu::Buffer], workgroups: (u32, u32, u32), reps: u32) -> (Option<f64>, f64) {
+        let entries: Vec<_> = buffers
+            .iter()
+            .enumerate()
+            .map(|(i, b)| wgpu::BindGroupEntry { binding: i as u32, resource: b.as_entire_binding() })
+            .collect();
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &entries,
+        });
+        let queries = self.timestamps.then(|| {
+            let set = self.device.create_query_set(&wgpu::QuerySetDescriptor { label: None, ty: wgpu::QueryType::Timestamp, count: 2 });
+            let resolve = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: 16,
+                usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            (set, resolve)
+        });
+        let t = std::time::Instant::now();
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        {
+            let writes = queries.as_ref().map(|(set, _)| wgpu::ComputePassTimestampWrites {
+                query_set: set,
+                beginning_of_pass_write_index: Some(0),
+                end_of_pass_write_index: Some(1),
+            });
+            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: writes });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            for _ in 0..reps {
+                pass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
+            }
+        }
+        if let Some((set, resolve)) = &queries {
+            enc.resolve_query_set(set, 0..2, resolve, 0);
+        }
+        self.queue.submit([enc.finish()]);
+        self.device.poll(wgpu::PollType::wait_indefinitely()).expect("poll");
+        let wall = t.elapsed().as_secs_f64() * 1e3 / reps as f64;
+        let gpu = queries.map(|(_, resolve)| {
+            let ts: Vec<u64> = self.read(&resolve, 2);
+            (ts[1].saturating_sub(ts[0])) as f64 * self.period_ns as f64 * 1e-6 / reps as f64
+        });
+        (gpu, wall)
     }
 }
