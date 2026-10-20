@@ -92,6 +92,8 @@ pub const P_NEXTID_HI: usize = 43;
 pub const P_DECOMP: usize = 44;
 pub const P_CHILDOFF: usize = 45;
 pub const P_NALIVE: usize = 46;
+/// The substance counted in `Entity::made` (words 14 and 15 of an entity), plus 1; 0 for none.
+pub const P_TRACK: usize = 58;
 pub const RX: usize = 24;
 pub const LAW: usize = 28;
 
@@ -291,7 +293,7 @@ pub fn pack(world: &World) -> Packed {
         let flags = u32::from(needs_near) | (u32::from(!e.prev.is_empty()) << 1) | (u32::from(has_delta) << 2);
         let goff = p.gw.len() as u32;
         let in_use = e.shape.in_use.iter().fold(0u32, |m, &s| m | (1 << s));
-        p.ent.extend_from_slice(&[e.id as u32, (e.id >> 32) as u32, e.cell as u32, space_bucket(world, e.pos) as u32, goff, active.len() as u32, g.keep.len() as u32, flags, p.records as u32 * REC as u32, in_use, e.age as u32, e.lineage as u32, p.mw.len() as u32, 0, 0, 0]);
+        p.ent.extend_from_slice(&[e.id as u32, (e.id >> 32) as u32, e.cell as u32, space_bucket(world, e.pos) as u32, goff, active.len() as u32, g.keep.len() as u32, flags, p.records as u32 * REC as u32, in_use, e.age as u32, e.lineage as u32, p.mw.len() as u32, 0, e.made as u32, (e.made >> 32) as u32]);
         p.mw.extend(master_words(&e.genome));
         p.ecap.extend_from_slice(&e.store.caps[..ns]);
         p.epos.extend_from_slice(&[e.pos[0], e.pos[1], e.heading[0], e.heading[1]]);
@@ -321,6 +323,7 @@ pub fn pack(world: &World) -> Packed {
     set(&mut p, P_TICK, u32::try_from(world.tick).expect("tick fits in u32"));
     set(&mut p, P_STEPS, world.mind_steps);
     set(&mut p, P_ONE, u32::from(world.one_per_substance));
+    set(&mut p, P_TRACK, world.track.map_or(0, |t| t as u32 + 1));
     set(&mut p, P_GW, space.grid_w as u32);
     set(&mut p, P_GH, space.grid_h as u32);
     set(&mut p, P_WRAP, u32::from(space.wrap));

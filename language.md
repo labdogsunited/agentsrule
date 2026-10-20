@@ -1025,8 +1025,9 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | Hot-swap (patches at a revision, `E09xx`) | patch files only | no | no |
 | `core.md` syntax (graph core, rules as data, living scopes) | not parsed | — | — |
 | **Runner output** | | | |
-| `--accounts`, `--blocked`, `--census`, `--contact`, `--changes`, `--inject`, `--clade`, `--producers`, `--stop-when-…` | — | yes | no |
+| `--accounts`, `--blocked`, `--census`, `--contact`, `--changes`, `--inject`, `--clade`, `--features`, `--producers-log` | — | yes | no |
 | Population, births, deaths, reaction extent per window; ledger audit (`EMERGE_GPU_AUDIT`) | — | yes (`--every`; conservation tests) | yes |
+| Exit test 9's columns: `--flux S`, `--producers F`, `--stop-when-sustained`, `--stop-when-hopeless` | — | yes | yes, same rows as `--contract gpu`; other columns (carriers, thieves, means) CPU only |
 
 The GPU runtime equals the CPU runner in contract mode (`emerge run --contract gpu`) word for word, on one driver at a time (`proposals/gpu-runtime.md`). It is a separate binary, not a mode of `emerge run`.
 

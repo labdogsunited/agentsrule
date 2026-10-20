@@ -322,7 +322,7 @@ impl<'a> Resident<'a> {
             (most.div_ceil(64).max(1), nlaws.max(1))
         };
         let plan_m = module(gpu, include_str!("plan.wgsl"), 4, &["plan_buckets", "plan_requests"]);
-        let tr_m = module(gpu, &format!("{}\n{}", shader::constants(), include_str!("transform.wgsl")), 14, &["react_entities", "react_cells", "vent", "audit_totals"]);
+        let tr_m = module(gpu, &format!("{}\n{}", shader::constants(), include_str!("transform.wgsl")), 14, &["react_entities", "react_cells", "vent", "audit_totals", "clear_made"]);
         let rs_src = format!("{common}\n{}\n{}\n{}", include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"));
         let rs_m = module(gpu, &rs_src, 30, &["mark", "finish_scans", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact_ent", "compact_rest", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
         let prep_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("prep.wgsl"), crate::scan::kernels("bkt", "params[P_NBT]", "atomicLoad(&{name}_in[i])"), crate::scan::kernels("gen", "params[P_N]", "{name}_in[i]"));
@@ -767,6 +767,20 @@ impl<'a> Resident<'a> {
     pub fn extent(&self) -> Vec<u64> {
         let w: Vec<u32> = self.gpu.read(&self.b.stats, 2 * self.extent0.len());
         self.extent0.iter().enumerate().map(|(r, e)| e + (w[2 * r] as u64 | (w[2 * r + 1] as u64) << 32)).collect()
+    }
+
+    /// What each entity made of the tracked substance since the last `clear_made` (`Entity::made`).
+    pub fn made(&self) -> Vec<u64> {
+        let ent: Vec<u32> = self.gpu.read(&self.b.ent, self.n * ENT);
+        ent.chunks(ENT).map(|w| w[14] as u64 | (w[15] as u64) << 32).collect()
+    }
+
+    /// Starts a window: every entity's `made` is 0.
+    pub fn clear_made(&mut self) {
+        self.write_param(P_N, self.n as u32);
+        let b = &self.b;
+        let g = self.gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats, &b.flows]);
+        self.gpu.dispatch(&[(self.tr_m.pipe("clear_made"), &g, (self.n.max(1) as u32).div_ceil(64))]);
     }
 
     pub fn pool_tops(&self) -> (u32, u32) {

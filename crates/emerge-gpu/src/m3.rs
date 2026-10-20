@@ -173,6 +173,8 @@ pub fn compare_state(world: &World, view: &StateView, ns: usize, note: &mut impl
         if w[2] as usize != e.cell { bad.push(format!("cell {} vs {}", w[2], e.cell)); }
         if w[10] as u64 != e.age { bad.push(format!("age {} vs {}", w[10], e.age)); }
         if w[11] as usize != e.lineage { bad.push(format!("lineage {} vs {}", w[11], e.lineage)); }
+        let made = w[14] as u64 | (w[15] as u64) << 32;
+        if made != e.made { bad.push(format!("made {made} vs {}", e.made)); }
         let want = [e.pos[0], e.pos[1], e.heading[0], e.heading[1]].map(f32::to_bits);
         let got: Vec<u32> = view.epos[i * 4..i * 4 + 4].iter().map(|x| x.to_bits()).collect();
         if want.to_vec() != got { bad.push("position/heading".into()); }
@@ -290,40 +292,94 @@ pub fn run_full_cmd(args: &[String]) {
     println!("{ticks} ticks, {states} states compared, {} entities at the end; mismatches: entities {be}, cells {bc} ({:.1} s)", world.entities.len(), t.elapsed().as_secs_f64());
 }
 
-/// `emerge-gpu run DISH LINEAGES TICKS SEED [EVERY]`: the whole run on the GPU (mutation with `EMERGE_GPU_MUTATION`), with a
-/// line per window: population, births and deaths in the window, entity-reaction extent by reaction.
+/// `emerge-gpu run DISH LINEAGES TICKS SEED [EVERY] [--flux S] [--producers F] [--stop-when-sustained]
+/// [--stop-when-hopeless]`: the whole run on the GPU (mutation with `EMERGE_GPU_MUTATION`), with a line
+/// per window: population, births and deaths in the window, and entity-reaction extent by reaction.
+/// With `--flux S` the line is exit test 9's instead: µ of `S` made by entity reactions in the window,
+/// and the share and number of producers (entities whose reactions made some `S` in the window), with
+/// `sustained_at` and the stop rules defined as in `emerge run`. Its columns equal the CPU's
+/// (`emerge run --contract gpu`) for the same run.
 pub fn run_gpu_cmd(args: &[String]) {
     use crate::resident::Resident;
     use emerge_ref::compile::{compile, Options};
-    if args.len() < 4 {
-        eprintln!("usage: emerge-gpu run DISH LINEAGES TICKS SEED [EVERY]");
+    let mut pos: Vec<&str> = Vec::new();
+    let (mut flux_name, mut threshold, mut stop, mut hopeless_stop) = (None, 0.02f64, false, false);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--flux" => flux_name = it.next().cloned(),
+            "--producers" => threshold = it.next().and_then(|v| v.parse().ok()).expect("--producers F"),
+            "--stop-when-sustained" => stop = true,
+            "--stop-when-hopeless" => hopeless_stop = true,
+            _ => pos.push(a),
+        }
+    }
+    if pos.len() < 4 {
+        eprintln!("usage: emerge-gpu run DISH LINEAGES TICKS SEED [EVERY] [--flux S] [--producers F] [--stop-when-sustained] [--stop-when-hopeless]");
         return;
     }
-    let src = std::fs::read_to_string(&args[0]).expect("read dish");
-    let names: Vec<&str> = args[1].split(',').collect();
-    let (ticks, seed): (u64, u64) = (args[2].parse().unwrap(), args[3].parse().unwrap());
-    let every: u64 = args.get(4).map_or(1000, |v| v.parse().unwrap());
+    let src = std::fs::read_to_string(pos[0]).expect("read dish");
+    let names: Vec<&str> = pos[1].split(',').collect();
+    let (ticks, seed): (u64, u64) = (pos[2].parse().unwrap(), pos[3].parse().unwrap());
+    let every: u64 = pos.get(4).map_or(1000, |v| v.parse().unwrap());
     let mutation = std::env::var_os("EMERGE_GPU_MUTATION").is_some();
     let mut world = compile(&src, &names, Options { seed, allow_partial: true, mutation }).unwrap_or_else(|e| panic!("{e:?}")).world;
     world.contract = true;
+    let flux = flux_name.as_ref().map(|n| world.chem.substances.iter().position(|s| &s.name == n).unwrap_or_else(|| panic!("no substance `{n}`")));
+    world.track = flux;
+    // µ of `S` made by each reaction per unit of extent.
+    let yields: Vec<u64> = world.chem.reactions.iter().map(|r| flux.map_or(0, |s| r.outputs.iter().filter(|o| o.0 == s).map(|o| o.1 as u64).sum())).collect();
+    let produced = |extent: &[u64]| extent.iter().zip(&yields).map(|(e, y)| e * y).sum::<u64>();
     let reaction_names: Vec<String> = world.chem.reactions.iter().map(|r| world.chem.formula(&r.inputs, &r.outputs)).collect();
     let gpu = Gpu::new();
     let mut r = Resident::new(&gpu, &mut world);
     if std::env::var_os("EMERGE_GPU_AUDIT").is_some() {
         r.enable_audit();
     }
-    println!("run on {}: {} {} seed {seed}, {ticks} ticks, mutation {}, contract mode", gpu.name, args[0], args[1], if mutation { "on" } else { "off" });
-    println!("tick,population,births,deaths,ms_per_tick,entity-reaction extent (nonzero)");
+    println!("run on {}: {} {} seed {seed}, {ticks} ticks, mutation {}, contract mode", gpu.name, pos[0], pos[1], if mutation { "on" } else { "off" });
+    match &flux_name {
+        Some(n) => println!("tick,population,births,deaths,{n}_synthesis_mu,producers,producer_count,ms_per_tick"),
+        None => println!("tick,population,births,deaths,ms_per_tick,entity-reaction extent (nonzero)"),
+    }
     let (mut b0, mut d0, mut e0, mut t0) = (r.births, r.deaths, r.extent(), std::time::Instant::now());
-    for tick in 1..=ticks {
+    // Exit test 9, as in `emerge run`: flux above zero and at least `threshold` producers in every
+    // window, for 10_000 ticks in a row; `sustained` is the first tick at which that holds.
+    let (mut streak, mut sustained, mut hopeless, mut tick) = (0u64, None, false, 0u64);
+    while tick < ticks && r.n > 0 {
         r.tick();
-        if tick % every == 0 {
-            let ms = t0.elapsed().as_secs_f64() * 1e3 / every as f64;
-            let now = r.extent();
+        tick += 1;
+        if tick % every != 0 && r.n > 0 {
+            continue;
+        }
+        let ms = t0.elapsed().as_secs_f64() * 1e3 / every as f64;
+        let now = r.extent();
+        if flux.is_some() {
+            let made = produced(&now) - produced(&e0);
+            let count = r.made().iter().filter(|&&m| m > 0).count();
+            let producers = count as f64 / r.n.max(1) as f64;
+            println!("{tick},{},{},{},{made},{producers:.4},{count},{ms:.2}", r.n, r.births - b0, r.deaths - d0);
+            streak = if made > 0 && producers >= threshold { streak + every } else { 0 };
+            if streak >= 10_000 && sustained.is_none() {
+                sustained = Some(tick);
+            }
+            r.clear_made();
+        } else {
             let extent: Vec<String> = now.iter().zip(&e0).enumerate().filter(|(_, (a, b))| a != b).map(|(k, (a, b))| format!("[{}]={}", reaction_names[k], *a - *b)).collect();
             println!("{tick},{},{},{},{ms:.2},{}", r.n, r.births - b0, r.deaths - d0, extent.join(" "));
-            (b0, d0, e0, t0) = (r.births, r.deaths, now.clone(), std::time::Instant::now());
         }
+        (b0, d0, e0, t0) = (r.births, r.deaths, now.clone(), std::time::Instant::now());
+        if stop && sustained.is_some() {
+            break;
+        }
+        if hopeless_stop && sustained.is_none() && streak + (ticks - tick) < 10_000 {
+            hopeless = true;
+            break;
+        }
+    }
+    if flux.is_some() {
+        let end = if r.n == 0 { "extinct" } else if sustained.is_some() && tick < ticks { "sustained" } else if hopeless { "cannot_pass" } else { "end" };
+        let at = sustained.map_or("never".to_string(), |t| t.to_string());
+        println!("# lineages={} seed={seed} mutation={} ticks={tick} requested={ticks} stop={end} producers_threshold={threshold} sustained_at={at}", pos[1], if mutation { "on" } else { "off" });
     }
     if let Some(a) = r.audit() {
         println!("ledger audit: {} ticks checked, {} with element totals off, largest difference {} micro-units; genome pools collected {} times", a.ticks, a.drifted, a.worst, r.collections);

@@ -25,6 +25,15 @@ fn flow_add(kind: u32, s: u32, x: u32) {
 
 const P_NWASTE = 38u;
 const P_LAWIDX = 49u;
+const P_TRACK = 58u;
+
+// The start of a window: no entity has made anything yet.
+@compute @workgroup_size(64)
+fn clear_made(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x >= params[P_N]) { return; }
+    ent[id.x * ENT + 14u] = 0u;
+    ent[id.x * ENT + 15u] = 0u;
+}
 
 // A reaction's cap (or rate) scaled by its catalyst, `c` µ of which is present: the integer form of
 // `cap × (1 + (boost − 1) × c / (c + half))`, as `contract::catalyst_scale` on the CPU.
@@ -61,6 +70,16 @@ fn react_entities(@builtin(global_invocation_id) id: vec3<u32>) {
         }
         for (var k = 0u; k < n_in; k++) { amounts[e * ns + reactions[r + 2u + 2u * k]] -= extent * reactions[r + 3u + 2u * k]; }
         for (var k = 0u; k < n_out; k++) { amounts[e * ns + reactions[r + 10u + 2u * k]] += extent * reactions[r + 11u + 2u * k]; }
+        // What this entity made of the tracked substance (`Entity::made`, 64 bits in words 14 and 15).
+        let track = params[P_TRACK];
+        for (var k = 0u; k < n_out; k++) {
+            if (track != 0u && reactions[r + 10u + 2u * k] == track - 1u) {
+                let x = u64(extent) * u64(reactions[r + 11u + 2u * k]);
+                let m = ((u64(ent[e * ENT + 15u]) << 32u) | u64(ent[e * ENT + 14u])) + x;
+                ent[e * ENT + 14u] = u32(m & u64(0xffffffffu));
+                ent[e * ENT + 15u] = u32(m >> 32u);
+            }
+        }
         let si = rec[base + 4u] * 2u;
         let old = atomicAdd(&stats[si], extent);
         if (old + extent < old) { atomicAdd(&stats[si + 1u], 1u); }

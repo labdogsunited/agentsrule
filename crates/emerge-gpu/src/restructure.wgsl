@@ -199,6 +199,8 @@ fn divide(@builtin(global_invocation_id) id: vec3<u32>) {
     ent2[b + 8u] = 0u;
     ent2[b + 9u] = ent[e * ENT + 9u];
     ent2[b + 12u] = ent[e * ENT + 12u];   // the master genome is shared with the parent too
+    ent2[b + 14u] = 0u;                    // a newborn has made nothing
+    ent2[b + 15u] = 0u;
     work[rank] = e;
     ent2[b + WORD_AGE] = 0u;
     ent2[b + WORD_LINEAGE] = ent[e * ENT + WORD_LINEAGE];

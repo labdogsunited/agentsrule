@@ -33,6 +33,17 @@ fn restructure_matches_the_cpu() {
 }
 
 #[test]
+fn what_each_entity_made_matches_the_cpu() {
+    // `Entity::made` for the tracked substance (exit test 9's producers); compare_state checks it.
+    let gpu = Gpu::new();
+    let mut w = world("Builder", 6, true);
+    w.track = w.chem.substances.iter().position(|s| s.name == "body");
+    let (states, bad_entities, bad_cells) = compare_full(&mut w, &gpu, 60, 10, true);
+    assert!(states > 5 && bad_entities == 0 && bad_cells == 0, "{states} states, {bad_entities} entities, {bad_cells} cells differ");
+    assert!(w.entities.iter().any(|e| e.made > 0), "no entity made body, so nothing was compared");
+}
+
+#[test]
 fn whole_ticks_kept_on_the_gpu_match_the_cpu() {
     let gpu = Gpu::new();
     for (lineage, seed) in [("Drifter", 4), ("Builder", 5)] {
