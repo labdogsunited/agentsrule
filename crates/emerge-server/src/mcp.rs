@@ -73,6 +73,11 @@ impl Server {
         Server::default()
     }
 
+    /// A server whose worlds are journalled to `dir/<world>.jsonl`.
+    pub fn with_journals(dir: std::path::PathBuf) -> Server {
+        Server { engine: Engine::with_journals(dir), legacy: None }
+    }
+
     /// One message; the reply, if one is due (notifications get none).
     pub fn handle(&mut self, line: &str) -> Option<Value> {
         let msg: Value = match serde_json::from_str(line) {
@@ -146,7 +151,7 @@ impl Server {
 }
 
 /// The stdio transport: a reader thread hands lines over, so running worlds can tick meanwhile.
-pub fn stdio() {
+pub fn stdio(journal_dir: Option<std::path::PathBuf>) {
     let (lines, input) = std::sync::mpsc::channel::<String>();
     std::thread::spawn(move || {
         for line in std::io::stdin().lock().lines().map_while(Result::ok) {
@@ -155,7 +160,7 @@ pub fn stdio() {
             }
         }
     });
-    let mut server = Server::new();
+    let mut server = journal_dir.map_or_else(Server::new, Server::with_journals);
     let mut out = std::io::stdout().lock();
     loop {
         let line = if server.busy() {

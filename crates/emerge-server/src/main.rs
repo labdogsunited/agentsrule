@@ -3,7 +3,7 @@
 //! `emerge-server replay JOURNAL`: rebuilds a run from its journal and checks it.
 //! `emerge-server serve [--port N] [--journal-dir DIR]`: the JSON-RPC API over WebSocket on 127.0.0.1
 //! (default port 7878); with `--journal-dir`, every world's journal is written there as `<world>.jsonl`.
-//! `emerge-server mcp`: the MCP adapter over stdio (for Claude and other MCP clients).
+//! `emerge-server mcp [--journal-dir DIR]`: the MCP adapter over stdio (for Claude and other MCP clients).
 
 use emerge_server::journal::{replay, Journal};
 use std::process::ExitCode;
@@ -22,7 +22,7 @@ fn main() -> ExitCode {
             if emerge_server::exit2::run(&source, args.iter().any(|a| a == "--gpu"), ticks, journal) { ExitCode::SUCCESS } else { ExitCode::FAILURE }
         }
         Some("mcp") => {
-            emerge_server::mcp::stdio();
+            emerge_server::mcp::stdio(flag(&args, "--journal-dir").map(Into::into));
             ExitCode::SUCCESS
         }
         Some("serve") => {
@@ -46,7 +46,7 @@ fn main() -> ExitCode {
             }
         }
         _ => {
-            eprintln!("usage: emerge-server exit2 DISH [--gpu] [--ticks N] [--journal FILE]\n       emerge-server replay JOURNAL\n       emerge-server serve [--port N] [--journal-dir DIR]\n       emerge-server mcp");
+            eprintln!("usage: emerge-server exit2 DISH [--gpu] [--ticks N] [--journal FILE]\n       emerge-server replay JOURNAL\n       emerge-server serve [--port N] [--journal-dir DIR]\n       emerge-server mcp [--journal-dir DIR]");
             ExitCode::FAILURE
         }
     }
