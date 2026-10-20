@@ -1021,7 +1021,7 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | Recombination | not in the language | — | — |
 | **Authoring** (resolved before any runner sees the file) | | | |
 | `const`, `extends` with `after @label`, patch files, `--patch`, `--set`; `emerge fmt`, `expand`, `order` | yes | yes | yes |
-| `view`, `chart`, `explore` | yes | noted as "not used by a run" | — |
+| `view`, `chart`, `explore` | parsed only: their names, fields and types are not checked (an unknown world or field passes) | noted as "not used by a run" | — |
 | Hot-swap (a patch at a revision, `world.hotswap` in `emerge-server`) | yes | yes, the Phase 0 subset (`proposals/engine-api.md`: rules, rates and amounts, upkeep costs, limits, `mind_steps`, mutation rates, raised caps); anything else is rejected and changes nothing | yes, the same subset |
 | `core.md` syntax (graph core, rules as data, living scopes) | not parsed | — | — |
 | **Runner output** | | | |
