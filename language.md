@@ -1022,11 +1022,12 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | **Authoring** (resolved before any runner sees the file) | | | |
 | `const`, `extends` with `after @label`, patch files, `--patch`, `--set`; `emerge fmt`, `expand`, `order` | yes | yes | yes |
 | `view`, `chart`, `explore` | yes | noted as "not used by a run" | — |
-| Hot-swap (patches at a revision, `E09xx`) | patch files only | no | no |
+| Hot-swap (a patch at a revision, `world.hotswap` in `emerge-server`) | yes | yes, the Phase 0 subset (`proposals/engine-api.md`: rules, rates and amounts, upkeep costs, limits, `mind_steps`, mutation rates, raised caps); anything else is rejected and changes nothing | yes, the same subset |
 | `core.md` syntax (graph core, rules as data, living scopes) | not parsed | — | — |
 | **Runner output** | | | |
 | `--accounts`, `--blocked`, `--census`, `--contact`, `--changes`, `--inject`, `--clade`, `--features`, `--producers-log` | — | yes | no |
 | Population, births, deaths, reaction extent per window; ledger audit (`EMERGE_GPU_AUDIT`) | — | yes (`--every`; conservation tests) | yes |
+| Engine API (JSON-RPC over WebSocket, `emerge-server serve`) and MCP (`emerge-server mcp`); run journal and replay | — | yes | yes, except `genome.explain` and `entities.query` |
 | Exit test 9's columns: `--flux S`, `--producers F`, `--stop-when-sustained`, `--stop-when-hopeless` | — | yes | yes, same rows as `--contract gpu`; other columns (carriers, thieves, means) CPU only |
 
 The GPU runtime equals the CPU runner in contract mode (`emerge run --contract gpu`) word for word, on one driver at a time (`proposals/gpu-runtime.md`). It is a separate binary, not a mode of `emerge run`.
