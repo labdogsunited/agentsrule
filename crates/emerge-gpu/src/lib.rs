@@ -13,4 +13,5 @@ pub mod restructure;
 pub mod scan;
 pub mod set;
 pub mod shader;
+pub mod swap;
 pub mod transform;

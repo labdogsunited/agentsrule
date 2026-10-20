@@ -86,6 +86,8 @@ pub struct Staged {
     pub base: u64,
     pub source: String,
     pub config: Config,
+    /// The patched world compiled afresh: its configuration is `config` (a GPU packs it).
+    pub world: World,
     /// Time to patch, compile and diff, in seconds (spec §13.2 reports it apart from the pause).
     pub compile_s: f64,
 }
@@ -149,6 +151,7 @@ impl Live {
         let mut old = self.compile(&self.source)?.world;
         let mut new = self.compile(&source)?.world;
         let config = Config::of(&new);
+        let candidate = new.clone();
         let keep = (old.sources.len(), old.sinks.len());
         if new.sources.len() < keep.0 || new.sinks.len() < keep.1 {
             return Err(Rejected::NotSwappable("removing a source or sink".into()));
@@ -163,7 +166,7 @@ impl Live {
             let part = parts(&old).into_iter().zip(parts(&new)).find(|(x, y)| x.1 != y.1).map_or("the world", |(x, _)| x.0);
             return Err(Rejected::NotSwappable(format!("`{part}` changed; {}", first_difference(&a, &b))));
         }
-        Ok(Staged { base, source, config, compile_s: t.elapsed().as_secs_f64() })
+        Ok(Staged { base, source, config, world: candidate, compile_s: t.elapsed().as_secs_f64() })
     }
 
     /// Steps 4 and 5, between ticks: the revision again, the patch against the current balances,
@@ -173,20 +176,19 @@ impl Live {
         if staged.base != self.revision {
             return Err(Rejected::Stale { base: staged.base, current: self.revision });
         }
-        let c = &staged.config;
-        let w = &mut self.world;
-        for (i, (cell, caps)) in w.cells.iter().zip(&c.cell_caps).enumerate() {
-            if let Some(s) = (0..caps.len()).find(|&s| cell.amounts[s] > caps[s]) {
-                return Err(Rejected::Preflight(format!("cell {i} holds {}µ of {}, above the new cap {}µ (a `move_to` destination is not supported yet)", cell.amounts[s], w.chem.substances[s].name, caps[s])));
-            }
-        }
-        if let Some(e) = w.entities.iter().find(|e| e.store.amounts.iter().any(|&a| a > c.inventory_cap)) {
-            return Err(Rejected::Preflight(format!("entity {} holds more than the new inventory cap {}µ", e.id, c.inventory_cap)));
-        }
-        apply(w, c);
+        let w = &self.world;
+        preflight(&staged.config, w, w.cells.iter().map(|c| &c.amounts[..]), w.entities.iter().map(|e| (e.id, &e.store.amounts[..])))?;
+        apply(&mut self.world, &staged.config);
+        self.advance(staged);
+        Ok(t.elapsed().as_secs_f64())
+    }
+
+    /// Takes the staged source and revision without touching `world`: for a backend that holds
+    /// the state elsewhere (the GPU), after it has preflighted and applied the swap itself.
+    pub fn advance(&mut self, staged: Staged) {
+        assert_eq!(staged.base, self.revision, "a staged swap is committed against the revision it was staged at");
         self.source = staged.source;
         self.revision += 1;
-        Ok(t.elapsed().as_secs_f64())
     }
 
     /// `stage` and `commit` at once, at the current tick boundary.
@@ -194,6 +196,23 @@ impl Live {
         let staged = self.stage(patch, base)?;
         self.commit(staged).map(|_| ())
     }
+}
+
+/// Step 4 of spec §13.2: the new caps against the current balances (amounts by substance, for
+/// every cell and for every entity with its ID). `names` gives the substances.
+pub fn preflight<'a>(c: &Config, names: &World, cells: impl Iterator<Item = &'a [Mu]>, entities: impl Iterator<Item = (u64, &'a [Mu])>) -> Result<(), Rejected> {
+    let ns = names.chem.substances.len();
+    for (i, (amounts, caps)) in cells.zip(&c.cell_caps).enumerate() {
+        if let Some(s) = (0..ns).find(|&s| amounts[s] > caps[s]) {
+            return Err(Rejected::Preflight(format!("cell {i} holds {}µ of {}, above the new cap {}µ (a `move_to` destination is not supported yet)", amounts[s], names.chem.substances[s].name, caps[s])));
+        }
+    }
+    for (id, amounts) in entities {
+        if amounts[..ns].iter().any(|&a| a > c.inventory_cap) {
+            return Err(Rejected::Preflight(format!("entity {id} holds more than the new inventory cap {}µ", c.inventory_cap)));
+        }
+    }
+    Ok(())
 }
 
 /// Copies a configuration into a running world.

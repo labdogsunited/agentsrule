@@ -174,6 +174,21 @@ struct Buffers {
     list_cap: usize,
 }
 
+/// Workgroups along x for the world-request kernels (the most bundles any law has, over 64), and the laws.
+fn world_grid(p: &Packed, nc: usize) -> (u32, u32) {
+    let nlaws = p.params[P_NLAWS];
+    let most = (0..nlaws as usize).map(|l| { let w = &p.laws[l * LAW..(l + 1) * LAW]; nc as u32 * if w[0] == 0 { 1 } else { w[6] } }).max().unwrap_or(0);
+    (most.div_ceil(64).max(1), nlaws.max(1))
+}
+
+/// A list with two zero words after it, so that no buffer is empty.
+fn padded(v: &[u32]) -> Vec<u32> {
+    v.iter().copied().chain([0u32, 0]).collect()
+}
+
+/// The parameters a hot-swap may change (`emerge_ref::swap::Config`); all others are kept.
+const CONFIG_PARAMS: [usize; 12] = [P_UBASE, P_UGENE, P_USIG, P_UKEEP, P_UCARRY, P_NSINK, P_NLAWS, P_LAWTOT, P_NRLAWS, P_MAXAGE, P_MAXENT, P_STEPS];
+
 fn pool_buffer(gpu: &Gpu, initial: &[u32], words: usize) -> wgpu::Buffer {
     let b = gpu.storage(words * 4);
     gpu.queue.write_buffer(&b, 0, bytemuck::cast_slice(initial));
@@ -316,11 +331,7 @@ impl<'a> Resident<'a> {
         let common = format!("{}\n{}", shader::constants(), shader::contract());
         let set_m = module(gpu, &format!("{common}\n{}", include_str!("set.wgsl")), 13, &["main"]);
         let move_m = module(gpu, &format!("{common}\n{}", include_str!("move.wgsl")), 30, &["bucket_hist", "bucket_scatter", "bucket_sort", "sb_scan", "upkeep_fees", "gen_requests", "sums", "flag_over", "sums_world", "flag_world", "commit_world", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
-        let world_grid = {
-            let nlaws = p.params[P_NLAWS];
-            let most = (0..nlaws as usize).map(|l| { let w = &p.laws[l * LAW..(l + 1) * LAW]; nc as u32 * if w[0] == 0 { 1 } else { w[6] } }).max().unwrap_or(0);
-            (most.div_ceil(64).max(1), nlaws.max(1))
-        };
+        let world_grid = world_grid(&p, nc);
         let plan_m = module(gpu, include_str!("plan.wgsl"), 4, &["plan_buckets", "plan_requests"]);
         let tr_m = module(gpu, &format!("{}\n{}", shader::constants(), include_str!("transform.wgsl")), 14, &["react_entities", "react_cells", "vent", "audit_totals", "clear_made"]);
         let rs_src = format!("{common}\n{}\n{}\n{}", include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"));
@@ -767,6 +778,58 @@ impl<'a> Resident<'a> {
     pub fn extent(&self) -> Vec<u64> {
         let w: Vec<u32> = self.gpu.read(&self.b.stats, 2 * self.extent0.len());
         self.extent0.iter().enumerate().map(|(r, e)| e + (w[2 * r] as u64 | (w[2 * r + 1] as u64) << 32)).collect()
+    }
+
+    /// A hot-swap's commit on the GPU (spec §13.2 step 5): the configuration of `w`, a fresh compile
+    /// of the new source, replaces the running one. Only configuration parameters are written (never
+    /// the counts, tick, IDs or tracking of the run); the buffers sized by the laws are made anew,
+    /// and the cached bind groups that point at them are dropped. The kernels do not change.
+    pub fn apply_config(&mut self, w: &mut World) {
+        let gpu = self.gpu;
+        w.begin_tick();
+        let mut p = pack(w);
+        pack_move(w, &mut p);
+        pack_transform(w, &mut p);
+        pack_restructure(w, &mut p);
+        assert_eq!((p.ns, w.cells.len()), (self.ns, self.nc), "a swap keeps the substances and cells");
+        for i in CONFIG_PARAMS {
+            self.write_param(i, p.params[i]);
+        }
+        let b = &mut self.b;
+        b.laws = gpu.storage_with(&padded(&p.laws));
+        b.sinkacc = gpu.storage_with(&padded(&p.sinkacc));
+        b.rlaws = gpu.storage_with(&padded(&p.rlaws));
+        b.consts = gpu.storage_with(&(0..p.params[P_NRLAWS].max(64)).collect::<Vec<_>>());
+        b.wgr1 = gpu.storage(4 * (p.params[P_LAWTOT] as usize + 1));
+        b.wgr2 = gpu.storage(4 * (p.params[P_LAWTOT] as usize + 1));
+        gpu.queue.write_buffer(&b.ccap, 0, bytemuck::cast_slice(&p.ccap));
+        let ecap = vec![w.inventory_cap; self.n * self.ns];
+        if !ecap.is_empty() {
+            gpu.queue.write_buffer(&b.ecap, 0, bytemuck::cast_slice(&ecap));
+        }
+        let (_, rates) = pack_menus(w);
+        if !rates.is_empty() {
+            gpu.queue.write_buffer(&b.rates, 0, bytemuck::cast_slice(&rates));
+        }
+        self.world_grid = world_grid(&p, self.nc);
+        self.sort_cache.clear();
+    }
+
+    /// The current balances, for a swap's preflight: cell amounts and entity amounts (by substance),
+    /// and the entity IDs.
+    pub fn balances(&self) -> (Vec<u32>, Vec<u32>, Vec<u64>) {
+        let ent: Vec<u32> = self.gpu.read(&self.b.ent, self.n * ENT);
+        let ids = ent.chunks(ENT).map(|w| w[0] as u64 | (w[1] as u64) << 32).collect();
+        (self.gpu.read(&self.b.camt, self.nc * self.ns), self.gpu.read(&self.b.amounts, self.n * self.ns), ids)
+    }
+
+    /// Waits for all submitted work.
+    pub fn sync(&self) {
+        self.gpu.sync();
+    }
+
+    pub fn ns(&self) -> usize {
+        self.ns
     }
 
     /// What each entity made of the tracked substance since the last `clear_made` (`Entity::made`).
