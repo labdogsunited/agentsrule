@@ -121,6 +121,8 @@ world Dish {
 
 Before checking, every use of a constant (in the world, or in a lineage of it) is replaced by its value, and arithmetic on literals is folded, using the rules of §4.1 and §4.3 (`10_000 + 10_000` is `20_000` everywhere an expression is allowed, with or without a constant). A combination §4.1 does not list, such as `1u + 2`, is left as written, and is an error in a `const` (`E0205`). Constants that wait on each other in a circle are `E0119`; one that depends on something that is not a constant is reported at that constant (`E0205`). A constant shares the world's namespace, so it cannot repeat the name of a substance, reaction or other declaration, of an element, or of a top-level item, and no `let` or `for` variable may use its name (`E0111`). It cannot be a keyword, a built-in function or curve, or a word such as `self`, `tick` or `below` (`E0110`). A constant cannot read the world, a tick or a random draw. Positions that take a literal token cannot use a constant: `potential`, `holds` amounts, menu ranges and costs, a reaction gene's `rate`, and `uniform(x: a..b)` ranges. `emerge fmt` keeps constants and expressions as written.
 
+`emerge expand FILE` prints the file as the checker and runner see it: lineages that `extends` another written out (§8.1) and constants replaced by their values.
+
 A **project** is a directory. `emerge` loads every `.em` file in it as one program. Persistent IDs live in `.emerge/ids.json` in the same directory and are kept in version control with the sources (§10.2).
 
 ---

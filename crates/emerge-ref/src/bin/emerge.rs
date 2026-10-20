@@ -3,6 +3,10 @@
 //! `emerge fmt [--check] <file.em>` prints the canonical form of a file. With `--check`,
 //! it prints nothing and fails if the file is not already canonical.
 //!
+//! `emerge expand <file.em>` prints the file as the checker and runner see it: each lineage
+//! that `extends` another written out in full, and constants and constant arithmetic
+//! replaced by their values (`language.md` §3, §8.1).
+//!
 //! `emerge check [--json] <file.em>` reports every problem it can find without running the
 //! world: syntax, the language's static rules (chemistry, names, seeds, upkeep), and
 //! compiling the world with all its lineages. Each diagnostic has a code, a position and the
@@ -39,6 +43,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("fmt") => fmt(&args[1..]),
+        Some("expand") => expand(&args[1..]),
         Some("check") => check(&args[1..]),
         Some("run") => run(&args[1..]),
         Some("census") => census(&args[1..]),
@@ -48,6 +53,7 @@ fn main() -> ExitCode {
 
 fn usage() -> ExitCode {
     eprintln!("usage: emerge fmt [--check] <file.em>");
+    eprintln!("       emerge expand <file.em>");
     eprintln!("       emerge check [--json] <file.em>");
     eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N] [--accounts FILE [--clade ID,…]] [--changes FILE] [--producers-log FILE] [--contact FILE]");
     eprintln!("       emerge census <file.em> --lineage A [--flux S] [--lines N] [--generations N]");
@@ -78,6 +84,28 @@ fn fmt(args: &[String]) -> ExitCode {
     } else {
         eprintln!("{path}: not in canonical form (run `emerge fmt`)");
         ExitCode::FAILURE
+    }
+}
+
+fn expand(args: &[String]) -> ExitCode {
+    let [path] = args else { return usage() };
+    let Some(src) = read(path) else { return ExitCode::from(2) };
+    let file = match emerge_lang::parse(&src) {
+        Ok(f) => f,
+        Err(d) => {
+            eprintln!("{path}: {d}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match emerge_lang::prepare(&file) {
+        Ok(f) => {
+            print!("{}", emerge_lang::format(&f));
+            ExitCode::SUCCESS
+        }
+        Err(p) => {
+            eprintln!("{path}:{}:{}: error[{}]: {}", p.pos.line, p.pos.col, p.code, p.message);
+            ExitCode::FAILURE
+        }
     }
 }
 

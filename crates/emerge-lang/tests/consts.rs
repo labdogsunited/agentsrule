@@ -110,3 +110,15 @@ fn a_constant_cannot_take_a_reserved_or_top_level_name() {
         assert_eq!(resolve(&parse(&with(name)).unwrap()).unwrap_err().code, code, "{name}");
     }
 }
+
+#[test]
+fn the_expanded_text_is_plain_and_expands_to_itself() {
+    let dish = include_str!("../../../examples/dish.em");
+    let src = dish.replacen("world Dish {\n", "world Dish {\n    const side = 2 * 128;\n", 1).replacen("Grid(w: 256, h: 256) holds", "Grid(w: side, h: side + 0) holds", 1);
+    let once = emerge_lang::format(&emerge_lang::prepare(&parse(&src).unwrap()).unwrap());
+    assert!(!once.contains("const ") && !once.contains("extends"));
+    assert!(once.contains("Grid(w: 256, h: 256) holds"));
+    let again = emerge_lang::format(&emerge_lang::prepare(&parse(&once).unwrap()).unwrap());
+    assert_eq!(once, again);
+    assert_eq!(once, dish);
+}
