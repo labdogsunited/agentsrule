@@ -4,5 +4,6 @@
 pub mod api;
 pub mod exit2;
 pub mod journal;
+pub mod mcp;
 pub mod run;
 pub mod serve;

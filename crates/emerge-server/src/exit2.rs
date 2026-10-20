@@ -84,7 +84,7 @@ pub fn run(source: &str, gpu: bool, ticks: u64, journal: Journal) -> bool {
     for p in plan(ticks, 2026) {
         while run.tick() < p.tick && run.population() > 0 {
             run.step(1);
-            if run.tick() % 1_000 == 0 {
+            if run.tick().is_multiple_of(1_000) {
                 windows_without_births += u64::from(run.births() == births);
                 births = run.births();
             }
@@ -105,7 +105,7 @@ pub fn run(source: &str, gpu: bool, ticks: u64, journal: Journal) -> bool {
     }
     while run.tick() < ticks && run.population() > 0 {
         run.step(1);
-        if run.tick() % 1_000 == 0 {
+        if run.tick().is_multiple_of(1_000) {
             windows_without_births += u64::from(run.births() == births);
             births = run.births();
         }

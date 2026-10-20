@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 const LANGUAGE: &str = include_str!("../../../language.md");
+const EXAMPLE: &str = include_str!("../../../examples/dish.em");
 
 /// A JSON-RPC error: code, message, and data for a rejected swap.
 #[derive(Debug, Clone, PartialEq)]
@@ -165,6 +166,7 @@ impl Engine {
             }
             "journal.read" => Ok(json!({"lines": self.entry(p)?.run.journal.lines})),
             "docs.query" => Ok(docs(p["query"].as_str().unwrap_or(""))),
+            "docs.example" => Ok(json!({"name": "examples/dish.em", "about": "the reference world: chemistry, a conserved field, world rules, menus and two lineages (Drifter, Builder); a new world is easiest written as a changed copy of it", "source": EXAMPLE})),
             _ => Err(fault(-32601, format!("no method `{method}`"))),
         }
     }
