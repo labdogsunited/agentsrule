@@ -81,6 +81,23 @@ fn a_world_reaction_rate_is_scaled_too() {
 }
 
 #[test]
+fn a_catalysed_world_rate_stops_at_the_whole_input() {
+    // 5_000bp × about 4 would ask for twice the body present; the rate stops at 10_000bp, so all of it rots once.
+    for contract in [false, true] {
+        let (mut w, d) = dish(0, 0);
+        w.contract = contract;
+        w.chem.reactions[d.rot].catalyst = Some(Catalyst { s: d.sugar, half: 1, boost: 4.0 });
+        let c = dish_cell(&mut w, &d);
+        w.endow(End::Cell(c), d.body, 100 * U);
+        w.endow(End::Cell(c), d.sugar, 1_000 * U);
+        w.laws.push(Law::React { reaction: d.rot, rate_bp: 5_000 });
+        w.step().unwrap();
+        let cell = &w.cells[0];
+        assert_eq!((cell.amounts[d.body], cell.amounts[d.carbon], cell.amounts[d.nitrate]), (0, 100 * U, 100 * U), "contract {contract}");
+    }
+}
+
+#[test]
 fn catalysts_compile_and_are_checked() {
     let with = |c: &str| DISH.replace("reaction respiration : sugar -> energy + carbon;", &format!("reaction respiration : sugar -> energy + carbon catalyze {c};"));
     let opts = || Options { seed: 1, allow_partial: true, mutation: false };
