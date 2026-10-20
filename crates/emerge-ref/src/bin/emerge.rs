@@ -206,6 +206,22 @@ fn quote(s: &str) -> String {
     q
 }
 
+/// `writeln!` for the recording files: a failed write is reported once on stderr, not ignored.
+macro_rules! put {
+    ($f:expr, $($a:tt)*) => {
+        if let Err(e) = writeln!($f, $($a)*) {
+            note_write_error(&e);
+        }
+    };
+}
+
+fn note_write_error(e: &std::io::Error) {
+    static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        eprintln!("warning: writing a recording file failed: {e} (later errors are not repeated)");
+    }
+}
+
 fn run(args: &[String]) -> ExitCode {
     let Some(path) = args.first() else { return usage() };
     let (mut lineages, mut flux_name) = (String::new(), None);
@@ -326,8 +342,8 @@ fn run(args: &[String]) -> ExitCode {
         (Some(p), Some(_), Some(_)) => match std::fs::File::create(p) {
             Ok(f) => {
                 let mut f = std::io::BufWriter::new(f);
-                let _ = writeln!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
-                let _ = writeln!(f, "tick,population,reaction_carriers,take_carriers,joint,pairs,useful_pairs");
+                put!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
+                put!(f, "tick,population,reaction_carriers,take_carriers,joint,pairs,useful_pairs");
                 Some(f)
             }
             Err(e) => {
@@ -346,8 +362,8 @@ fn run(args: &[String]) -> ExitCode {
         Some(p) => match std::fs::File::create(p) {
             Ok(f) => {
                 let mut f = std::io::BufWriter::new(f);
-                let _ = writeln!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
-                let _ = writeln!(f, "tick,id,age,made_mu,{pay}_mu,{flux}_mu", pay = w.chem.substances[pay].name, flux = flux_name.as_deref().unwrap_or("none"));
+                put!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
+                put!(f, "tick,id,age,made_mu,{pay}_mu,{flux}_mu", pay = w.chem.substances[pay].name, flux = flux_name.as_deref().unwrap_or("none"));
                 Some(f)
             }
             Err(e) => {
@@ -372,8 +388,9 @@ fn run(args: &[String]) -> ExitCode {
             Ok(f) => {
                 w.record_genome_changes = true;
                 let mut f = std::io::BufWriter::new(f);
-                let _ = writeln!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
-                let _ = writeln!(f, "tick,parent,child,change,at,gene");
+                put!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
+                put!(f, "# tick: the 0-based tick of the step, so the row tick of the main CSV is tick + 1");
+                put!(f, "tick,parent,child,change,at,gene");
                 Some(f)
             }
             Err(e) => {
@@ -389,8 +406,8 @@ fn run(args: &[String]) -> ExitCode {
             Ok(f) => {
                 w.accounts = Some(emerge_ref::world::Accounts { flux, clade: clade.clone(), ..Default::default() });
                 let mut f = std::io::BufWriter::new(f);
-                let _ = writeln!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
-                let _ = writeln!(f, "tick,group,entities,{}", emerge_ref::world::ACCOUNT_COLUMNS.join(","));
+                put!(f, "# binary={} dish={} args={}", binary_digest(), digest(src.as_bytes()), std::env::args().skip(1).collect::<Vec<_>>().join(" "));
+                put!(f, "tick,group,entities,{}", emerge_ref::world::ACCOUNT_COLUMNS.join(","));
                 Some(f)
             }
             Err(e) => {
@@ -415,7 +432,8 @@ fn run(args: &[String]) -> ExitCode {
     let mut extra = cell_name.as_deref().map_or(String::new(), |n| format!(",cell_{n}_u,held_{n}_u"));
     extra += ",producer_count";
     if let Some((n, _)) = &inject {
-        extra += &format!(",share_{n}");
+        // The injected copies are their own group, even if `--lineages` names the same lineage.
+        extra += &if names.contains(&n.as_str()) { format!(",share_{n}_injected") } else { format!(",share_{n}") };
     }
     let guard = w.menus.guard.is_some();
     if guard {
@@ -534,7 +552,7 @@ fn run(args: &[String]) -> ExitCode {
             if let Some(f) = &mut producers_log {
                 for e in w.entities.iter().filter(|e| e.made > 0) {
                     let held = flux.map_or(0, |s| e.store.amounts[s]);
-                    let _ = writeln!(f, "{},{},{},{},{},{held}", w.tick, e.id, e.age, e.made, e.store.amounts[pay]);
+                    put!(f, "{},{},{},{},{},{held}", w.tick, e.id, e.age, e.made, e.store.amounts[pay]);
                 }
             }
             w.entities.iter_mut().for_each(|e| e.made = 0);
@@ -596,6 +614,12 @@ fn run(args: &[String]) -> ExitCode {
         }
         ancestry.print(flux_label);
     }
+    // Buffered files report their last write errors only when flushed.
+    for f in [&mut contact, &mut producers_log, &mut changes, &mut accounts].into_iter().flatten() {
+        if let Err(e) = f.flush() {
+            note_write_error(&e);
+        }
+    }
     ExitCode::SUCCESS
 }
 
@@ -619,7 +643,7 @@ fn write_accounts(f: &mut impl Write, w: &mut World, names: &[&str], inject: &Op
         }
         for (g, t) in a.totals.iter().enumerate() {
             let cols = t.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",");
-            let _ = writeln!(f, "{},{},{},{cols}", w.tick, label(g), count[g]);
+            put!(f, "{},{},{},{cols}", w.tick, label(g), count[g]);
         }
         a.totals.iter_mut().for_each(|t| *t = Default::default());
 }
@@ -632,7 +656,7 @@ fn write_changes(f: &mut impl Write, w: &World, field: &str) {
     let gene = |g: &Gene| emerge_ref::print::gene(w, g, field).replace('"', "'");
     for (tick, parent, child, cs) in &w.genome_changes {
         if cs.is_empty() {
-            let _ = writeln!(f, "{tick},{parent},{child},none,0,\"\"");
+            put!(f, "{tick},{parent},{child},none,0,\"\"");
         }
         for c in cs {
             let (kind, at, text) = match c {
@@ -643,13 +667,13 @@ fn write_changes(f: &mut impl Write, w: &World, field: &str) {
                 Change::Module { index, on } => (if *on { "module_on" } else { "module_off" }, *index, String::new()),
                 Change::Keep { signals } => ("keep", *signals, String::new()),
             };
-            let _ = writeln!(f, "{tick},{parent},{child},{kind},{at},\"{text}\"");
+            put!(f, "{tick},{parent},{child},{kind},{at},\"{text}\"");
         }
     }
     // A death: `child` is the entity, `at` its age.
     for (tick, id, cause, age) in &w.deaths_log {
         let kind = if *cause == emerge_ref::Cause::Starved { "starved" } else { "aged" };
-        let _ = writeln!(f, "{tick},0,{id},{kind},{age},\"\"");
+        put!(f, "{tick},0,{id},{kind},{age},\"\"");
     }
 }
 
@@ -772,7 +796,7 @@ fn write_contact(f: &mut impl Write, w: &World, flux: usize) {
             }
         }
     }
-    let _ = writeln!(
+    put!(
         f, "{},{},{},{},{},{pairs},{useful}", w.tick, pos.len(),
         r.iter().filter(|&&x| x).count(), t.iter().filter(|&&x| x).count(),
         r.iter().zip(&t).filter(|(a, b)| **a && **b).count(),
