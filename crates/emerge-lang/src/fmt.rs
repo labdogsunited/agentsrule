@@ -214,7 +214,7 @@ fn item(out: &mut Out, indent: usize, it: &Item) {
 fn decl_order(d: &WDecl) -> u8 {
     match d {
         WDecl::Setting(e) if e.key == "space" => 0,
-        WDecl::Element(_) => 1,
+        WDecl::Element(_) | WDecl::Const { .. } => 1,
         WDecl::Config { name, .. } if name == "second_law" => 2,
         WDecl::Substance { .. } => 3,
         WDecl::Field { .. } => 4,
@@ -301,6 +301,11 @@ fn wdecl(out: &mut Out, i: usize, d: &WDecl) {
             out.block(i, vec![t(name.clone())], entries, entry);
         }
         WDecl::Setting(e) => entry(out, i, e),
+        WDecl::Const { name, value } => {
+            let mut pieces = vec![t(format!("const {name} = "))];
+            pieces.extend(expr(value));
+            out.layout(i, line(pieces));
+        }
     }
 }
 

@@ -181,6 +181,8 @@ pub enum SinkAccepts {
 #[derive(Debug, Clone, PartialEq)]
 pub enum WDecl {
     Element(String),
+    /// `const NAME = expr;`, worked out by `resolve` before checking.
+    Const { name: String, value: Expr },
     Substance { name: String, comp: Vec<Term>, potential: i64 },
     /// `holds: None` is a signal field, whose writes combine by `combine` if several
     /// rules write it (`field scent : Grid(...) signal combine max;`).

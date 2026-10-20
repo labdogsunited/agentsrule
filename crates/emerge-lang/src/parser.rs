@@ -279,6 +279,11 @@ impl Parser {
         self.bump();
         let decl = match word.as_str() {
             "element" => WDecl::Element(self.ident()?),
+            "const" => {
+                let name = self.ident()?;
+                self.expect("=")?;
+                WDecl::Const { name, value: self.expr()? }
+            }
             "substance" => {
                 let name = self.ident()?;
                 self.expect("=")?;

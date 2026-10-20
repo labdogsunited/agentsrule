@@ -78,7 +78,7 @@ self true false and or not
 **Contextual keywords** are words that only have a special meaning in a particular position, such as the start of a declaration or statement. Everywhere else they are ordinary identifiers, so they can be argument names (`to:`, `where:`), config keys (`genes:`, `senses:`) or path segments (`Dish.rules`):
 
 ```
-world lineage extends ruleset view chart explore patch
+world lineage extends ruleset view chart explore patch const
 element substance potential reaction field holds signal combine source sink waste
 senses sense actions action cost per requires
 rule on let when else for in genesis
@@ -107,6 +107,19 @@ patch Dish base 41 { ... } // edits, only in patch files and the API
 ```
 
 **Names.** Top-level items share one namespace. Inside a world, each kind of declaration (substances, reactions, rules, fields, sources and sinks) has its own namespace, matching its path segment (`Dish.reactions.rot`, `Dish.rules.rotting`). Even so, a name MUST be unique across all kinds within one world (`E0111`), so a bare name in an expression always means one thing.
+
+**Constants.** `const NAME = expr;` in a world names a value computed from literals and other constants, in any order of declaration:
+
+```
+world Dish {
+    const side = 2 * 128;
+    const lifetime = 25_000 - 5_000;
+    field cells : Grid(w: side, h: side) holds [carbon: 2_000u];
+    max_age: lifetime;
+}
+```
+
+Before checking, every use of a constant (in the world, or in a lineage of it) is replaced by its value, and arithmetic on literals is folded, using the rules of §4.1 and §4.3 (`10_000 + 10_000` is `20_000` everywhere an expression is allowed, with or without a constant). A combination §4.1 does not list, such as `1u + 2`, is left as written, and is an error in a `const` (`E0205`). Constants that depend on each other in a circle are `E0119`. A constant shares the world's namespace, so it cannot repeat the name of a substance, reaction or other declaration, and no `let` or `for` variable may use its name (`E0111`). A constant cannot read the world, a tick or a random draw. Positions that take a literal token cannot use a constant: `potential`, `holds` amounts, menu ranges and costs, and a reaction gene's `rate`. `emerge fmt` keeps constants and expressions as written.
 
 A **project** is a directory. `emerge` loads every `.em` file in it as one program. Persistent IDs live in `.emerge/ids.json` in the same directory and are kept in version control with the sources (§10.2).
 
@@ -730,8 +743,9 @@ item        := world | lineage | ruleset | view | chart | explore | patch
 
 // ---- world ----
 world       := 'world' IDENT '{' wdecl* '}'
-wdecl       := element | substance | field | source | sink | waste | reaction
+wdecl       := const | element | substance | field | source | sink | waste | reaction
              | menu | rule | genesis | block_cfg | setting
+const       := 'const' IDENT '=' expr ';'
 element     := 'element' IDENT ';'
 substance   := 'substance' IDENT '=' comp 'potential' '-'? INT ';'
 comp        := cterm ('+' cterm)*
@@ -941,6 +955,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E0114` | an unknown name: field, source, sink, substance, reaction, lineage |
 | `E0115` | an unknown setting or block |
 | `E0116` | a required declaration or argument is missing |
+| `E0119` | constants that depend on each other in a circle |
 | `E0117`, `E0118` | `extends`: a base in another world or that extends too (`E0117`); a repeated signal or label, a `dormant` mismatch, or `after` outside an extending lineage (`E0118`) |
 | `E0203`–`E0205` | values: out of their type's range (`E0203`: `second_law.min_drop` below 1 or not a whole number; `E0204`: a fraction above `10_000bp`, an amount that does not fit `f32` exactly, §3.5 of the spec), or of the wrong kind (`E0205`) |
 | `E0301` | an effect not allowed in this context |

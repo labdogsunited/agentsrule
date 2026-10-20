@@ -11,9 +11,17 @@ pub mod expand;
 pub mod fmt;
 pub mod lexer;
 pub mod parser;
+pub mod resolve;
 
 pub use ast::File;
 pub use expand::expand;
+pub use resolve::resolve;
+
+/// What `check` and the runner's `build` work on: lineages expanded (`expand`), then
+/// constants resolved (`resolve`).
+pub fn prepare(file: &File) -> Result<File, check::Problem> {
+    resolve(&expand(file)?)
+}
 
 /// A diagnostic with its code (`language.md` §14) and position.
 #[derive(Debug, Clone, PartialEq, Eq)]

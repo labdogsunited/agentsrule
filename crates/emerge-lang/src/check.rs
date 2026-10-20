@@ -25,8 +25,8 @@ pub struct Problem {
 }
 
 pub fn check(file: &File) -> Vec<Problem> {
-    // Lineages that extend another are checked in full.
-    let file = &match crate::expand::expand(file) {
+    // Lineages that extend another are checked in full, and constants are replaced by their values.
+    let file = &match crate::prepare(file) {
         Ok(f) => f,
         Err(p) => return vec![p],
     };
@@ -53,7 +53,7 @@ pub fn check(file: &File) -> Vec<Problem> {
 }
 
 /// The name a world declaration introduces, and its path segment.
-fn declared(d: &WDecl) -> Option<(&str, &'static str)> {
+pub(crate) fn declared(d: &WDecl) -> Option<(&str, &'static str)> {
     Some(match d {
         WDecl::Substance { name, .. } => (name, "substances"),
         WDecl::Reaction { name, .. } => (name, "reactions"),

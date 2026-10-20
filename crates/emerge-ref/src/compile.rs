@@ -100,8 +100,8 @@ pub fn lineage_names(file: &ast::File) -> Vec<&str> {
 
 /// Builds the world of a parsed file whose chemistry `emerge_lang::check` has accepted.
 pub fn build(file: &ast::File, lineages: &[&str], options: Options) -> Result<Compiled, Error> {
-    // Lineages that `extends` another are built in full.
-    let file = &emerge_lang::expand(file).map_err(|p| Error { code: p.code, pos: p.pos, path: p.path, message: p.message })?;
+    // Lineages that `extends` another are built in full, and constants are replaced by their values.
+    let file = &emerge_lang::prepare(file).map_err(|p| Error { code: p.code, pos: p.pos, path: p.path, message: p.message })?;
     let at = Cell::new(Pos::default());
     build_at(file, lineages, options, &at).map_err(|mut e| {
         if e.pos.line == 0 {
