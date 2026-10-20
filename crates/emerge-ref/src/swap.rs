@@ -19,6 +19,8 @@ pub struct Live {
     pub options: Options,
     /// 0 at the start, one more for every committed swap.
     pub revision: u64,
+    /// The conserved field's name (for `gradient` and `probe` in printed genomes).
+    pub field: Option<String>,
 }
 
 /// Why a swap was rejected. A rejected swap changes nothing.
@@ -120,8 +122,8 @@ impl Live {
     /// Compiles `source` (put in canonical form first) and starts at revision 0.
     pub fn new(source: &str, lineages: &[&str], options: Options) -> Result<Live, Rejected> {
         let source = canonical(source)?;
-        let world = compile(&source, lineages, options).map_err(|e| invalid(e.code, &e.path, &e.message))?.world;
-        Ok(Live { world, source, lineages: lineages.iter().map(|s| s.to_string()).collect(), options, revision: 0 })
+        let c = compile(&source, lineages, options).map_err(|e| invalid(e.code, &e.path, &e.message))?;
+        Ok(Live { world: c.world, source, lineages: lineages.iter().map(|s| s.to_string()).collect(), options, revision: 0, field: c.field })
     }
 
     fn compile(&self, source: &str) -> Result<Compiled, Rejected> {
