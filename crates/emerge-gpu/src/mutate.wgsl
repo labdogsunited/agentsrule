@@ -24,6 +24,8 @@ var<private> nm: u32;
 var<private> kp: array<f32, 32>;
 var<private> nk: u32;
 var<private> dn: u32;
+var<private> blk: vec4<u32>;     // the Philox block of draws 4*blk_at .. 4*blk_at+3
+var<private> blk_at: u32 = 0xffffffffu;
 var<private> trace: array<u32, 48>;
 var<private> ph: array<u32, 8>;
 var<private> dstream: u32;
@@ -53,10 +55,13 @@ fn philox(ctr_in: vec4<u32>, key_in: vec2<u32>) -> vec4<u32> {
 fn unit() -> f32 {
     let index = dn;
     dn = dn + 1u;
-    let key = vec2<u32>(params[P_SEEDLO], params[P_SEEDHI]);
-    // Stream: (seed, tick, child id, entity domain 0, aux 0, pass MUTATE = 3).
-    let ctr = vec4<u32>(index / 4u, dtick, dstream, 3u << 24u);
-    let r = philox(ctr, key);
+    // Stream: (seed, tick, child id, entity domain 0, aux 0, pass MUTATE = 3). One block holds four draws.
+    if (blk_at != index / 4u) {
+        let key = vec2<u32>(params[P_SEEDLO], params[P_SEEDHI]);
+        blk = philox(vec4<u32>(index / 4u, dtick, dstream, 3u << 24u), key);
+        blk_at = index / 4u;
+    }
+    let r = blk;
     let q = index % 4u;
     var d = r.w;
     if (q == 0u) { d = r.x; } else if (q == 1u) { d = r.y; } else if (q == 2u) { d = r.z; }

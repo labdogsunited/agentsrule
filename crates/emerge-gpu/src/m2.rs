@@ -27,16 +27,23 @@ impl Report {
     }
 }
 
-/// The Set records for the CPU's plans, in the layout the GPU's Set phase writes.
-pub fn records(world: &World, packed: &Packed, plans: &[Plan]) -> Vec<u32> {
+/// The Set records for the CPU's plans, in the layout the GPU's Set phase writes: per entity the fired
+/// actions from the front of its block, the reaction caps from the back (the first reaction last), and the
+/// two counts in word 13 of the entity (written into `packed`).
+pub fn records(world: &World, packed: &mut Packed, plans: &[Plan]) -> Vec<u32> {
     let mut rec = vec![0u32; packed.records * REC];
     let mut at = 0;
     for (i, e) in world.entities.iter().enumerate() {
+        let n_genes = packed.genes[i].len();
+        let (goff, nsg) = (packed.ent[i * ENT + 4] as usize, packed.ent[i * ENT + 6] as usize);
+        let (mut na, mut nr) = (0, 0);
         for (gi, &g) in packed.genes[i].iter().enumerate() {
-            let base = (at + gi) * REC;
             let plan = &plans[i];
             if let Gene::React { .. } = e.genome.slots[g].gene {
-                rec[base..base + 4].copy_from_slice(&[R_REACT, g as u32, 0, plan.react_caps[g]]);
+                let base = (at + n_genes - 1 - nr) * REC;
+                let reaction = packed.gw[goff + nsg + gi * SLOT + 5];
+                rec[base..base + 5].copy_from_slice(&[R_REACT, g as u32, 0, plan.react_caps[g], reaction]);
+                nr += 1;
                 continue;
             }
             if let Some(x) = plan.intents.iter().find(|x| x.gene == g) {
@@ -48,13 +55,16 @@ pub fn records(world: &World, packed: &Packed, plans: &[Plan]) -> Vec<u32> {
                     Act::Give { s, amount, other } => [R_GIVE, g as u32, s as u32, amount, x.fee, other as u32, 0],
                     Act::Steal { s, amount, other } => [R_STEAL, g as u32, s as u32, amount, x.fee, other as u32, 0],
                     Act::Guard { s } => [R_GUARD, g as u32, s as u32, 0, x.fee, 0, 0],
-                    Act::Divide => [R_DIVIDE, g as u32, 0, 0, x.fee, 0, 0],
+                    Act::Divide => [R_DIVIDE, g as u32, gi as u32, 0, x.fee, 0, 0],
                 };
+                let base = (at + na) * REC;
                 rec[base..base + 7].copy_from_slice(&r);
                 rec[base + 7] = u32::from(x.live);
+                na += 1;
             }
         }
-        at += packed.genes[i].len();
+        packed.ent[i * ENT + 13] = (na | nr << 8) as u32;
+        at += n_genes;
     }
     rec
 }
@@ -86,7 +96,7 @@ pub fn compare(world: &mut World, gpu: &Gpu, ticks: u64, every: u64, verbose: bo
             if std::env::var_os("EMERGE_GPU_BREAK").is_some() {
                 packed.params[P_SEEDLO] ^= 1; // a deliberate error, to show that the comparison can fail
             }
-            let rec = records(world, &packed, &plans);
+            let rec = records(world, &mut packed, &plans);
             let t = std::time::Instant::now();
             let out = run_move(gpu, &packed, &rec);
             rep.gpu_time += t.elapsed();
@@ -123,9 +133,10 @@ pub fn compare(world: &mut World, gpu: &Gpu, ticks: u64, every: u64, verbose: bo
                     rep.bad_dying += 1;
                     note(&format!("entity {} dying cpu {} gpu {}", e.id, dying[i], out.dying[i]));
                 }
+                let na = (packed.ent[i * ENT + 13] & 0xff) as usize;
                 for x in &plans[i].intents {
-                    let gi = packed.genes[i].iter().position(|&g| g == x.gene).unwrap();
-                    let live = out.rec[(at + gi) * REC + 7] == 1;
+                    let k = (0..na).find(|&k| out.rec[(at + k) * REC + 1] == x.gene as u32).unwrap();
+                    let live = out.rec[(at + k) * REC + 7] == 1;
                     if live != x.live {
                         rep.bad_live += 1;
                         note(&format!("entity {} gene {} live cpu {} gpu {}", e.id, x.gene, x.live, live));

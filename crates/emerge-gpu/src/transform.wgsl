@@ -32,13 +32,12 @@ fn react_entities(@builtin(global_invocation_id) id: vec3<u32>) {
     if (e >= params[P_N] || dying[e] == 1u) { return; }
     let ns = params[P_NS];
     let n_genes = ent[e * ENT + 5u];
-    let nsg = ent[e * ENT + 6u];
-    let goff = ent[e * ENT + 4u];
+    let nr = (ent[e * ENT + 13u] >> 8u) & 0xffu;
     let roff = ent[e * ENT + 8u];
-    for (var g = 0u; g < n_genes; g++) {
-        let base = roff + g * REC;
-        if (rec[base] != R_REACT) { continue; }
-        let r = gw[goff + nsg + g * SLOT + 5u] * RX;
+    // The reaction records are at the back of the entity's block, the first reaction last.
+    for (var q = 0u; q < nr; q++) {
+        let base = roff + (n_genes - 1u - q) * REC;
+        let r = rec[base + 4u] * RX;
         var extent = rec[base + 3u];
         let n_in = reactions[r];
         let n_out = reactions[r + 1u];
@@ -51,7 +50,7 @@ fn react_entities(@builtin(global_invocation_id) id: vec3<u32>) {
         }
         for (var k = 0u; k < n_in; k++) { amounts[e * ns + reactions[r + 2u + 2u * k]] -= extent * reactions[r + 3u + 2u * k]; }
         for (var k = 0u; k < n_out; k++) { amounts[e * ns + reactions[r + 10u + 2u * k]] += extent * reactions[r + 11u + 2u * k]; }
-        let si = gw[goff + nsg + g * SLOT + 5u] * 2u;
+        let si = rec[base + 4u] * 2u;
         let old = atomicAdd(&stats[si], extent);
         if (old + extent < old) { atomicAdd(&stats[si + 1u], 1u); }
     }

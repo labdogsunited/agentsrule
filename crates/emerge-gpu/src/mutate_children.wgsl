@@ -17,18 +17,22 @@ const WORD_MASTER = 12u;
 
 fn same_as_parent(moff: u32) -> bool {
     if (ns != mw[moff] || nm != mw[moff + 1u] || nk != mw[moff + 2u]) { return false; }
-    for (var m = 0u; m < nm; m++) { if (mx[m] != mw[moff + 4u + m]) { return false; } }
-    for (var k = 0u; k < nk; k++) { if (bitcast<u32>(kp[k]) != mw[moff + MASTER_HDR + k]) { return false; } }
+    // No early exit inside the loops: the loads then overlap instead of waiting for one another.
+    var diff = 0u;
+    for (var m = 0u; m < nm; m++) { diff |= mx[m] ^ mw[moff + 4u + m]; }
+    for (var k = 0u; k < nk; k++) { diff |= bitcast<u32>(kp[k]) ^ mw[moff + MASTER_HDR + k]; }
     let sb = moff + MASTER_HDR + nk;
-    for (var q = 0u; q < ns * SLOT; q++) { if (sl[q] != mw[sb + q]) { return false; } }
-    return true;
+    for (var q = 0u; q < ns * SLOT; q++) { diff |= sl[q] ^ mw[sb + q]; }
+    return diff == 0u;
 }
 
 fn is_active(i: u32) -> bool { return gw_(i, 17u) == 1u && mx[gw_(i, 16u)] == 1u; }
 
-@compute @workgroup_size(64)
+// One child per workgroup of one thread: the children run in separate warps, so their different
+// paths do not take turns.
+@compute @workgroup_size(1)
 fn mutate_children(@builtin(global_invocation_id) id: vec3<u32>) {
-    let r = id.x;
+    let r = id.y * 32768u + id.x;     // the grid is rows of 32768 children
     if (r >= params[P_NCHILD]) { return; }
     let e = work[r];
     let lineage = ent[e * ENT + WORD_LINEAGE];
@@ -39,6 +43,7 @@ fn mutate_children(@builtin(global_invocation_id) id: vec3<u32>) {
     dstream = u32(child_id & u64(0xffffffffu));
     dtick = params[P_TICK];
     dn = 0u;
+    blk_at = 0xffffffffu;
     mutate_core(lineage);
     if (same_as_parent(moff)) { return; }
 

@@ -9,7 +9,7 @@
 @group(0) @binding(4) var<storage, read_write> camt: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> ccap: array<u32>;
 @group(0) @binding(6) var<storage, read_write> rec: array<u32>;
-@group(0) @binding(7) var<storage, read_write> rec_ent: array<u32>;
+@group(0) @binding(7) var<storage, read_write> rlist: array<atomic<u32>>;   // word 0: the number of requests from entities, then their slots
 @group(0) @binding(8) var<storage, read_write> laws: array<u32>;
 @group(0) @binding(9) var<storage, read_write> sinkacc: array<u32>;
 @group(0) @binding(10) var<storage, read_write> nbr: array<u32>;
@@ -29,6 +29,9 @@
 @group(0) @binding(24) var<storage, read_write> sb_out: array<u32>;             // where each bucket starts
 @group(0) @binding(25) var<storage, read_write> sb_blocks: array<u32>;
 @group(0) @binding(26) var<storage, read_write> sb_cur: array<atomic<u32>>;   // emitted, absorbed, (audit) totals by substance, 64-bit as two words
+@group(0) @binding(27) var<storage, read_write> wgr1: array<u32>;   // world request grants that differ from the request: stage 1 grant + 1, 0 if none
+@group(0) @binding(28) var<storage, read_write> wgr2: array<u32>;   // the same for the final grant
+@group(0) @binding(29) var<storage, read_write> camt0: array<u32>;   // the cell amounts when the requests were made (the commit changes camt)
 const P_BECOMES = 55u;
 fn flow_add(kind: u32, s: u32, x: u32) {
     if (x == 0u) { return; }
@@ -111,20 +114,115 @@ fn draw(stream: u32, domain: u32, aux: u32, pas: u32, index: u32) -> u32 {
 }
 
 // Stage 1 grants go to words 6 and 7 (a request that is not shared in stage 2 keeps it); stage 2 only to word 7.
+// A world request (slot R0 and up) has no stored words: it is computed from the cells (`world_req`), and
+// only a grant that differs from its request is kept, as grant + 1 (0 means none; a grant never
+// exceeds the request, so a wrapped 0xffffffff + 1 reads back as the request itself).
 fn set_grant(r: u32, stage: u32, v: u32) {
-    if (stage == 0u) { rq[r * RQ + 6u] = v; }
-    rq[r * RQ + 7u] = v;
+    let r0 = params[P_R0];
+    if (r < r0) {
+        if (stage == 0u) { rq[r * RQ + 6u] = v; }
+        rq[r * RQ + 7u] = v;
+        return;
+    }
+    if (stage == 0u) { wgr1[r - r0] = v + 1u; }
+    wgr2[r - r0] = v + 1u;
 }
-fn get_grant(r: u32, stage: u32) -> u32 { return rq[r * RQ + 7u]; }
+fn get_grant(r: u32, stage: u32) -> u32 {
+    let r0 = params[P_R0];
+    if (r < r0) { return rq[r * RQ + 7u]; }
+    let o = wgr2[r - r0];
+    if (o != 0u) { return o - 1u; }
+    return world_req(r).amt;
+}
 
-// ---- A: upkeep and fees, one thread per entity ----
+struct Req { origin: u32, dest: u32, s: u32, ovf: u32, amt: u32, steal: u32, g1: u32, g2: u32 }
+
+// The request of world slot i, computed from the laws and the cell amounts at the start of the phase (`camt0`). `amt` is 0 for an empty slot.
+fn world_req(i: u32) -> Req {
+    let ns = params[P_NS];
+    for (var l = 0u; l < params[P_NLAWS]; l++) {
+        let lb = l * LAW;
+        let off = params[P_R0] + laws[lb + 7u];
+        let w = laws[lb + 8u];
+        let total = w * params[P_NCELLS];
+        if (i < off || i >= off + total) { continue; }
+        let c = (i - off) / w;
+        let k = (i - off) % w;
+        if (laws[lb] == 0u) {
+            // Inflow from a source to the cell.
+            let a = laws[lb + 3u];
+            return Req((2u << TAG) | laws[lb + 2u], c, laws[lb + 1u], laws[lb + 4u], a, 0u, a, a);
+        }
+        // Diffusion: k = substance index * 4 + neighbour index.
+        let si = k / 4u;
+        let ni = k % 4u;
+        let nb = nbr[c * 4u + ni];
+        if (si >= laws[lb + 6u] || nb == NONE) { break; }
+        var count = 0u;
+        for (var q = 0u; q < 4u; q++) { if (nbr[c * 4u + q] != NONE) { count++; } }
+        let s = laws[lb + 9u + si];
+        let offer = u32((u64(camt0[c * ns + s]) * u64(laws[lb + 5u])) / u64(10000u));
+        let a = offer / count;
+        return Req(c, nb, s, NONE, a, 0u, a, a);
+    }
+    return Req(0u, 0u, 0u, NONE, 0u, 0u, 0u, 0u);
+}
+
+// Request i with its grants.
+fn load_req(i: u32) -> Req {
+    let r0 = params[P_R0];
+    if (i < r0) {
+        let b = i * RQ;
+        if (rq[b + 4u] == 0u) { return Req(0u, 0u, 0u, NONE, 0u, 0u, 0u, 0u); }
+        return Req(rq[b], rq[b + 1u], rq[b + 2u], rq[b + 3u], rq[b + 4u], rq[b + 5u], rq[b + 6u], rq[b + 7u]);
+    }
+    var q = world_req(i);
+    if (q.amt != 0u) {
+        let o1 = wgr1[i - r0];
+        if (o1 != 0u) { q.g1 = o1 - 1u; }
+        let o2 = wgr2[i - r0];
+        if (o2 != 0u) { q.g2 = o2 - 1u; }
+    }
+    return q;
+}
+
+// The ledger of what sources emit and sinks absorb is summed per workgroup first: thousands of
+// threads adding to the same few words would wait for one another.
+var<workgroup> wf_lo: array<atomic<u32>, 64>;   // kind * 32 + substance
+var<workgroup> wf_hi: array<atomic<u32>, 64>;
+fn wflow_add(kind: u32, s: u32, x: u32) {
+    if (x == 0u) { return; }
+    let old = atomicAdd(&wf_lo[kind * 32u + s], x);
+    if (old + x < old) { atomicAdd(&wf_hi[kind * 32u + s], 1u); }
+}
+
+// Adds the workgroup's sums to the ledger (thread t has the word for kind t / 32, substance t % 32).
+fn wflow_flush(t: u32) {
+    let lo = atomicLoad(&wf_lo[t]);
+    let hi = atomicLoad(&wf_hi[t]);
+    if (lo != 0u || hi != 0u) {
+        let at = ((t / 32u) * params[P_NS] + (t % 32u)) * 2u;
+        let old = atomicAdd(&flows[at], lo);
+        atomicAdd(&flows[at + 1u], hi + select(0u, 1u, old + lo < old));
+    }
+}
+
+// ---- A: upkeep, fees and guards, one thread per entity ----
 @compute @workgroup_size(64)
-fn upkeep_fees(@builtin(global_invocation_id) id: vec3<u32>) {
-    let e = id.x;
-    if (e >= params[P_N]) { return; }
+fn upkeep_fees(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+    atomicStore(&wf_lo[lid.x], 0u);
+    atomicStore(&wf_hi[lid.x], 0u);
+    workgroupBarrier();
+    if (id.x < params[P_N]) { upkeep_one(id.x); }
+    workgroupBarrier();
+    wflow_flush(lid.x);
+}
+
+fn upkeep_one(e: u32) {
     let ns = params[P_NS];
     let pay = params[P_PAY];
     let n_genes = ent[e * ENT + 5u];
+    let na = ent[e * ENT + 13u] & 0xffu;
     let roff = ent[e * ENT + 8u];
     let nsg = ent[e * ENT + 6u];
     let goff = ent[e * ENT + 4u];
@@ -144,43 +242,29 @@ fn upkeep_fees(@builtin(global_invocation_id) id: vec3<u32>) {
     let have = u64(atomicLoad(&amounts[e * ns + pay]));
     if (have >= cost) {
         atomicSub(&amounts[e * ns + pay], u32(cost));
-        flow_add(1u, params[P_BECOMES], u32(cost));
+        wflow_add(1u, params[P_BECOMES], u32(cost));
     } else {
         dead = true;
     }
     dying[e] = select(0u, 1u, dead);
-    // Fees, in genome order.
-    for (var g = 0u; g < n_genes; g++) {
-        let base = (roff + g * REC);
-        let code = rec[base];
-        if (code == 0u || code == R_REACT) { continue; }
+    // Fees, in genome order, for the fired actions; and the signals this entity guards, for the requests of others.
+    var guarded = 0u;
+    for (var g = 0u; g < na; g++) {
+        let base = roff + g * REC;
         var live = !dead;
         let fee = rec[base + 4u];
         if (live && fee > 0u) {
             if (atomicLoad(&amounts[e * ns + pay]) >= fee) {
                 atomicSub(&amounts[e * ns + pay], fee);
-                flow_add(1u, params[P_BECOMES], fee);
+                wflow_add(1u, params[P_BECOMES], fee);
             } else {
                 live = false;
             }
         }
         rec[base + 7u] = select(0u, 1u, live);
+        if (live && rec[base] == R_GUARD) { guarded = guarded | (1u << rec[base + 2u]); }
     }
-}
-
-// ---- A2: guards, one thread per entity ----
-@compute @workgroup_size(64)
-fn collect_guards(@builtin(global_invocation_id) id: vec3<u32>) {
-    let e = id.x;
-    if (e >= params[P_N]) { return; }
-    var m = 0u;
-    let n_genes = ent[e * ENT + 5u];
-    let roff = ent[e * ENT + 8u];
-    for (var g = 0u; g < n_genes; g++) {
-        let base = roff + g * REC;
-        if (rec[base] == R_GUARD && rec[base + 7u] == 1u) { m = m | (1u << rec[base + 2u]); }
-    }
-    guards[e] = m;
+    guards[e] = guarded;
 }
 
 fn set_rq(i: u32, origin: u32, dest: u32, s: u32, ovf: u32, requested: u32, steal: u32) {
@@ -195,59 +279,65 @@ fn set_rq(i: u32, origin: u32, dest: u32, s: u32, ovf: u32, requested: u32, stea
     rq[b + 7u] = requested;
 }
 
-// ---- B: requests, one thread per request slot ----
+// ---- B: requests, one thread per entity (the world's are computed where used) ----
+// A request is stored at its slot, the entity's first record slot plus the record's place; the slots of the
+// requests go into `rlist`, where the later kernels take them from. A workgroup reserves room for all of
+// its requests at once.
+var<workgroup> gen_total: atomic<u32>;
+var<workgroup> gen_base: u32;
+
 @compute @workgroup_size(64)
-fn gen_requests(@builtin(global_invocation_id) id: vec3<u32>) {
-    let i = id.x;
-    if (i >= params[P_RTOT]) { return; }
-    rq[i * RQ + 4u] = 0u;     // empty unless set below; only this word is read for an empty slot
-    let ns = params[P_NS];
-    if (i < params[P_R0]) {
-        let e = rec_ent[i];
-        let base = i * REC;
-        let code = rec[base];
-        if (code == 0u || code == R_REACT || rec[base + 7u] == 0u) { return; }
-        let s = rec[base + 2u];
-        let amount = rec[base + 3u];
-        let other = rec[base + 5u];
+fn gen_requests(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+    let e = id.x;
+    if (lid.x == 0u) { atomicStore(&gen_total, 0u); }
+    workgroupBarrier();
+    var mine: array<u32, 48>;
+    var m = 0u;
+    if (e < params[P_N]) {
+        let na = ent[e * ENT + 13u] & 0xffu;
+        let roff = ent[e * ENT + 8u];
         let cell = ent[e * ENT + 2u];
         let me = (1u << TAG) | e;
-        let them = (1u << TAG) | other;
-        let cellp = cell;
-        if (code == R_TAKE) { set_rq(i, cellp, me, s, NONE, amount, 0u); }
-        else if (code == R_DROP) { set_rq(i, me, cellp, s, NONE, amount, 0u); }
-        else if (code == R_GIVE) { if (dying[other] == 0u) { set_rq(i, me, them, s, NONE, amount, 0u); } }
-        else if (code == R_STEAL) {
-            if ((guards[other] & (1u << s)) == 0u && dying[other] == 0u) { set_rq(i, them, me, s, NONE, amount, 1u); }
+        for (var g = 0u; g < na; g++) {
+            let base = roff + g * REC;
+            let code = rec[base];
+            if (rec[base + 7u] == 0u) { continue; }
+            let s = rec[base + 2u];
+            let amount = rec[base + 3u];
+            let other = rec[base + 5u];
+            let i = roff / REC + g;
+            var made = false;
+            if (code == R_TAKE) { set_rq(i, cell, me, s, NONE, amount, 0u); made = true; }
+            else if (code == R_DROP) { set_rq(i, me, cell, s, NONE, amount, 0u); made = true; }
+            else if (code == R_GIVE) { if (dying[other] == 0u) { set_rq(i, me, (1u << TAG) | other, s, NONE, amount, 0u); made = true; } }
+            else if (code == R_STEAL) {
+                if ((guards[other] & (1u << s)) == 0u && dying[other] == 0u) { set_rq(i, (1u << TAG) | other, me, s, NONE, amount, 1u); made = true; }
+            }
+            if (made && amount != 0u) { mine[m] = i; m++; }
         }
-        return;
     }
-    // A world rule: find the law whose request range holds i.
-    for (var l = 0u; l < params[P_NLAWS]; l++) {
-        let lb = l * LAW;
-        let off = params[P_R0] + laws[lb + 7u];
-        let w = laws[lb + 8u];
-        let total = w * params[P_NCELLS];
-        if (i < off || i >= off + total) { continue; }
-        let c = (i - off) / w;
-        let k = (i - off) % w;
-        if (laws[lb] == 0u) {
-            // Inflow from a source to the cell.
-            set_rq(i, (2u << TAG) | laws[lb + 2u], c, laws[lb + 1u], laws[lb + 4u], laws[lb + 3u], 0u);
-        } else {
-            // Diffusion: k = substance index * 4 + neighbour index.
-            let si = k / 4u;
-            let ni = k % 4u;
-            let nb = nbr[c * 4u + ni];
-            if (si >= laws[lb + 6u] || nb == NONE) { return; }
-            var count = 0u;
-            for (var q = 0u; q < 4u; q++) { if (nbr[c * 4u + q] != NONE) { count++; } }
-            let s = laws[lb + 9u + si];
-            let offer = u32((u64(atomicLoad(&camt[c * ns + s])) * u64(laws[lb + 5u])) / u64(10000u));
-            set_rq(i, c, nb, s, NONE, offer / count, 0u);
-        }
-        return;
-    }
+    let at = atomicAdd(&gen_total, m);
+    workgroupBarrier();
+    if (lid.x == 0u) { gen_base = atomicAdd(&rlist[0], atomicLoad(&gen_total)); }
+    workgroupBarrier();
+    for (var k = 0u; k < m; k++) { atomicStore(&rlist[1u + gen_base + at + k], mine[k]); }
+}
+
+// For tests that read the requests back: writes the world requests into `rq`, before the commit.
+@compute @workgroup_size(64)
+fn materialize_world(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    if (i < params[P_R0] || i >= params[P_RTOT]) { return; }
+    let q = load_req(i);
+    let b = i * RQ;
+    rq[b] = q.origin;
+    rq[b + 1u] = q.dest;
+    rq[b + 2u] = q.s;
+    rq[b + 3u] = q.ovf;
+    rq[b + 4u] = q.amt;
+    rq[b + 5u] = q.steal;
+    rq[b + 6u] = q.g1;
+    rq[b + 7u] = q.g2;
 }
 
 // ---- C: stage sums and the oversubscribed list ----
@@ -256,34 +346,33 @@ fn add_sum(k: u32, x: u32) {
     if (old + x < old) { atomicAdd(&sum_hi[k], 1u); }
 }
 
+// The sums, flags and commit below are for the entity requests (slots below R0). The world's requests are
+// handled in bundles by the `_world` kernels further down.
 // stage 1 sums use the origin and the requested amount; stage 2 sums use the destination and the stage 1 grant
 @compute @workgroup_size(64)
 fn sums(@builtin(global_invocation_id) id: vec3<u32>) {
-    let i = id.x;
-    if (i >= params[P_RTOT]) { return; }
+    if (id.x >= atomicLoad(&rlist[0])) { return; }
+    let i = atomicLoad(&rlist[1u + id.x]);
     let stage = params[P_STAGE]; // 0 or 1, set by the host
-    let b = i * RQ;
-    let amount = select(rq[b + 4u], rq[b + 6u], stage == 1u);
-    if (rq[b + 4u] == 0u) { return; }
-    let p = select(rq[b], rq[b + 1u], stage == 1u);
-    let k = store_key(p, rq[b + 2u]);
+    let q = load_req(i);
+    if (q.amt == 0u) { return; }
+    let k = store_key(select(q.origin, q.dest, stage == 1u), q.s);
     if (k == NONE) { return; }
-    add_sum(k, amount);
+    add_sum(k, select(q.amt, q.g1, stage == 1u));
 }
 
 @compute @workgroup_size(64)
 fn flag_over(@builtin(global_invocation_id) id: vec3<u32>) {
-    let i = id.x;
-    if (i >= params[P_RTOT]) { return; }
+    if (id.x >= atomicLoad(&rlist[0])) { return; }
+    let i = atomicLoad(&rlist[1u + id.x]);
     let stage = params[P_STAGE];
-    let b = i * RQ;
-    if (rq[b + 4u] == 0u) { return; }
-    let p = select(rq[b], rq[b + 1u], stage == 1u);
-    let s = rq[b + 2u];
-    let k = store_key(p, s);
+    let q = load_req(i);
+    if (q.amt == 0u) { return; }
+    let p = select(q.origin, q.dest, stage == 1u);
+    let k = store_key(p, q.s);
     if (k == NONE) { return; }
     let total = (u64(atomicLoad(&sum_hi[k])) << 32u) | u64(atomicLoad(&sum_lo[k]));
-    let limit = select(balance(p, s), headroom(p, s), stage == 1u);
+    let limit = select(balance(p, q.s), headroom(p, q.s), stage == 1u);
     if (total > u64(limit)) {
         let slot = atomicAdd(&counters[0], 1u);
         list[slot] = (u64(k) << 32u) | u64(i);
@@ -332,9 +421,9 @@ fn share(@builtin(global_invocation_id) id: vec3<u32>) {
     while (end < m && u32(list[end] >> 32u) == key) { end++; }
     let size = end - pos;
     let first = u32(list[pos] & u64(0xffffffffu));
-    let fb = first * RQ;
-    let p = select(rq[fb], rq[fb + 1u], stage == 1u);
-    let s = rq[fb + 2u];
+    let fq = load_req(first);
+    let p = select(fq.origin, fq.dest, stage == 1u);
+    let s = fq.s;
     let available = select(balance(p, s), headroom(p, s), stage == 1u);
     if (size == 1u) {
         set_grant(first, stage, available);
@@ -348,12 +437,14 @@ fn share(@builtin(global_invocation_id) id: vec3<u32>) {
     var total: u64 = u64(0u);
     for (var q = pos; q < end; q++) {
         let r = u32(list[q] & u64(0xffffffffu));
-        total += u64(select(rq[r * RQ + 4u], rq[r * RQ + 6u], stage == 1u));
+        let rr = load_req(r);
+        total += u64(select(rr.amt, rr.g1, stage == 1u));
     }
     var granted_sum: u64 = u64(0u);
     for (var q = pos; q < end; q++) {
         let r = u32(list[q] & u64(0xffffffffu));
-        let w = u64(select(rq[r * RQ + 4u], rq[r * RQ + 6u], stage == 1u));
+        let rr = load_req(r);
+        let w = u64(select(rr.amt, rr.g1, stage == 1u));
         let scaled = w * u64(available);
         let g = scaled / total;
         scr[q] = scaled % total;      // the fractional part
@@ -387,33 +478,183 @@ fn share(@builtin(global_invocation_id) id: vec3<u32>) {
 // Stage 2 starts from the stage 1 grants.
 @compute @workgroup_size(64)
 fn init_stage2(@builtin(global_invocation_id) id: vec3<u32>) {
-    let i = id.x;
-    if (i >= params[P_RTOT] || rq[i * RQ + 4u] == 0u) { return; }
+    if (id.x >= atomicLoad(&rlist[0])) { return; }
+    let i = atomicLoad(&rlist[1u + id.x]);
+    if (rq[i * RQ + 4u] == 0u) { return; }
     rq[i * RQ + 7u] = rq[i * RQ + 6u];
 }
 
 // ---- commit ----
 @compute @workgroup_size(64)
-fn commit(@builtin(global_invocation_id) id: vec3<u32>) {
-    let i = id.x;
-    if (i >= params[P_RTOT]) { return; }
-    let b = i * RQ;
-    if (rq[b + 4u] == 0u) { return; }
-    let s = rq[b + 2u];
-    let delivered = rq[b + 7u];
-    var overflowed = 0u;
-    let ovf = rq[b + 3u];
-    if (ovf != NONE && sinkacc[ovf * params[P_NS] + s] == 1u) { overflowed = rq[b + 6u] - rq[b + 7u]; }
-    let debit = delivered + overflowed;
-    let o = rq[b];
-    let d = rq[b + 1u];
-    if (tag_of(o) == 0u) { atomicSub(&camt[idx_of(o) * params[P_NS] + s], debit); }
-    else if (tag_of(o) == 1u) { atomicSub(&amounts[idx_of(o) * params[P_NS] + s], debit); }
-    if (tag_of(d) == 0u) { atomicAdd(&camt[idx_of(d) * params[P_NS] + s], delivered); }
-    else if (tag_of(d) == 1u) { atomicAdd(&amounts[idx_of(d) * params[P_NS] + s], delivered); }
-    if (tag_of(o) == 2u) { flow_add(0u, s, debit); }
-    if (tag_of(d) == 3u) { flow_add(1u, s, delivered); }
-    flow_add(1u, s, overflowed);
+fn commit(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+    atomicStore(&wf_lo[lid.x], 0u);
+    atomicStore(&wf_hi[lid.x], 0u);
+    workgroupBarrier();
+    if (id.x < atomicLoad(&rlist[0])) {
+        let q = load_req(atomicLoad(&rlist[1u + id.x]));
+        if (q.amt != 0u) {
+            let s = q.s;
+            let delivered = q.g2;
+            var overflowed = 0u;
+            if (q.ovf != NONE && sinkacc[q.ovf * params[P_NS] + s] == 1u) { overflowed = q.g1 - q.g2; }
+            let debit = delivered + overflowed;
+            let o = q.origin;
+            let d = q.dest;
+            if (tag_of(o) == 0u) { atomicSub(&camt[idx_of(o) * params[P_NS] + s], debit); }
+            else if (tag_of(o) == 1u) { atomicSub(&amounts[idx_of(o) * params[P_NS] + s], debit); }
+            if (tag_of(d) == 0u) { atomicAdd(&camt[idx_of(d) * params[P_NS] + s], delivered); }
+            else if (tag_of(d) == 1u) { atomicAdd(&amounts[idx_of(d) * params[P_NS] + s], delivered); }
+            if (tag_of(o) == 2u) { wflow_add(0u, s, debit); }
+            if (tag_of(d) == 3u) { wflow_add(1u, s, delivered); }
+            wflow_add(1u, s, overflowed);
+        }
+    }
+    workgroupBarrier();
+    wflow_flush(lid.x);
+}
+
+// ---- the world's requests, in bundles: a cell's inflow (one request) or a cell's diffusion of one
+// substance (up to four, to the neighbours). The grid is (bundles, laws); a thread of law y takes bundle
+// x. Per bundle this does what the per-request kernels do for its requests, with fewer atomics.
+struct Bundle { law: u32, c: u32, si: u32, ok: bool }
+
+fn bundle_of(id: vec3<u32>) -> Bundle {
+    let lb = id.y * LAW;
+    let nsub = select(1u, laws[lb + 6u], laws[lb] == 1u);
+    let total = params[P_NCELLS] * nsub;
+    if (id.y >= params[P_NLAWS] || id.x >= total) { return Bundle(0u, 0u, 0u, false); }
+    return Bundle(id.y, id.x / nsub, id.x % nsub, true);
+}
+
+// A diffusion bundle: the substance, the neighbours that exist, and the amount asked of each.
+struct Diff { s: u32, count: u32, a: u32 }
+fn diff_of(lb: u32, c: u32, si: u32) -> Diff {
+    var count = 0u;
+    for (var q = 0u; q < 4u; q++) { if (nbr[c * 4u + q] != NONE) { count++; } }
+    let s = laws[lb + 9u + si];
+    if (count == 0u) { return Diff(s, 0u, 0u); }
+    let offer = u32((u64(camt0[c * params[P_NS] + s]) * u64(laws[lb + 5u])) / u64(10000u));
+    return Diff(s, count, offer / count);
+}
+
+// The slot of the request to neighbour ni.
+fn diff_slot(lb: u32, c: u32, si: u32, ni: u32) -> u32 { return params[P_R0] + laws[lb + 7u] + c * laws[lb + 8u] + si * 4u + ni; }
+
+fn slot_g1(j: u32, a: u32) -> u32 {
+    let o = wgr1[j - params[P_R0]];
+    return select(a, o - 1u, o != 0u);
+}
+fn slot_g2(j: u32, a: u32) -> u32 {
+    let o = wgr2[j - params[P_R0]];
+    return select(a, o - 1u, o != 0u);
+}
+
+@compute @workgroup_size(64)
+fn sums_world(@builtin(global_invocation_id) id: vec3<u32>) {
+    let b = bundle_of(id);
+    if (!b.ok) { return; }
+    let lb = b.law * LAW;
+    let stage = params[P_STAGE];
+    let ns = params[P_NS];
+    if (laws[lb] == 0u) {
+        // Inflow: the source is no store, so only the destination sums (stage 2) count; its grant is the request.
+        let amt = laws[lb + 3u];
+        if (stage == 1u && amt != 0u) { add_sum(b.c * ns + laws[lb + 1u], amt); }
+        return;
+    }
+    let d = diff_of(lb, b.c, b.si);
+    if (d.a == 0u) { return; }
+    if (stage == 0u) {
+        add_sum(b.c * ns + d.s, d.count * d.a);
+    } else {
+        for (var ni = 0u; ni < 4u; ni++) {
+            let nb = nbr[b.c * 4u + ni];
+            if (nb != NONE) { add_sum(nb * ns + d.s, slot_g1(diff_slot(lb, b.c, b.si, ni), d.a)); }
+        }
+    }
+}
+
+fn list_add(key: u32, j: u32) {
+    let slot = atomicAdd(&counters[0], 1u);
+    list[slot] = (u64(key) << 32u) | u64(j);
+}
+fn sum_of(k: u32) -> u64 { return (u64(atomicLoad(&sum_hi[k])) << 32u) | u64(atomicLoad(&sum_lo[k])); }
+
+@compute @workgroup_size(64)
+fn flag_world(@builtin(global_invocation_id) id: vec3<u32>) {
+    let b = bundle_of(id);
+    if (!b.ok) { return; }
+    let lb = b.law * LAW;
+    let stage = params[P_STAGE];
+    let ns = params[P_NS];
+    if (laws[lb] == 0u) {
+        let amt = laws[lb + 3u];
+        if (stage == 1u && amt != 0u) {
+            let s = laws[lb + 1u];
+            let k = b.c * ns + s;
+            if (sum_of(k) > u64(headroom(b.c, s))) { list_add(k, params[P_R0] + laws[lb + 7u] + b.c); }
+        }
+        return;
+    }
+    let d = diff_of(lb, b.c, b.si);
+    if (d.a == 0u) { return; }
+    if (stage == 0u) {
+        let k = b.c * ns + d.s;
+        if (sum_of(k) > u64(balance(b.c, d.s))) {
+            for (var ni = 0u; ni < 4u; ni++) {
+                if (nbr[b.c * 4u + ni] != NONE) { list_add(k, diff_slot(lb, b.c, b.si, ni)); }
+            }
+        }
+    } else {
+        for (var ni = 0u; ni < 4u; ni++) {
+            let nb = nbr[b.c * 4u + ni];
+            if (nb == NONE) { continue; }
+            let k = nb * ns + d.s;
+            if (sum_of(k) > u64(headroom(nb, d.s))) { list_add(k, diff_slot(lb, b.c, b.si, ni)); }
+        }
+    }
+}
+
+@compute @workgroup_size(64)
+fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+    atomicStore(&wf_lo[lid.x], 0u);
+    atomicStore(&wf_hi[lid.x], 0u);
+    workgroupBarrier();
+    let b = bundle_of(id);
+    if (b.ok) {
+        let lb = b.law * LAW;
+        let ns = params[P_NS];
+        if (laws[lb] == 0u) {
+            let amt = laws[lb + 3u];
+            if (amt != 0u) {
+                let s = laws[lb + 1u];
+                let j = params[P_R0] + laws[lb + 7u] + b.c;
+                let g1 = slot_g1(j, amt);
+                let delivered = slot_g2(j, amt);
+                let ovf = laws[lb + 4u];
+                var overflowed = 0u;
+                if (ovf != NONE && sinkacc[ovf * ns + s] == 1u) { overflowed = g1 - delivered; }
+                atomicAdd(&camt[b.c * ns + s], delivered);
+                wflow_add(0u, s, delivered + overflowed);
+                wflow_add(1u, s, overflowed);
+            }
+        } else {
+            let d = diff_of(lb, b.c, b.si);
+            if (d.a != 0u) {
+                var out = 0u;
+                for (var ni = 0u; ni < 4u; ni++) {
+                    let nb = nbr[b.c * 4u + ni];
+                    if (nb == NONE) { continue; }
+                    let g2 = slot_g2(diff_slot(lb, b.c, b.si, ni), d.a);
+                    out += g2;
+                    if (g2 != 0u) { atomicAdd(&camt[nb * ns + d.s], g2); }
+                }
+                if (out != 0u) { atomicSub(&camt[b.c * ns + d.s], out); }
+            }
+        }
+    }
+    workgroupBarrier();
+    wflow_flush(lid.x);
 }
 
 // ---- movement (2.4), one thread per entity ----
@@ -421,11 +662,11 @@ fn commit(@builtin(global_invocation_id) id: vec3<u32>) {
 fn movement(@builtin(global_invocation_id) id: vec3<u32>) {
     let e = id.x;
     if (e >= params[P_N]) { return; }
-    let n_genes = ent[e * ENT + 5u];
+    let na = ent[e * ENT + 13u] & 0xffu;
     let roff = ent[e * ENT + 8u];
     var pos = vec2<f32>(epos[e * 4u], epos[e * 4u + 1u]);
     var h = vec2<f32>(epos[e * 4u + 2u], epos[e * 4u + 3u]);
-    for (var g = 0u; g < n_genes; g++) {
+    for (var g = 0u; g < na; g++) {
         let base = roff + g * REC;
         if (rec[base] == R_TURN && rec[base + 7u] == 1u) {
             let sc = sincos(bitcast<f32>(rec[base + 6u]) * bitcast<f32>(DEG_BITS));
@@ -436,7 +677,7 @@ fn movement(@builtin(global_invocation_id) id: vec3<u32>) {
             h = vec2<f32>(nx * t, ny * t);
         }
     }
-    for (var g = 0u; g < n_genes; g++) {
+    for (var g = 0u; g < na; g++) {
         let base = roff + g * REC;
         if (rec[base] == R_MOVE && rec[base + 7u] == 1u) {
             let dist = bitcast<f32>(rec[base + 6u]);
@@ -554,7 +795,10 @@ fn bucket_sort(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_
     if (lid.x < cnt) { v = scr[off + lid.x]; }
     btile[lid.x] = v;
     workgroupBarrier();
-    for (var k = 2u; k <= 256u; k = k * 2u) {
+    // Only the first `kmax` places can hold an entry, so the network need not be wider.
+    var kmax = 2u;
+    while (kmax < cnt) { kmax = kmax * 2u; }
+    for (var k = 2u; k <= kmax; k = k * 2u) {
         for (var j = k / 2u; j > 0u; j = j / 2u) {
             let i = lid.x;
             let l = i ^ j;
@@ -571,4 +815,30 @@ fn bucket_sort(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_
         }
     }
     if (lid.x < cnt) { list[off + lid.x] = btile[lid.x]; }
+}
+
+// The starts of the buckets: an exclusive scan of the counts by one workgroup (each thread scans a slice).
+var<workgroup> sbt: array<u32, 1024>;
+@compute @workgroup_size(1024)
+fn sb_scan(@builtin(local_invocation_id) lid: vec3<u32>) {
+    let nb = params[P_SBN];
+    let per = (nb + 1023u) / 1024u;
+    let first = min(lid.x * per, nb);
+    let last = min(first + per, nb);
+    var run = 0u;
+    for (var b = first; b < last; b++) { run += atomicLoad(&sb_in[b]); }
+    sbt[lid.x] = run;
+    workgroupBarrier();
+    for (var off = 1u; off < 1024u; off = off * 2u) {
+        var t = 0u;
+        if (lid.x >= off) { t = sbt[lid.x - off]; }
+        workgroupBarrier();
+        sbt[lid.x] = sbt[lid.x] + t;
+        workgroupBarrier();
+    }
+    var base = sbt[lid.x] - run;
+    for (var b = first; b < last; b++) {
+        sb_out[b] = base;
+        base += atomicLoad(&sb_in[b]);
+    }
 }

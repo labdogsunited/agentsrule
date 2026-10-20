@@ -132,7 +132,6 @@ pub struct Packed {
     pub sinkacc: Vec<u32>,
     pub nbr: Vec<u32>,
     /// The entity of each record.
-    pub rec_ent: Vec<u32>,
     // Transform.
     pub reactions: Vec<u32>,
     pub rlaws: Vec<u32>,
@@ -278,7 +277,6 @@ pub fn pack(world: &World) -> Packed {
         laws: Vec::new(),
         sinkacc: Vec::new(),
         nbr: Vec::new(),
-        rec_ent: Vec::new(),
         reactions: Vec::new(),
         rlaws: Vec::new(),
         waste: Vec::new(),
@@ -296,7 +294,6 @@ pub fn pack(world: &World) -> Packed {
         p.ent.extend_from_slice(&[e.id as u32, (e.id >> 32) as u32, e.cell as u32, space_bucket(world, e.pos) as u32, goff, active.len() as u32, g.keep.len() as u32, flags, p.records as u32 * REC as u32, in_use, e.age as u32, e.lineage as u32, p.mw.len() as u32, 0, 0, 0]);
         p.mw.extend(master_words(&e.genome));
         p.ecap.extend_from_slice(&e.store.caps[..ns]);
-        p.rec_ent.extend(std::iter::repeat_n(i as u32, active.len()));
         p.epos.extend_from_slice(&[e.pos[0], e.pos[1], e.heading[0], e.heading[1]]);
         p.amounts.extend_from_slice(&e.store.amounts[..ns]);
         for (k, v) in e.prev.iter().take(ns).enumerate() {

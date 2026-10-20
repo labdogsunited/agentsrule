@@ -1,7 +1,7 @@
 //! The Move phase on the GPU (milestone M2): upkeep, fees, requests, two-stage arbitration,
 //! commit and movement.
 
-use crate::gpu::Gpu;
+use crate::gpu::{Gpu, Size};
 use crate::pack::*;
 use crate::shader;
 
@@ -22,7 +22,7 @@ pub fn shader_source() -> String {
     format!("{}\n{}\n{}", shader::constants(), shader::contract(), include_str!("move.wgsl"))
 }
 
-const BINDINGS: u32 = 27;
+const BINDINGS: u32 = 30;
 
 pub fn run_move(gpu: &Gpu, p: &Packed, rec_in: &[u32]) -> MoveOut {
     let n = p.n;
@@ -41,7 +41,7 @@ pub fn run_move(gpu: &Gpu, p: &Packed, rec_in: &[u32]) -> MoveOut {
     let camt = gpu.storage_with(&p.camt);
     let ccap = gpu.storage_with(&p.ccap);
     let rec = gpu.storage_with(rec_in);
-    let rec_ent = gpu.storage_with(&p.rec_ent);
+    let rlist = gpu.storage((p.params[P_R0] as usize + 1) * 4);
     let laws = gpu.storage_with(&p.laws.iter().chain([&0u32]).copied().collect::<Vec<_>>());
     let sinkacc = gpu.storage_with(&p.sinkacc);
     let nbr = gpu.storage_with(&p.nbr);
@@ -58,7 +58,10 @@ pub fn run_move(gpu: &Gpu, p: &Packed, rec_in: &[u32]) -> MoveOut {
     let sortp0 = gpu.storage_with(&[0u32, 0, 0, 0]);
     let flows = gpu.storage(3 * ns * 8 + 16);
     let (sb_in, sb_out, sb_blocks, sb_cur) = (gpu.storage(16), gpu.storage(16), gpu.storage(16), gpu.storage(16));
-    let all = [&params, &ent, &epos, &amounts, &camt, &ccap, &rec, &rec_ent, &laws, &sinkacc, &nbr, &dying, &guards, &rq, &sum_lo, &sum_hi, &list, &counters, &gw, &ecap, &scr];
+    let world_slots = r - p.params[P_R0] as usize;
+    let camt0 = gpu.storage_with(&p.camt);
+    let (wgr1, wgr2) = (gpu.storage(world_slots.max(1) * 4), gpu.storage(world_slots.max(1) * 4));
+    let all = [&params, &ent, &epos, &amounts, &camt, &ccap, &rec, &rlist, &laws, &sinkacc, &nbr, &dying, &guards, &rq, &sum_lo, &sum_hi, &list, &counters, &gw, &ecap, &scr];
     let with_sortp = |sortp: &wgpu::Buffer| {
         let mut b: Vec<&wgpu::Buffer> = all.to_vec();
         b.push(sortp);
@@ -67,18 +70,24 @@ pub fn run_move(gpu: &Gpu, p: &Packed, rec_in: &[u32]) -> MoveOut {
         b.push(&sb_out);
         b.push(&sb_blocks);
         b.push(&sb_cur);
+        b.push(&wgr1);
+        b.push(&wgr2);
+        b.push(&camt0);
         gpu.group(&bgl, &b)
     };
     let group = with_sortp(&sortp0);
 
-    let (upkeep, guards_k, gen, sums, flag, pad, bitonic, share, init2, commit, movement) = (
-        pipe("upkeep_fees"), pipe("collect_guards"), pipe("gen_requests"), pipe("sums"), pipe("flag_over"), pipe("pad_list"),
-        pipe("bitonic"), pipe("share"), pipe("init_stage2"), pipe("commit"), pipe("movement"),
+    let (upkeep, gen, sums, flag, pad, bitonic, share, init2, commit, movement, materialize, sums_w, flag_w, commit_w) = (
+        pipe("upkeep_fees"), pipe("gen_requests"), pipe("sums"), pipe("flag_over"), pipe("pad_list"),
+        pipe("bitonic"), pipe("share"), pipe("init_stage2"), pipe("commit"), pipe("movement"), pipe("materialize_world"), pipe("sums_world"), pipe("flag_world"), pipe("commit_world"),
     );
     let wg = |count: usize| (count.max(1) as u32).div_ceil(64);
+    let records = p.params[P_R0] as usize;
+    let nlaws = p.params[P_NLAWS];
+    let most = (0..nlaws as usize).map(|l| { let w = &p.laws[l * LAW..(l + 1) * LAW]; nc as u32 * if w[0] == 0 { 1 } else { w[6] } }).max().unwrap_or(0);
+    let grid = Size::Grid(most.div_ceil(64).max(1), nlaws.max(1));
     gpu.dispatch(&[(&upkeep, &group, wg(n))]);
-    gpu.dispatch(&[(&guards_k, &group, wg(n))]);
-    gpu.dispatch(&[(&gen, &group, wg(r))]);
+    gpu.dispatch(&[(&gen, &group, wg(n))]);
 
     let mut listed = [0u32; 2];
     for stage in 0..2u32 {
@@ -90,7 +99,7 @@ pub fn run_move(gpu: &Gpu, p: &Packed, rec_in: &[u32]) -> MoveOut {
             gpu.queue.write_buffer(&sum_hi, 0, &vec![0u8; keys.max(1) * 4]);
             gpu.queue.write_buffer(&counters, 0, &[0u8; 16]);
         }
-        gpu.dispatch(&[(&sums, &group, wg(r)), (&flag, &group, wg(r))]);
+        gpu.dispatch_sized(&[(&sums, &group, Size::Groups(wg(records))), (&sums_w, &group, grid), (&flag, &group, Size::Groups(wg(records))), (&flag_w, &group, grid)]);
         let m: Vec<u32> = gpu.read(&counters, 4);
         let m = m[0] as usize;
         listed[stage as usize] = m as u32;
@@ -120,7 +129,9 @@ pub fn run_move(gpu: &Gpu, p: &Packed, rec_in: &[u32]) -> MoveOut {
             gpu.dispatch(&steps);
         }
     }
-    gpu.dispatch(&[(&commit, &group, wg(r)), (&movement, &group, wg(n))]);
+    // The world's requests are computed where used; write them out (before the commit changes the cells) to be read back.
+    gpu.dispatch(&[(&materialize, &group, wg(r))]);
+    gpu.dispatch_sized(&[(&commit, &group, Size::Groups(wg(records))), (&commit_w, &group, grid), (&movement, &group, Size::Groups(wg(n)))]);
 
     MoveOut {
         amounts: gpu.read(&amounts, n * ns),

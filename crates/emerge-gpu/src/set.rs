@@ -7,8 +7,10 @@ use crate::shader;
 pub struct SetOut {
     /// `NSIG` floats per entity, after the mind.
     pub sig: Vec<f32>,
-    /// `REC` words per active gene.
+    /// `REC` words per active gene, packed as the Set phase writes them (see `main` in set.wgsl).
     pub rec: Vec<u32>,
+    /// The entities, with the record counts in word 13.
+    pub ent: Vec<u32>,
     /// `ns` words per entity (valid for entities with a `delta` gene).
     pub prev: Vec<u32>,
 }
@@ -37,6 +39,7 @@ pub fn run_set(gpu: &Gpu, p: &Packed) -> (SetOut, std::time::Duration) {
     let out = SetOut {
         sig: gpu.read(&sig, p.n * NSIG),
         rec: gpu.read(&rec, p.records * REC),
+        ent: gpu.read(&ent, p.n * ENT),
         prev: gpu.read(&prev_out, p.n * p.ns),
     };
     (out, t)

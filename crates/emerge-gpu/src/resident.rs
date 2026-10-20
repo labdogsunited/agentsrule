@@ -3,14 +3,13 @@
 //! The host drives the kernels and reads a few counts back each tick (record totals, list
 //! lengths, survivors); the state itself never leaves the device except to be compared.
 
-use crate::gpu::Gpu;
+use crate::gpu::{Gpu, Size};
 use crate::pack::*;
 use crate::shader;
 use emerge_ref::World;
 
 /// Most buckets of the grouping sort (a power of two).
-const SB_MAX: usize = 131072;
-const P_SBN: usize = 56;
+const SB_MAX: usize = 32768;
 const P_NBT: usize = 50;
 const P_ISX: usize = 51;
 const P_ISY: usize = 52;
@@ -75,6 +74,9 @@ pub struct Resident<'a> {
     // modules
     set_m: Module,
     move_m: Module,
+    plan_m: Module,
+    /// Workgroups along x for the world-request kernels (the most bundles any law has, over 64), and the laws.
+    world_grid: (u32, u32),
     tr_m: Module,
     rs_m: Module,
     prep_m: Module,
@@ -156,9 +158,13 @@ struct Buffers {
     sb_out: wgpu::Buffer,
     sb_blocks: wgpu::Buffer,
     sb_cur: wgpu::Buffer,
+    wgr1: wgpu::Buffer,
+    wgr2: wgpu::Buffer,
+    camt0: wgpu::Buffer,
+    ind: wgpu::Buffer,
     // sized each tick
     rec: wgpu::Buffer,
-    rec_ent: wgpu::Buffer,
+    rlist: wgpu::Buffer,
     rq: wgpu::Buffer,
     list: wgpu::Buffer,
     scr: wgpu::Buffer,
@@ -285,8 +291,12 @@ impl<'a> Resident<'a> {
             sb_out: zeros(SB_MAX + 1),
             sb_blocks: zeros(SB_MAX / 256 + 2),
             sb_cur: zeros(SB_MAX + 1),
+            wgr1: zeros(p.params[P_LAWTOT] as usize + 1),
+            wgr2: zeros(p.params[P_LAWTOT] as usize + 1),
+            camt0: zeros(nc * ns + 1),
+            ind: zeros(9),
             rec: zeros(1),
-            rec_ent: zeros(1),
+            rlist: zeros(1),
             rq: zeros(1),
             list: zeros(2),
             scr: zeros(2),
@@ -296,17 +306,23 @@ impl<'a> Resident<'a> {
         };
         let common = format!("{}\n{}", shader::constants(), shader::contract());
         let set_m = module(gpu, &format!("{common}\n{}", include_str!("set.wgsl")), 13, &["main"]);
-        let move_m = module(gpu, &format!("{common}\n{}\n{}", include_str!("move.wgsl"), crate::scan::kernels("sb", "params[P_SBN]", "atomicLoad(&{name}_in[i])")), 27, &["bucket_hist", "bucket_scatter", "bucket_sort", "sb_local", "sb_scan_blocks", "sb_add", "upkeep_fees", "collect_guards", "gen_requests", "sums", "flag_over", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
+        let move_m = module(gpu, &format!("{common}\n{}", include_str!("move.wgsl")), 30, &["bucket_hist", "bucket_scatter", "bucket_sort", "sb_scan", "upkeep_fees", "gen_requests", "sums", "flag_over", "sums_world", "flag_world", "commit_world", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
+        let world_grid = {
+            let nlaws = p.params[P_NLAWS];
+            let most = (0..nlaws as usize).map(|l| { let w = &p.laws[l * LAW..(l + 1) * LAW]; nc as u32 * if w[0] == 0 { 1 } else { w[6] } }).max().unwrap_or(0);
+            (most.div_ceil(64).max(1), nlaws.max(1))
+        };
+        let plan_m = module(gpu, include_str!("plan.wgsl"), 4, &["plan_buckets", "plan_requests"]);
         let tr_m = module(gpu, &format!("{}\n{}", shader::constants(), include_str!("transform.wgsl")), 14, &["react_entities", "react_cells", "vent", "audit_totals"]);
         let rs_src = format!("{common}\n{}\n{}\n{}", include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"));
-        let rs_m = module(gpu, &rs_src, 30, &["mark", "finish_scans", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
+        let rs_m = module(gpu, &rs_src, 30, &["mark", "finish_scans", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact_ent", "compact_rest", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
         let prep_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("prep.wgsl"), crate::scan::kernels("bkt", "params[P_NBT]", "atomicLoad(&{name}_in[i])"), crate::scan::kernels("gen", "params[P_N]", "{name}_in[i]"));
-        let prep_m = module(gpu, &prep_src, 12, &["assign", "finish_nstart", "finish_prep", "scatter", "set_roff", "bkt_local", "bkt_scan_blocks", "bkt_add", "gen_local", "gen_scan_blocks", "gen_add"]);
+        let prep_m = module(gpu, &prep_src, 11, &["assign", "finish_nstart", "finish_prep", "scatter", "set_roff", "bkt_local", "bkt_scan_blocks", "bkt_add", "gen_local", "gen_scan_blocks", "gen_add"]);
         let mut_src = format!("{common}\n{}\n{}", include_str!("mutate.wgsl"), include_str!("mutate_children.wgsl"));
         let mut_m = module(gpu, &mut_src, 9, &["mutate_children"]);
         let gc_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("gc.wgsl"), crate::scan::kernels("gm", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("gv", "params[P_N]", "{name}_in[i]"));
         let gc_m = module(gpu, &gc_src, 12, &["gc_sizes", "gc_copy", "gm_local", "gm_scan_blocks", "gm_add", "gv_local", "gv_scan_blocks", "gv_add"]);
-        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent0: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), parity: false, set_m, move_m, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
+        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent0: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), parity: false, set_m, move_m, plan_m, world_grid, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
     }
 
     fn write_param(&mut self, index: usize, value: u32) {
@@ -360,9 +376,9 @@ impl<'a> Resident<'a> {
         // genomes can hold (`max_genes` active genes each) and the kernels stop at the real total.
         let records = n * self.max_genes;
         let rq_slots = records + self.params[P_LAWTOT] as usize;
-        let (mut rec, mut rec_ent, mut rq, mut list, mut scr) = (
+        let (mut rec, mut rlist, mut rq, mut list, mut scr) = (
             std::mem::replace(&mut self.b.rec, gpu.storage(4)),
-            std::mem::replace(&mut self.b.rec_ent, gpu.storage(4)),
+            std::mem::replace(&mut self.b.rlist, gpu.storage(4)),
             std::mem::replace(&mut self.b.rq, gpu.storage(4)),
             std::mem::replace(&mut self.b.list, gpu.storage(4)),
             std::mem::replace(&mut self.b.scr, gpu.storage(4)),
@@ -371,14 +387,14 @@ impl<'a> Resident<'a> {
         let before = rc;
         self.ensure(&mut rec, &mut rc, records.max(1) * REC * 4);
         if rc != before {
-            rec_ent = gpu.storage(rc / REC);
+            rlist = gpu.storage(rc / REC + 4);
         }
-        self.ensure(&mut rq, &mut qc, rq_slots.max(1) * 8 * 4);
+        self.ensure(&mut rq, &mut qc, records.max(1) * 8 * 4);
         let list_slots = rq_slots.max(n).next_power_of_two().max(2);
         self.ensure(&mut list, &mut lc, list_slots * 8);
         let mut sc = 0usize;
         self.ensure(&mut scr, &mut sc, list_slots * 8);
-        (self.b.rec, self.b.rec_ent, self.b.rq, self.b.list, self.b.scr) = (rec, rec_ent, rq, list, scr);
+        (self.b.rec, self.b.rlist, self.b.rq, self.b.list, self.b.scr) = (rec, rlist, rq, list, scr);
         if (self.b.rec_cap, self.b.rq_cap, self.b.list_cap) != (rc, qc, lc) {
             self.sort_cache.clear(); // the bind groups point at the old buffers
         }
@@ -387,7 +403,7 @@ impl<'a> Resident<'a> {
         gpu.clear(&self.b.cursor);
         {
             let b = &self.b;
-            let g = gpu.group(&self.prep_m.bgl, &[&b.params, &b.ent, &b.epos, &b.bkt_in, &b.bkt_out, &b.bkt_blocks, &b.cursor, &b.norder, &b.gen_in, &b.gen_out, &b.gen_blocks, &b.rec_ent]);
+            let g = gpu.group(&self.prep_m.bgl, &[&b.params, &b.ent, &b.epos, &b.bkt_in, &b.bkt_out, &b.bkt_blocks, &b.cursor, &b.norder, &b.gen_in, &b.gen_out, &b.gen_blocks]);
             let pipe = |name: &str| self.prep_m.pipe(name);
             gpu.dispatch(&[
                 (pipe("assign"), &g, wg(n)),
@@ -414,7 +430,7 @@ impl<'a> Resident<'a> {
 
         lap(self, 1);
         // ---- Move ----
-        self.run_move(records, rq_slots);
+        self.run_move();
         lap(self, 2);
 
         // ---- Transform ----
@@ -491,11 +507,11 @@ impl<'a> Resident<'a> {
         let b = &self.b;
         self.gpu.group(
             &self.move_m.bgl,
-            &[&b.params, &b.ent, &b.epos, &b.amounts, &b.camt, &b.ccap, &b.rec, &b.rec_ent, &b.laws, &b.sinkacc, &b.nbr, &b.dying, &b.guards, &b.rq, &b.sum_lo, &b.sum_hi, &b.list, &b.counters, &b.gw, &b.ecap, &b.scr, sortp, &b.flows, &b.sb_in, &b.sb_out, &b.sb_blocks, &b.sb_cur],
+            &[&b.params, &b.ent, &b.epos, &b.amounts, &b.camt, &b.ccap, &b.rec, &b.rlist, &b.laws, &b.sinkacc, &b.nbr, &b.dying, &b.guards, &b.rq, &b.sum_lo, &b.sum_hi, &b.list, &b.counters, &b.gw, &b.ecap, &b.scr, sortp, &b.flows, &b.sb_in, &b.sb_out, &b.sb_blocks, &b.sb_cur, &b.wgr1, &b.wgr2, &b.camt0],
         )
     }
 
-    fn run_move(&mut self, _records: usize, r: usize) {
+    fn run_move(&mut self) {
         let gpu = self.gpu;
         let prof = self.profile.is_some();
         let t0 = std::time::Instant::now();
@@ -515,11 +531,17 @@ impl<'a> Resident<'a> {
         gpu.clear(&self.b.sum_lo);
         gpu.clear(&self.b.sum_hi);
         gpu.clear(&self.b.counters);
+        gpu.clear(&self.b.wgr1);
+        gpu.clear(&self.b.wgr2);
+        gpu.copy_word(&self.b.consts, 0, &self.b.rlist, 0);     // no requests from entities yet
+        gpu.copy_buffer(&self.b.camt, &self.b.camt0, (nc * ns * 4) as u64);
         let _ = keys;
+        let plan = gpu.group(&self.plan_m.bgl, &[&self.b.params, &self.b.counters, &self.b.ind, &self.b.rlist]);
         {
             let m = &self.move_m;
-            gpu.dispatch(&[(m.pipe("upkeep_fees"), &group, wg(n)), (m.pipe("collect_guards"), &group, wg(n)), (m.pipe("gen_requests"), &group, wg(r))]);
+            gpu.dispatch(&[(m.pipe("upkeep_fees"), &group, wg(n)), (m.pipe("gen_requests"), &group, wg(n))]);
         }
+        gpu.dispatch(&[(self.plan_m.pipe("plan_requests"), &plan, 1)]);
         lap("upkeep+guards+gen");
         for stage in 0..2u32 {
             if stage == 1 {
@@ -528,29 +550,37 @@ impl<'a> Resident<'a> {
                 gpu.clear(&self.b.sum_hi);
                 gpu.clear(&self.b.counters);
             }
-            gpu.dispatch(&[(self.move_m.pipe("sums"), &group, wg(r)), (self.move_m.pipe("flag_over"), &group, wg(r))]);
-            let m = gpu.read::<u32>(&self.b.counters, 4)[0] as usize;
-            lap(if stage == 0 { "stage1 sums" } else { "stage2 sums" });
-            if m > 0 {
-                // Group the oversubscribed requests (see `bucket_sort` in move.wgsl).
-                let buckets = (m / 32).next_power_of_two().clamp(1, SB_MAX);
-                self.write_param(P_SBN, buckets as u32);
-                gpu.clear(&self.b.sb_in);
-                gpu.clear(&self.b.sb_cur);
-                let mv = &self.move_m;
-                gpu.dispatch(&[
-                    (mv.pipe("bucket_hist"), &group, wg(m)),
-                    (mv.pipe("sb_local"), &group, (buckets as u32).div_ceil(256)),
-                    (mv.pipe("sb_scan_blocks"), &group, 1),
-                    (mv.pipe("sb_add"), &group, (buckets as u32).div_ceil(256)),
-                    (mv.pipe("bucket_scatter"), &group, wg(m)),
-                    (mv.pipe("bucket_sort"), &group, buckets as u32),
-                    (mv.pipe("share"), &group, wg(m)),
-                ]);
-                lap(if stage == 0 { "stage1 sort+share" } else { "stage2 sort+share" });
-            }
+            let (wx, wy) = self.world_grid;
+            gpu.dispatch_sized(&[
+                (self.move_m.pipe("sums"), &group, Size::Indirect(&self.b.ind, 24)),
+                (self.move_m.pipe("sums_world"), &group, Size::Grid(wx, wy)),
+                (self.move_m.pipe("flag_over"), &group, Size::Indirect(&self.b.ind, 24)),
+                (self.move_m.pipe("flag_world"), &group, Size::Grid(wx, wy)),
+            ]);
+            // Group the oversubscribed requests (see `bucket_sort` in move.wgsl). The device sizes the work
+            // from the count (`plan.wgsl`), so nothing waits for it; with no request the steps do nothing.
+            let b = &self.b;
+            gpu.dispatch(&[(self.plan_m.pipe("plan_buckets"), &plan, 1)]);
+            gpu.clear(&self.b.sb_in);
+            gpu.clear(&self.b.sb_cur);
+            let mv = &self.move_m;
+            let per_entry = Size::Indirect(&b.ind, 0);
+            let per_bucket = Size::Indirect(&b.ind, 12);
+            gpu.dispatch_sized(&[
+                (mv.pipe("bucket_hist"), &group, per_entry),
+                (mv.pipe("sb_scan"), &group, Size::Groups(1)),
+                (mv.pipe("bucket_scatter"), &group, per_entry),
+                (mv.pipe("bucket_sort"), &group, per_bucket),
+                (mv.pipe("share"), &group, per_entry),
+            ]);
+            lap(if stage == 0 { "stage1 sort+share" } else { "stage2 sort+share" });
         }
-        gpu.dispatch(&[(self.move_m.pipe("commit"), &group, wg(r)), (self.move_m.pipe("movement"), &group, wg(n))]);
+        let (wx, wy) = self.world_grid;
+        gpu.dispatch_sized(&[
+            (self.move_m.pipe("commit"), &group, Size::Indirect(&self.b.ind, 24)),
+            (self.move_m.pipe("commit_world"), &group, Size::Grid(wx, wy)),
+            (self.move_m.pipe("movement"), &group, Size::Groups(wg(n))),
+        ]);
         lap("commit+movement");
         if prof && std::env::var_os("EMERGE_GPU_PROFILE_MOVE").is_some() {
             let mut prev = 0.0;
@@ -623,12 +653,16 @@ impl<'a> Resident<'a> {
             steps.push((self.rs_m.pipe("dispose"), &group, wg(removed)));
             gpu.dispatch(&steps);
         }
-        gpu.dispatch(&[(self.rs_m.pipe("divide"), &group, wg(n)), (self.rs_m.pipe("compact"), &group, wg(n))]);
+        gpu.dispatch_sized(&[
+            (self.rs_m.pipe("divide"), &group, Size::Groups(wg(n))),
+            (self.rs_m.pipe("compact_ent"), &group, Size::threads(n * ENT)),
+            (self.rs_m.pipe("compact_rest"), &group, Size::threads(n * (4 + 3 * self.ns + NSIG))),
+        ]);
         // Children of lineages with variation get mutated genomes.
         if children > 0 {
             let b = &self.b;
             let g = gpu.group(&self.mut_m.bgl, &[&b.params, &b.menus, &b.rates, &b.mw, &b.ent, &b.ent2, &b.gw, &b.pool, &b.work]);
-            gpu.dispatch(&[(self.mut_m.pipe("mutate_children"), &g, wg(children))]);
+            gpu.dispatch_sized(&[(self.mut_m.pipe("mutate_children"), &g, Size::Grid((children as u32).min(32768), (children as u32).div_ceil(32768)))]);
             if self.tick % 8 != 0 {
                 // The pools are checked every eighth tick (a read-back is a wait).
             } else {

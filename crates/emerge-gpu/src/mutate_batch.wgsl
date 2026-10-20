@@ -12,6 +12,7 @@ fn mutate_batch(@builtin(global_invocation_id) id: vec3<u32>) {
     dstream = jobs[j * 4u + 2u];
     dtick = jobs[j * 4u + 3u];
     dn = 0u;
+    blk_at = 0xffffffffu;
     mutate_core(jobs[j * 4u + 1u]);
     let o = j * OUTW;
     out[o] = ns;

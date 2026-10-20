@@ -61,14 +61,15 @@ fn removed_of(e: u32) -> bool {
     return dying[e] == 1u || age + 1u >= params[P_MAXAGE];
 }
 
-// Division of entity e: the Divide record, if its fee was paid and the requirement holds.
+// Division of entity e: the index of the Divide gene among its active genes, if its fee was paid and the requirement holds.
 fn divide_gene(e: u32) -> u32 {
-    let n_genes = ent[e * ENT + 5u];
+    let na = ent[e * ENT + 13u] & 0xffu;
     let roff = ent[e * ENT + 8u];
-    for (var g = 0u; g < n_genes; g++) {
-        let base = roff + g * REC;
+    for (var k = 0u; k < na; k++) {
+        let base = roff + k * REC;
         if (rec[base] == R_DIVIDE) {
             if (rec[base + 7u] == 0u) { return NONE; }
+            let g = rec[base + 2u];
             let w = ent[e * ENT + 4u] + ent[e * ENT + 6u] + g * SLOT;
             if (amounts[e * params[P_NS] + gw[w + 8u]] < gw[w + 9u]) { return NONE; }
             return g;
@@ -205,30 +206,51 @@ fn divide(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 // ---- 4: survivors move to their place in the new arrays, older and in the cell under them ----
+// One thread per word, so that neighbouring threads move neighbouring words. The grid is two-dimensional
+// (rows of 32768 groups) when there are many words.
+fn tid(id: vec3<u32>) -> u32 { return id.y * 2097152u + id.x; }
+
 @compute @workgroup_size(64)
-fn compact(@builtin(global_invocation_id) id: vec3<u32>) {
-    let e = id.x;
+fn compact_ent(@builtin(global_invocation_id) id: vec3<u32>) {
+    let t = tid(id);
+    let e = t / ENT;
+    let k = t % ENT;
     if (e >= params[P_N] || alive_in[e] == 0u) { return; }
+    var v = ent[e * ENT + k];
+    if (k == WORD_AGE) {
+        v = v + 1u;
+    } else if (k == 2u) {
+        let gwid = i32(params[P_GW]);
+        let gh = i32(params[P_GH]);
+        let cx = clamp(i32(floor(epos[e * 4u] * pf(P_CKX))), 0, gwid - 1);
+        let cy = clamp(i32(floor(epos[e * 4u + 1u] * pf(P_CKY))), 0, gh - 1);
+        v = u32(cy * gwid + cx);
+    } else if (k == 7u) {
+        // A genome with a `delta` gene keeps the amounts of its last reading.
+        if ((v & 4u) != 0u) { v = v | 2u; }
+    }
+    ent2[alive_out[e] * ENT + k] = v;
+}
+
+// The rest of an entity: position and heading, amounts, caps, signals, and `prev` for a `delta` genome.
+@compute @workgroup_size(64)
+fn compact_rest(@builtin(global_invocation_id) id: vec3<u32>) {
     let ns = params[P_NS];
+    let width = 4u + 3u * ns + NSIG;
+    let t = tid(id);
+    let e = t / width;
+    var k = t % width;
+    if (e >= params[P_N] || alive_in[e] == 0u) { return; }
     let to = alive_out[e];
-    for (var k = 0u; k < ENT; k++) { ent2[to * ENT + k] = ent[e * ENT + k]; }
-    ent2[to * ENT + WORD_AGE] = ent[e * ENT + WORD_AGE] + 1u;
-    let gwid = i32(params[P_GW]);
-    let gh = i32(params[P_GH]);
-    let cx = clamp(i32(floor(epos[e * 4u] * pf(P_CKX))), 0, gwid - 1);
-    let cy = clamp(i32(floor(epos[e * 4u + 1u] * pf(P_CKY))), 0, gh - 1);
-    ent2[to * ENT + 2u] = u32(cy * gwid + cx);
-    for (var k = 0u; k < 4u; k++) { epos2[to * 4u + k] = epos[e * 4u + k]; }
-    for (var s = 0u; s < ns; s++) {
-        amounts2[to * ns + s] = amounts[e * ns + s];
-        ecap2[to * ns + s] = ecap[e * ns + s];
-    }
-    for (var j = 0u; j < NSIG; j++) { sig2[to * NSIG + j] = sig[e * NSIG + j]; }
-    // A genome with a `delta` gene keeps the amounts of its last reading.
-    if ((ent[e * ENT + 7u] & 4u) != 0u) {
-        for (var s = 0u; s < ns; s++) { prev_dst[to * ns + s] = prev_src[e * ns + s]; }
-        ent2[to * ENT + 7u] = ent2[to * ENT + 7u] | 2u;
-    }
+    if (k < 4u) { epos2[to * 4u + k] = epos[e * 4u + k]; return; }
+    k -= 4u;
+    if (k < ns) { amounts2[to * ns + k] = amounts[e * ns + k]; return; }
+    k -= ns;
+    if (k < ns) { ecap2[to * ns + k] = ecap[e * ns + k]; return; }
+    k -= ns;
+    if (k < NSIG) { sig2[to * NSIG + k] = sig[e * NSIG + k]; return; }
+    k -= NSIG;
+    if ((ent[e * ENT + 7u] & 4u) != 0u) { prev_dst[to * ns + k] = prev_src[e * ns + k]; }
 }
 
 // Bitonic sort of `list` (sortp = [k, j, size, kmax]). Chunks of 1024 are sorted in shared

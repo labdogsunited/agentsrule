@@ -34,7 +34,7 @@ pub fn compare_transform(world: &mut World, gpu: &Gpu, ticks: u64, every: u64, v
         let gpu_out = (tick % every == 0).then(|| {
             let mut packed = pack(world);
             pack_transform(world, &mut packed);
-            let rec = records(world, &packed, &plans);
+            let rec = records(world, &mut packed, &plans);
             let d: Vec<u32> = dying.iter().map(|&x| u32::from(x)).collect();
             run_transform(gpu, &packed, &rec, &d)
         });
@@ -115,7 +115,7 @@ pub fn compare_restructure(world: &mut World, gpu: &Gpu, ticks: u64, every: u64,
             let mut packed = pack(world);
             pack_transform(world, &mut packed);
             pack_restructure(world, &mut packed);
-            let rec = records(world, &packed, &plans);
+            let rec = records(world, &mut packed, &plans);
             let d: Vec<u32> = dying.iter().map(|&x| u32::from(x)).collect();
             let out = run_restructure(gpu, &packed, &rec, &d);
             (packed, out)
@@ -326,7 +326,7 @@ pub fn run_gpu_cmd(args: &[String]) {
     if !report.is_empty() {
         let total: f64 = report.iter().map(|r| r.1).sum();
         println!("kernel time per tick (us, calls per tick): {:.0} in all", total / ticks as f64);
-        for (name, us, n) in report.iter().take(18) {
+        for (name, us, n) in report.iter().take(24) {
             println!("  {name:<18} {:>8.1} us  x{:.1}", us / ticks as f64, *n as f64 / ticks as f64);
         }
     }

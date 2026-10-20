@@ -99,12 +99,24 @@ pub fn compare(world: &mut emerge_ref::World, gpu: &Gpu, ticks: u64, every: u64,
                     first * REC
                 };
                 let mut got: Vec<[u32; 7]> = Vec::new();
+                let counts = out.ent[i * ENT + 13];
+                let (na, nr) = ((counts & 0xff) as usize, ((counts >> 8) & 0xff) as usize);
+                let n_genes = packed.genes[i].len();
+                // The fired actions from the front of the block, the reaction caps from the back.
+                let slots = (0..na).chain((0..nr).map(|k| n_genes - 1 - k));
+                let mut fired_genes: Vec<u32> = Vec::new();
+                for k in slots {
+                    let r = &out.rec[off + k * REC..off + (k + 1) * REC];
+                    // Reaction caps keep the reaction in word 4 and divide the gene's place in word 2; the CPU's plan has neither.
+                    let (s, fee) = match r[0] {
+                        R_REACT => (r[2], 0),
+                        R_DIVIDE => (0, r[4]),
+                        _ => (r[2], r[4]),
+                    };
+                    got.push([r[1], r[0], s, r[3], fee, r[5], r[6]]);
+                    fired_genes.push(r[1]);
+                }
                 for (gi, &g) in packed.genes[i].iter().enumerate() {
-                    let r = &out.rec[off + gi * REC..off + (gi + 1) * REC];
-                    if r[0] != 0 {
-                        got.push([r[1], r[0], r[2], r[3], r[4], r[5], r[6]]);
-                        debug_assert_eq!(r[1] as usize, g);
-                    }
                     let label = kind_label(&{
                         // Rebuild the kind label from the packed words of this gene.
                         let goff = packed.ent[i * ENT + 4] as usize + packed.ent[i * ENT + 6] as usize + gi * SLOT;
@@ -114,7 +126,7 @@ pub fn compare(world: &mut emerge_ref::World, gpu: &Gpu, ticks: u64, every: u64,
                     });
                     let c = rep.coverage.entry(label).or_default();
                     c.0 += 1;
-                    c.1 += u64::from(r[0] != 0);
+                    c.1 += u64::from(fired_genes.contains(&(g as u32)));
                 }
                 got.sort();
                 if want != got {

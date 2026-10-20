@@ -1,6 +1,6 @@
 //! The Restructure phase on the GPU (milestone M3, second part), without mutation.
 
-use crate::gpu::Gpu;
+use crate::gpu::{Gpu, Size};
 use crate::pack::*;
 use crate::shader;
 
@@ -111,9 +111,9 @@ pub fn run_restructure(gpu: &Gpu, p: &Packed, rec: &[u32], dying: &[u32]) -> Res
         gpu.dispatch(&steps);
     }
 
-    let (divide, compact) = (pipe("divide"), pipe("compact"));
+    let (divide, compact_ent, compact_rest) = (pipe("divide"), pipe("compact_ent"), pipe("compact_rest"));
     gpu.dispatch(&[(&divide, &group, wg(n))]);
-    gpu.dispatch(&[(&compact, &group, wg(n))]);
+    gpu.dispatch_sized(&[(&compact_ent, &group, Size::threads(n * ENT)), (&compact_rest, &group, Size::threads(n * (4 + 3 * ns + NSIG)))]);
     let candidates = last(&cand_in, &cand_out);
     let children = candidates.min(p.params[P_MAXENT] as usize - alive.min(p.params[P_MAXENT] as usize));
     let total = alive + children;

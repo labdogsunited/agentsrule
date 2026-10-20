@@ -262,7 +262,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     for (var j = 0u; j < nsg; j++) { sig[e * NSIG + j] = s[j]; }
 
-    // Intents and reaction caps, in gene order.
+    // Intents and reaction caps, in gene order. The records of this entity are packed: the fired actions
+    // from the front of its block (na of them), the reaction caps from the back (nr, the first reaction
+    // last), so the later phases visit only what exists. Word 13 of the entity holds na | nr << 8.
+    var na = 0u;
+    var nr = 0u;
     var moves = false;
     var turns = false;
     var divides = false;
@@ -271,8 +275,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     for (var g = 0u; g < n_genes; g++) {
         let w = slots + g * SLOT;
         let kind = gw[w];
-        let base = roff + g * REC;
-        rec[base] = 0u;
         if (kind < REACT) { continue; }
         let src = gw[w + 2u];
         var o = bitcast<f32>(gw[w + 3u]);
@@ -281,20 +283,25 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let fee = gw[w + 7u];
         let og = gw[w + 1u];
         let sub = gw[w + 5u];
+        let base = roff + na * REC;
         if (kind == REACT) {
-            put(base, R_REACT, og, 0u, scale(o, gw[w + 8u]), 0u, 0u, 0u);
+            // Word 4 holds the reaction.
+            put(roff + (n_genes - 1u - nr) * REC, R_REACT, og, 0u, scale(o, gw[w + 8u]), sub, 0u, 0u);
+            nr++;
         } else if (kind == MOVE) {
             if (o > threshold && !moves) {
                 moves = true;
                 let distance = clamp(o, 0.0, 1.0) * bitcast<f32>(gw[w + 8u]);
                 let f = u32(ceil(f32c(gw[w + 9u]) * distance));
                 put(base, R_MOVE, og, 0u, 0u, f, 0u, bitcast<u32>(distance));
+                na++;
             }
         } else if (kind == TURN) {
             if (o > threshold && !turns) {
                 turns = true;
                 let angle = clamp(o, -1.0, 1.0) * bitcast<f32>(gw[w + 8u]);
                 put(base, R_TURN, og, 0u, 0u, fee, 0u, bitcast<u32>(angle));
+                na++;
             }
         } else if (kind == TAKE || kind == DROP) {
             let take = kind == TAKE;
@@ -304,6 +311,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                 fired[kk] = fired[kk] | (1u << sub);
                 if (new_one) {
                     put(base, select(R_DROP, R_TAKE, take), og, sub, scale(o, gw[w + 8u]), fee, 0u, 0u);
+                    na++;
                 }
             }
         } else if (kind == GIVE || kind == STEAL) {
@@ -314,15 +322,22 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                 fired[kk] = fired[kk] | (1u << sub);
                 if (new_one) {
                     put(base, select(R_STEAL, R_GIVE, give), og, sub, scale(o, gw[w + 8u]), fee, nb_j[0], 0u);
+                    na++;
                 }
             }
         } else if (kind == DIVIDE) {
             if (o > threshold && !divides) {
                 divides = true;
-                put(base, R_DIVIDE, og, 0u, 0u, fee, 0u, 0u);
+                // Word 2 holds the index of the gene among the active genes.
+                put(base, R_DIVIDE, og, g, 0u, fee, 0u, 0u);
+                na++;
             }
         } else if (kind == GUARD) {
-            if (o > threshold) { put(base, R_GUARD, og, sub, 0u, fee, 0u, 0u); }
+            if (o > threshold) {
+                put(base, R_GUARD, og, sub, 0u, fee, 0u, 0u);
+                na++;
+            }
         }
     }
+    ent[e * ENT + 13u] = na | (nr << 8u);
 }
