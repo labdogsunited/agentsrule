@@ -983,7 +983,56 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 
 ---
 
-## 15. Open questions
+## 15. What runs where
+
+Each construct is in one of four states: parsed and checked (`emerge check`); run by the CPU runner (`emerge run`, `crates/emerge-ref`); run by the GPU runtime (`emerge-gpu`, `crates/emerge-gpu`, contract mode only); or left out. A part that is **left out** gets `W1001` from `emerge check`. `emerge run` refuses the file unless `--partial` is given, and then runs the world without that part. A gene that needs a left-out part is always an error. `emerge-gpu` always compiles with `--partial`. Checked on 2026-10-20 against the code and with probe files; update this table in the same change as the code.
+
+| Construct | Checked | CPU | GPU |
+| :-- | :-- | :-- | :-- |
+| **World** | | | |
+| `space: Continuous2D(…)` | yes | yes | yes |
+| Other spaces | parsed | `E1001` | no |
+| No `space` | `E0116` | only worlds built in Rust (the `minds.rs` fixtures) | no |
+| One conserved field `Grid(…) holds […]` | yes | yes | yes |
+| A second conserved field, other field kinds | parsed | `E1001` | no |
+| Signal fields, and rules on them (`fade`, `blur`) | yes | left out | left out |
+| Elements, substances, `second_law`, sources, sinks, `waste`, `remains`, `decompose` | yes | yes | yes, at most 32 substances |
+| Reactions, `reaction_space` | yes | yes | yes, at most 4 inputs and 4 outputs per reaction |
+| Catalysts, `catalyze` (§6.5) | yes | yes, for entity and world reactions | refused at start |
+| `upkeep` (`base`, `per_gene`, `per_signal`, `per_signal_keep`, `per_carried_u`) | yes | yes | yes |
+| `limits`, `max_age`, `child_offset`, `mind_steps` | yes | yes | yes; at most 524_288 entities |
+| `rounds`, `per_round`, rule `rounds k` and `every N ticks` (§6.6) | not parsed | — | — |
+| `rate: evolvable` | parsed | `E1001` | — |
+| **World rules and genesis** | | | |
+| `transfer` from a source, with `overflow` | yes | yes | yes |
+| `react`, `diffuse_conserved` | yes | yes | yes |
+| Other rule statements on the conserved field; transfers not from a source | parsed | `E1001` | — |
+| World genesis `for cell in … { transfer(…) }`; lineage genesis `count`, `position = uniform(…)`, `transfer` | yes | yes | yes (genesis runs on the CPU before packing) |
+| **Genomes and mutation** | | | |
+| Senses `inventory`, `gradient`, `probe`, `crowd`, `neighbour`, `clock`, `delta` | yes | yes (`delta` wraps outside contract mode, see `DISCREPANCIES.md`) | yes |
+| Other senses (`channel`) | yes | left out | left out |
+| Regulation `weigh`, `product` | yes | yes | yes, `weigh` with at most 4 inputs |
+| Regulation `delay` and the arithmetic kinds | yes | left out | left out |
+| Actions `move`, `turn`, `take`, `drop`, `give`, `steal`, `guard`, `divide` | yes | yes | yes |
+| Action `emit` | yes | left out | left out |
+| Modules, signals, `keep`, `dormant` | yes | yes | yes, lineages up to 48 genes, 32 signals and 16 modules |
+| Mutation operators (spec §8) | yes | yes | yes, child genomes identical to the CPU's |
+| Rulesets (rewrite rules) | yes | not applied (left out when mutation is on) | not applied |
+| Recombination | not in the language | — | — |
+| **Authoring** (resolved before any runner sees the file) | | | |
+| `const`, `extends` with `after @label`, patch files, `--patch`, `--set`; `emerge fmt`, `expand`, `order` | yes | yes | yes |
+| `view`, `chart`, `explore` | yes | noted as "not used by a run" | — |
+| Hot-swap (patches at a revision, `E09xx`) | patch files only | no | no |
+| `core.md` syntax (graph core, rules as data, living scopes) | not parsed | — | — |
+| **Runner output** | | | |
+| `--accounts`, `--blocked`, `--census`, `--contact`, `--changes`, `--inject`, `--clade`, `--producers`, `--stop-when-…` | — | yes | no |
+| Population, births, deaths, reaction extent per window; ledger audit (`EMERGE_GPU_AUDIT`) | — | yes (`--every`; conservation tests) | yes |
+
+The GPU runtime equals the CPU runner in contract mode (`emerge run --contract gpu`) word for word, on one driver at a time (`proposals/gpu-runtime.md`). It is a separate binary, not a mode of `emerge run`.
+
+---
+
+## 16. Open questions
 
 - **Signal units:** signals are plain `f32`. Some worlds may want declared signal units (temperature, concentration) checked like amounts.
 - **User functions:** there are none yet. Pure helper functions for world rules (no effects, no recursion) would cut repetition but add a feature to the grammar.
