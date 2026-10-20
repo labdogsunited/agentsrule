@@ -244,7 +244,7 @@ pub struct Upkeep {
     pub per_carried_u: Mu,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Sink {
     pub name: String,
     /// `None` accepts any substance.
