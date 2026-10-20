@@ -196,7 +196,7 @@ impl<'a> Resident<'a> {
         p.params[P_ISY] = (1.0 / (space.h / nby as f32)).to_bits();
         p.params[P_RADIUS] = radius.to_bits();
         p.params[P_R2] = (radius * radius).to_bits();
-        let pool_words: usize = std::env::var("EMERGE_GPU_POOL_WORDS").ok().and_then(|v| v.parse().ok()).unwrap_or(48 << 20);
+        let pool_words: usize = std::env::var("EMERGE_GPU_POOL_WORDS").ok().and_then(|v| v.parse().ok()).unwrap_or(192 << 20);
         assert!(p.gw.len() < pool_words && p.mw.len() < pool_words);
         let (menus, rates_t) = pack_menus(world);
         let max_genes = world.variation.iter().flatten().map(|(_, c)| c.genes).chain(p.genes.iter().map(Vec::len)).max().unwrap_or(1).max(1);
@@ -610,7 +610,8 @@ impl<'a> Resident<'a> {
             } else {
             let tops: Vec<u32> = gpu.read(&self.b.pool, 2);
             assert!((tops[0] as usize) < self.pool_words - 4096 && (tops[1] as usize) < self.pool_words - 4096, "the genome pools are full ({} and {} of {} words)", tops[0], tops[1], self.pool_words);
-            let limit = (self.pool_words / 2).max(2 * self.live_after_gc);
+            assert!(self.live_after_gc < self.pool_words / 2, "the live genomes fill half of the pools ({} of {} words): raise EMERGE_GPU_POOL_WORDS", self.live_after_gc, self.pool_words);
+            let limit = self.pool_words / 2;
             if tops[0] as usize > limit || tops[1] as usize > limit {
                 self.gc_pending = true;
             }
