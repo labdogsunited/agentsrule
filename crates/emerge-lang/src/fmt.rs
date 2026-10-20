@@ -126,6 +126,7 @@ impl Out {
 }
 
 pub fn format(file: &File) -> String {
+    let file = canonical_reactions(file);
     let mut out = Out { lines: Vec::new() };
     out.nodes(0, &file.items, item);
     for c in &file.tail {
@@ -134,6 +135,32 @@ pub fn format(file: &File) -> String {
     let mut s = out.lines.join("\n");
     s.push('\n');
     s
+}
+
+/// The file with every world reaction in canonical form (spec §4.4), so `fmt` fixes what
+/// `check` reports as `E0404`. A formula naming an undeclared substance, or one that would
+/// cancel to nothing, is left as written; `check` reports those.
+fn canonical_reactions(file: &File) -> File {
+    let mut file = file.clone();
+    for item in &mut file.items {
+        let Item::World(w) = &mut item.node else { continue };
+        let order: Vec<String> = w.decls.iter().filter_map(|d| match &d.node {
+            WDecl::Substance { name, .. } => Some(name.clone()),
+            _ => None,
+        }).collect();
+        for d in &mut w.decls {
+            let WDecl::Reaction { formula: f, .. } = &mut d.node else { continue };
+            let known = f.inputs.iter().chain(&f.outputs).all(|t| order.contains(&t.name));
+            if !known {
+                continue;
+            }
+            let c = crate::check::canonical(f, &|n| order.iter().position(|o| o == n).unwrap_or(usize::MAX));
+            if !c.inputs.is_empty() && !c.outputs.is_empty() {
+                *f = c;
+            }
+        }
+    }
+    file
 }
 
 fn item(out: &mut Out, indent: usize, it: &Item) {

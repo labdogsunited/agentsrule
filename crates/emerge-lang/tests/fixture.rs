@@ -27,3 +27,22 @@ fn dish_passes_the_chemistry_checks() {
     let problems = emerge_lang::check::check(&file);
     assert!(problems.is_empty(), "{problems:#?}");
 }
+
+#[test]
+fn fmt_puts_reaction_terms_in_canonical_order() {
+    // `build` lists its inputs against declaration order (energy, carbon, nitrate).
+    let src = DISH.replacen("reaction build : energy + carbon + nitrate", "reaction build : nitrate + carbon + energy", 1);
+    assert_ne!(src, DISH);
+    let file = emerge_lang::parse(&src).unwrap();
+    assert!(emerge_lang::check::check(&file).iter().any(|p| p.code == "E0404"));
+    let once = emerge_lang::format(&file);
+    assert_eq!(once, DISH);
+    assert_eq!(emerge_lang::format(&emerge_lang::parse(&once).unwrap()), once);
+}
+
+#[test]
+fn fmt_leaves_a_reaction_with_an_undeclared_substance_alone() {
+    let src = DISH.replacen("reaction rot : body -> carbon + nitrate", "reaction rot : body -> nitrate + carbon + mud", 1);
+    let out = emerge_lang::format(&emerge_lang::parse(&src).unwrap());
+    assert!(out.contains("reaction rot : body -> nitrate + carbon + mud"));
+}

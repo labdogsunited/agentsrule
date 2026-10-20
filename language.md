@@ -264,7 +264,7 @@ reaction_space {
 
 - `generate: none;` disables generation. Formulas inside `exclude` use the reaction syntax without a name.
 - **Catalysts** [P1] follow the formula: `reaction build : energy + carbon + nitrate -> heat + body catalyze iron(half: 100mu, boost: 10.0);`. The catalyst is not part of the formula, its canonical form or its `ΔG` (spec §4.5).
-- A hand-written reaction MUST be in canonical form (spec §4.4): no substance on both sides, no repeated terms, coefficients without a common factor, terms in substance declaration order. Otherwise it is `E0404`, with the canonical form as a suggested fix.
+- A hand-written reaction MUST be in canonical form (spec §4.4): no substance on both sides, no repeated terms, coefficients without a common factor, terms in substance declaration order. Otherwise it is `E0404`, with the canonical form as a suggested fix. `emerge fmt` rewrites a reaction into canonical form (it leaves a formula that names an undeclared substance as written), so the fix is to run it.
 - The compiler reports, for each reaction, its element balance, canonical form and `ΔG`, and rejects any reaction that is unbalanced (`E0401`) or not downhill by at least `min_drop` (`E0402`).
 
 ### 6.6 Upkeep, limits and settings
