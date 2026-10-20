@@ -22,7 +22,7 @@ pub fn constants() -> String {
         ("P_N", P_N as u32), ("P_NS", P_NS as u32), ("P_TICK", P_TICK as u32), ("P_STEPS", P_STEPS as u32), ("P_ONE", P_ONE as u32),
         ("P_GW", P_GW as u32), ("P_GH", P_GH as u32), ("P_WRAP", P_WRAP as u32), ("P_NBX", P_NBX as u32), ("P_NBY", P_NBY as u32),
         ("P_W", P_W as u32), ("P_H", P_H as u32), ("P_R2", P_R2 as u32), ("P_RADIUS", P_RADIUS as u32), ("P_KX", P_KX as u32),
-        ("P_KY", P_KY as u32), ("P_CKX", P_CKX as u32), ("P_CKY", P_CKY as u32), ("P_UNIT", P_UNIT as u32),
+        ("P_KY", P_KY as u32), ("DEG_BITS", c::DEG.to_bits()), ("P_CKX", P_CKX as u32), ("P_CKY", P_CKY as u32), ("P_UNIT", P_UNIT as u32),
     ] {
         s.push_str(&format!("const {name} = {v}u;\n"));
     }

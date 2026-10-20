@@ -62,7 +62,35 @@ pub const P_KY: usize = 15;
 pub const P_CKX: usize = 16;
 pub const P_CKY: usize = 17;
 pub const P_UNIT: usize = 18;
-pub const P_COUNT: usize = 24;
+pub const P_COUNT: usize = 64;
+
+// Parameter words used by the Move phase.
+pub const P_PAY: usize = 24;
+pub const P_UBASE: usize = 25;
+pub const P_UGENE: usize = 26;
+pub const P_USIG: usize = 27;
+pub const P_UKEEP: usize = 28;
+pub const P_UCARRY: usize = 29;
+pub const P_SEEDLO: usize = 30;
+pub const P_SEEDHI: usize = 31;
+pub const P_NCELLS: usize = 32;
+pub const P_NLAWS: usize = 33;
+pub const P_R0: usize = 34;
+pub const P_RTOT: usize = 35;
+pub const P_NSINK: usize = 36;
+pub const P_NRLAWS: usize = 37;
+pub const P_NWASTE: usize = 38;
+pub const P_STAGE: usize = 48;
+pub const P_LAWIDX: usize = 49;
+pub const P_MAXAGE: usize = 40;
+pub const P_MAXENT: usize = 41;
+pub const P_NEXTID_LO: usize = 42;
+pub const P_NEXTID_HI: usize = 43;
+pub const P_DECOMP: usize = 44;
+pub const P_CHILDOFF: usize = 45;
+pub const P_NALIVE: usize = 46;
+pub const RX: usize = 20;
+pub const LAW: usize = 28;
 
 /// Output record codes (word 0). 0 is no intent.
 pub const R_MOVE: u32 = 1;
@@ -93,6 +121,17 @@ pub struct Packed {
     pub records: usize,
     /// Per entity, the original slot index of each packed (active) gene.
     pub genes: Vec<Vec<usize>>,
+    // Move phase.
+    pub ecap: Vec<u32>,
+    pub laws: Vec<u32>,
+    pub sinkacc: Vec<u32>,
+    pub nbr: Vec<u32>,
+    /// The entity of each record.
+    pub rec_ent: Vec<u32>,
+    // Transform.
+    pub reactions: Vec<u32>,
+    pub rlaws: Vec<u32>,
+    pub waste: Vec<u32>,
 }
 
 fn input(i: Input) -> (u32, u32) {
@@ -230,6 +269,14 @@ pub fn pack(world: &World) -> Packed {
         params: vec![0; P_COUNT],
         records: 0,
         genes: Vec::with_capacity(n),
+        ecap: Vec::with_capacity(n * ns),
+        laws: Vec::new(),
+        sinkacc: Vec::new(),
+        nbr: Vec::new(),
+        rec_ent: Vec::new(),
+        reactions: Vec::new(),
+        rlaws: Vec::new(),
+        waste: Vec::new(),
     };
     for (i, e) in world.entities.iter().enumerate() {
         let g = &e.genome;
@@ -240,7 +287,10 @@ pub fn pack(world: &World) -> Packed {
         let has_delta = g.slots.iter().any(|s| matches!(s.gene, Gene::Sense { sense: Sense::Delta(_), .. }));
         let flags = u32::from(needs_near) | (u32::from(!e.prev.is_empty()) << 1) | (u32::from(has_delta) << 2);
         let goff = p.gw.len() as u32;
-        p.ent.extend_from_slice(&[e.id as u32, (e.id >> 32) as u32, e.cell as u32, space_bucket(world, e.pos) as u32, goff, active.len() as u32, g.keep.len() as u32, flags, p.records as u32 * REC as u32, 0, 0, 0]);
+        let in_use = e.shape.in_use.iter().fold(0u32, |m, &s| m | (1 << s));
+        p.ent.extend_from_slice(&[e.id as u32, (e.id >> 32) as u32, e.cell as u32, space_bucket(world, e.pos) as u32, goff, active.len() as u32, g.keep.len() as u32, flags, p.records as u32 * REC as u32, in_use, e.age as u32, e.lineage as u32]);
+        p.ecap.extend_from_slice(&e.store.caps[..ns]);
+        p.rec_ent.extend(std::iter::repeat_n(i as u32, active.len()));
         p.epos.extend_from_slice(&[e.pos[0], e.pos[1], e.heading[0], e.heading[1]]);
         p.amounts.extend_from_slice(&e.store.amounts[..ns]);
         for (k, v) in e.prev.iter().take(ns).enumerate() {
@@ -287,4 +337,114 @@ pub fn pack(world: &World) -> Packed {
 
 fn space_bucket(world: &World, pos: [f32; 2]) -> usize {
     world.near_index().bucket(pos)
+}
+
+/// The Move phase's inputs beyond `pack`: upkeep, the world's rules as a table of requests,
+/// the sinks and the cell neighbours.
+pub fn pack_move(world: &World, p: &mut Packed) {
+    use emerge_ref::Law;
+    let ns = p.ns;
+    let nc = world.cells.len();
+    let u = &world.upkeep;
+    let set = |p: &mut Packed, i: usize, v: u32| p.params[i] = v;
+    set(p, P_PAY, u.pay as u32);
+    set(p, P_UBASE, u.base);
+    set(p, P_UGENE, u.per_gene);
+    set(p, P_USIG, u.per_signal);
+    set(p, P_UKEEP, u.per_signal_keep);
+    set(p, P_UCARRY, u.per_carried_u);
+    set(p, P_SEEDLO, world.seed as u32);
+    set(p, P_SEEDHI, (world.seed >> 32) as u32);
+    set(p, P_NCELLS, nc as u32);
+    set(p, P_NSINK, world.sinks.len() as u32);
+    // Request slots: one per record, then each law's range (cells × width), in law order.
+    let r0 = p.records as u32;
+    let mut off = r0;
+    p.laws.clear();
+    let mut nlaws = 0;
+    for law in &world.laws {
+        let mut w = [0u32; LAW];
+        match law {
+            Law::Inflow { s, source, amount, overflow } => {
+                w[0] = 0;
+                w[1] = *s as u32;
+                w[2] = *source as u32;
+                w[3] = *amount;
+                w[4] = overflow.map_or(NONE, |o| o as u32);
+                w[8] = 1;
+            }
+            Law::Diffuse { substances, rate_bp } => {
+                assert!(substances.len() <= 16);
+                w[0] = 1;
+                w[5] = *rate_bp;
+                w[6] = substances.len() as u32;
+                for (k, &s) in substances.iter().enumerate() {
+                    w[9 + k] = s as u32;
+                }
+                w[8] = 4 * substances.len() as u32;
+            }
+            Law::React { .. } => continue,
+        }
+        w[7] = off;
+        off += w[8] * nc as u32;
+        p.laws.extend_from_slice(&w);
+        nlaws += 1;
+    }
+    set(p, P_NLAWS, nlaws);
+    set(p, P_R0, r0);
+    set(p, P_RTOT, off);
+    p.sinkacc.clear();
+    for sink in &world.sinks {
+        for s in 0..ns {
+            p.sinkacc.push(u32::from(sink.accepts(s)));
+        }
+    }
+    p.nbr.clear();
+    for c in 0..nc {
+        let nb = &world.neighbours[c];
+        assert!(nb.len() <= 4);
+        for k in 0..4 {
+            p.nbr.push(nb.get(k).map_or(NONE, |&x| x as u32));
+        }
+    }
+}
+
+/// The Transform phase's inputs: the reaction table, the world's reaction rules and the waste list.
+pub fn pack_transform(world: &World, p: &mut Packed) {
+    use emerge_ref::Law;
+    p.reactions.clear();
+    for r in &world.chem.reactions {
+        assert!(r.catalyst.is_none(), "the GPU runtime does not support catalysts yet");
+        assert!(r.inputs.len() <= 4 && r.outputs.len() <= 4, "at most four inputs and four outputs per reaction");
+        let mut w = [0u32; RX];
+        w[0] = r.inputs.len() as u32;
+        w[1] = r.outputs.len() as u32;
+        for (k, &(s, c)) in r.inputs.iter().enumerate() {
+            (w[2 + 2 * k], w[3 + 2 * k]) = (s as u32, c);
+        }
+        for (k, &(s, c)) in r.outputs.iter().enumerate() {
+            (w[10 + 2 * k], w[11 + 2 * k]) = (s as u32, c);
+        }
+        p.reactions.extend_from_slice(&w);
+    }
+    p.rlaws.clear();
+    for law in &world.laws {
+        if let Law::React { reaction, rate_bp } = law {
+            p.rlaws.extend_from_slice(&[*reaction as u32, *rate_bp]);
+        }
+    }
+    p.waste = world.waste.iter().map(|&(s, _)| s as u32).collect();
+    p.params[P_NRLAWS] = (p.rlaws.len() / 2) as u32;
+    p.params[P_NWASTE] = p.waste.len() as u32;
+}
+
+/// Restructure's inputs: the age limit, the entity limit, the next ID, `decompose`, the child offset.
+pub fn pack_restructure(world: &World, p: &mut Packed) {
+    let space = world.space.as_ref().unwrap();
+    p.params[P_MAXAGE] = world.max_age.min(u32::MAX as u64) as u32;
+    p.params[P_MAXENT] = world.max_entities.min(u32::MAX as usize) as u32;
+    p.params[P_NEXTID_LO] = world.next_id as u32;
+    p.params[P_NEXTID_HI] = (world.next_id >> 32) as u32;
+    p.params[P_DECOMP] = world.decompose.map_or(NONE, |r| r as u32);
+    p.params[P_CHILDOFF] = space.child_offset.to_bits();
 }

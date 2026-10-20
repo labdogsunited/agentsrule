@@ -27,7 +27,9 @@ impl Gpu {
             .expect("no matching Vulkan adapter found");
         let info = adapter.get_info();
         let timestamps = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
-        let features = if timestamps { wgpu::Features::TIMESTAMP_QUERY } else { wgpu::Features::empty() };
+        let mut features = if timestamps { wgpu::Features::TIMESTAMP_QUERY } else { wgpu::Features::empty() };
+        assert!(adapter.features().contains(wgpu::Features::SHADER_INT64), "the adapter has no 64-bit integers");
+        features |= wgpu::Features::SHADER_INT64;
         // The adapter's own limits: the defaults cap a storage binding at 128 MB.
         let desc = wgpu::DeviceDescriptor { label: None, required_features: features, required_limits: adapter.limits(), ..Default::default() };
         let (device, queue) = pollster::block_on(adapter.request_device(&desc)).expect("request_device");
@@ -171,5 +173,47 @@ impl Gpu {
             (ts[1].saturating_sub(ts[0])) as f64 * self.period_ns as f64 * 1e-6 / reps as f64
         });
         (gpu, wall)
+    }
+
+    /// A bind group layout of `n` read-write storage buffers at bindings `0..n`, shared by every
+    /// pipeline of a module so that one bind group serves all its entry points.
+    pub fn storage_layout(&self, n: u32) -> (wgpu::BindGroupLayout, wgpu::PipelineLayout) {
+        let entries: Vec<_> = (0..n)
+            .map(|i| wgpu::BindGroupLayoutEntry {
+                binding: i,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
+                count: None,
+            })
+            .collect();
+        let bgl = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: None, entries: &entries });
+        let layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&bgl)], ..Default::default() });
+        (bgl, layout)
+    }
+
+    pub fn module(&self, wgsl: &str) -> wgpu::ShaderModule {
+        self.device.create_shader_module(wgpu::ShaderModuleDescriptor { label: None, source: wgpu::ShaderSource::Wgsl(wgsl.into()) })
+    }
+
+    pub fn pipeline_in(&self, module: &wgpu::ShaderModule, entry: &str, layout: &wgpu::PipelineLayout) -> wgpu::ComputePipeline {
+        self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: None, layout: Some(layout), module, entry_point: Some(entry), compilation_options: Default::default(), cache: None })
+    }
+
+    pub fn group(&self, bgl: &wgpu::BindGroupLayout, buffers: &[&wgpu::Buffer]) -> wgpu::BindGroup {
+        let entries: Vec<_> = buffers.iter().enumerate().map(|(i, b)| wgpu::BindGroupEntry { binding: i as u32, resource: b.as_entire_binding() }).collect();
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor { label: None, layout: bgl, entries: &entries })
+    }
+
+    /// Runs the dispatches in order, in one submission, and waits.
+    pub fn dispatch(&self, steps: &[(&wgpu::ComputePipeline, &wgpu::BindGroup, u32)]) {
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        for (pipeline, group, groups) in steps {
+            let mut pass = enc.begin_compute_pass(&Default::default());
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, *group, &[]);
+            pass.dispatch_workgroups(*groups, 1, 1);
+        }
+        self.queue.submit([enc.finish()]);
+        self.device.poll(wgpu::PollType::wait_indefinitely()).expect("poll");
     }
 }

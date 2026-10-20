@@ -869,8 +869,19 @@ impl World {
         self.finish_tick_n(self.entities.len(), plans)
     }
 
-    fn finish_tick_n(&mut self, n: usize, mut plans: Vec<Plan>) {
+    fn finish_tick_n(&mut self, _n: usize, mut plans: Vec<Plan>) {
         let dying = self.move_phase(&mut plans);
+        self.after_move(plans, dying);
+    }
+
+    /// Transform and Restructure (spec §7.3, §7.5) after `move_phase`.
+    pub fn after_move(&mut self, plans: Vec<Plan>, dying: Vec<bool>) {
+        self.transform_phase(&plans, &dying);
+        self.restructure_phase(plans, dying);
+    }
+
+    /// Transform (spec §7.3): entity reactions, world reactions and venting.
+    pub fn transform_phase(&mut self, plans: &[Plan], dying: &[bool]) {
         // ---- 3 Transform ----
         for (i, e) in self.entities.iter_mut().enumerate() {
             if dying[i] {
@@ -968,6 +979,11 @@ impl World {
             }
         }
 
+    }
+
+    /// Restructure (spec §7.5): disposal, division, ageing, newborns.
+    pub fn restructure_phase(&mut self, plans: Vec<Plan>, dying: Vec<bool>) {
+        let n = dying.len();
         // ---- 4 Restructure ----
         let tick = self.tick;
         // 4.1 Disposal, in entity order, before division.
@@ -1067,6 +1083,11 @@ impl World {
             }
             // The child is placed behind its parent's position after movement (spec §7.5).
             let (pos, cell) = match &self.space {
+                Some(space) if self.contract => {
+                    let behind = [-parent.heading[0], -parent.heading[1]];
+                    let p = space.place_contract(crate::contract::advance(parent.pos, behind, space.child_offset));
+                    (p, space.cell_at(p))
+                }
                 Some(space) => {
                     let p = [
                         parent.pos[0] - parent.heading[0] * space.child_offset,
