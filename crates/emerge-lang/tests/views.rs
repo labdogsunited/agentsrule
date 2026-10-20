@@ -52,7 +52,7 @@ fn good_views_pass() {
         layer("field(cells.carbon)", "color: value |> scale(linear, range: 0.0..100.0) |> palette(viridis);"),
         layer("field(scent)", "color: value |> scale(linear, range: 0.0..10.0) |> palette(magma);"),
         layer("agents(where: units(energy) > 2.0 and age < 500)", "glyph: arrow(dir: heading);\n        color: lineage_id |> palette(categorical);\n        size: 0.5 + float(expressed_genes) / 8.0;"),
-        layer("agents(where: true)", "glyph: dot();\n        color: heading |> palette(twilight);"),
+        layer("agents(where: true)", "glyph: dot();\n        color: heading |> palette(phase);"),
     ];
     for v in cases {
         let (errors, warnings) = codes(&v);

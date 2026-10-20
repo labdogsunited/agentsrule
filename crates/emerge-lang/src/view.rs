@@ -17,7 +17,7 @@ pub const PALETTES: &[(&str, PaletteKind)] = &[
     ("inferno", PaletteKind::Sequential),
     ("cividis", PaletteKind::Sequential),
     ("rdbu", PaletteKind::Diverging),
-    ("twilight", PaletteKind::Cyclic),
+    ("phase", PaletteKind::Cyclic),
     ("categorical", PaletteKind::Categorical),
 ];
 
