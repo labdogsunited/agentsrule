@@ -7,7 +7,7 @@ use crate::shader;
 const OUTW: usize = 1100;
 
 pub fn shader_source() -> String {
-    format!("{}\n{}\n{}", shader::constants(), shader::contract(), include_str!("mutate.wgsl"))
+    format!("{}\n{}\n{}\n{}", shader::constants(), shader::contract(), include_str!("mutate.wgsl"), include_str!("mutate_batch.wgsl"))
 }
 
 /// Mutates each job's parent genome on the GPU. `masters` are the parents' master words, laid

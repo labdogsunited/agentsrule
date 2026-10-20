@@ -2,7 +2,7 @@
 //!
 //! Layouts (all u32 or f32 words):
 //! - `ent`, `ENT` words per entity: `[id_lo, id_hi, cell, bucket, genome_off, n_genes, n_signals,
-//!   flags, out_off, 0, 0, 0]`; flags: bit 0 needs the neighbour list, bit 1 has a `prev`, bit 2
+//!   flags, out_off, in_use, age, lineage, master_off, 0, 0, 0]`; flags: bit 0 needs the neighbour list, bit 1 has a `prev`, bit 2
 //!   keeps a `prev` (a `delta` gene anywhere in the genome).
 //! - `epos`, 4 floats per entity: position and heading.
 //! - `amounts`, `prev`: `ns` words per entity; `camt`, `ccap`: `ns` words per cell.
@@ -13,7 +13,7 @@
 use emerge_ref::mind::{Curve, Gene, Input, Sense};
 use emerge_ref::World;
 
-pub const ENT: usize = 12;
+pub const ENT: usize = 16;
 pub const SLOT: usize = 18;
 pub const NSIG: usize = 32;
 pub const MAXG: usize = 48;
@@ -113,6 +113,8 @@ pub struct Packed {
     pub amounts: Vec<u32>,
     pub prev: Vec<u32>,
     pub gw: Vec<u32>,
+    /// The master genomes (every slot, with module and expression bits), end to end.
+    pub mw: Vec<u32>,
     pub sig: Vec<f32>,
     pub camt: Vec<u32>,
     pub ccap: Vec<u32>,
@@ -262,6 +264,7 @@ pub fn pack(world: &World) -> Packed {
         amounts: Vec::with_capacity(n * ns),
         prev: vec![0; n * ns],
         gw: Vec::new(),
+        mw: Vec::new(),
         sig: vec![0.0; n * NSIG],
         camt: Vec::with_capacity(world.cells.len() * ns),
         ccap: Vec::with_capacity(world.cells.len() * ns),
@@ -289,7 +292,8 @@ pub fn pack(world: &World) -> Packed {
         let flags = u32::from(needs_near) | (u32::from(!e.prev.is_empty()) << 1) | (u32::from(has_delta) << 2);
         let goff = p.gw.len() as u32;
         let in_use = e.shape.in_use.iter().fold(0u32, |m, &s| m | (1 << s));
-        p.ent.extend_from_slice(&[e.id as u32, (e.id >> 32) as u32, e.cell as u32, space_bucket(world, e.pos) as u32, goff, active.len() as u32, g.keep.len() as u32, flags, p.records as u32 * REC as u32, in_use, e.age as u32, e.lineage as u32]);
+        p.ent.extend_from_slice(&[e.id as u32, (e.id >> 32) as u32, e.cell as u32, space_bucket(world, e.pos) as u32, goff, active.len() as u32, g.keep.len() as u32, flags, p.records as u32 * REC as u32, in_use, e.age as u32, e.lineage as u32, p.mw.len() as u32, 0, 0, 0]);
+        p.mw.extend(master_words(&e.genome));
         p.ecap.extend_from_slice(&e.store.caps[..ns]);
         p.rec_ent.extend(std::iter::repeat_n(i as u32, active.len()));
         p.epos.extend_from_slice(&[e.pos[0], e.pos[1], e.heading[0], e.heading[1]]);

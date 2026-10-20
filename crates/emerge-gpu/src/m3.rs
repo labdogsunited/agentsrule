@@ -137,7 +137,7 @@ pub fn compare_restructure(world: &mut World, gpu: &Gpu, ticks: u64, every: u64,
                 note(format!("{} entities on the GPU ({} survivors, {} children), {} on the CPU", out.alive + out.children, out.alive, out.children, world.entities.len()));
             } else {
                 rep.entities += world.entities.len() as u64;
-                let view = StateView { ent: &out.ent, epos: &out.epos, amounts: &out.amounts, ecap: &out.ecap, sig: &out.sig, camt: &out.camt, gw: &packed.gw };
+                let view = StateView { ent: &out.ent, epos: &out.epos, amounts: &out.amounts, ecap: &out.ecap, sig: &out.sig, camt: &out.camt, gw: &packed.gw, mw: &packed.mw };
                 let (be, bc) = compare_state(world, &view, ns, &mut note);
                 rep.bad_entities += be;
                 rep.bad_cells += bc;
@@ -157,6 +157,8 @@ pub struct StateView<'a> {
     pub camt: &'a [u32],
     /// The genome words that the entities' offsets point into.
     pub gw: &'a [u32],
+    /// The master genome words that the entities' master offsets point into.
+    pub mw: &'a [u32],
 }
 
 /// Compares every entity and cell of `world` with `view`; returns the entities and cells that differ.
@@ -182,6 +184,9 @@ pub fn compare_state(world: &World, view: &StateView, ns: usize, note: &mut impl
         let len = nsg + ng * SLOT;
         let (c0, g0) = (cpu.ent[i * ENT + 4] as usize, w[4] as usize);
         if w[5] as usize != ng || w[6] as usize != nsg || cpu.gw[c0..c0 + len] != view.gw[g0..g0 + len] { bad.push("genome".into()); }
+        let master = master_words(&e.genome);
+        let m0 = w[12] as usize;
+        if view.mw.len() < m0 + master.len() || view.mw[m0..m0 + master.len()] != master[..] { bad.push("master genome".into()); }
         if !bad.is_empty() {
             bad_entities += 1;
             note(format!("entity {} (index {i}): {}", e.id, bad.join("; ")));
@@ -214,10 +219,10 @@ pub fn run_restructure_cmd(args: &[String]) {
 }
 
 /// The whole tick on the GPU, kept there, against the CPU's `run_tick`, every `every` ticks
-/// (the GPU runs every tick). Mutation must be off.
+/// (the GPU runs every tick).
 pub fn compare_full(world: &mut World, gpu: &Gpu, ticks: u64, every: u64, verbose: bool) -> (u64, u64, u64) {
     use crate::resident::Resident;
-    assert!(world.contract && !world.mutation);
+    assert!(world.contract);
     let mut gpu_world = Resident::new(gpu, world);
     let (mut states, mut bad_entities, mut bad_cells) = (0, 0, 0);
     let mut shown = 0;
@@ -238,7 +243,7 @@ pub fn compare_full(world: &mut World, gpu: &Gpu, ticks: u64, every: u64, verbos
                 note(format!("{} entities, tick {}, next id {} on the GPU; {}, {}, {} on the CPU", s.n, s.tick, s.next_id, world.entities.len(), world.tick, world.next_id));
                 break;
             }
-            let view = StateView { ent: &s.ent, epos: &s.epos, amounts: &s.amounts, ecap: &s.ecap, sig: &s.sig, camt: &s.camt, gw: &s.gw };
+            let view = StateView { ent: &s.ent, epos: &s.epos, amounts: &s.amounts, ecap: &s.ecap, sig: &s.sig, camt: &s.camt, gw: &s.gw, mw: &s.mw };
             let (mut be, bc) = compare_state(world, &view, s.ns, &mut note);
             if gpu_world.births != world.births || gpu_world.deaths != world.deaths || gpu_world.extent != world.entity_extent {
                 be += 1;
@@ -263,10 +268,11 @@ pub fn run_full_cmd(args: &[String]) {
     let src = std::fs::read_to_string(dish).expect("read dish");
     let names: Vec<&str> = lineages.split(',').collect();
     let (ticks, seed, every): (u64, u64, u64) = (ticks.parse().unwrap(), seed.parse().unwrap(), every.parse().unwrap());
-    let mut world = compile(&src, &names, Options { seed, allow_partial: true, mutation: false }).unwrap_or_else(|e| panic!("{e:?}")).world;
+    let mutation = std::env::var_os("EMERGE_GPU_MUTATION").is_some();
+    let mut world = compile(&src, &names, Options { seed, allow_partial: true, mutation }).unwrap_or_else(|e| panic!("{e:?}")).world;
     world.contract = true;
     let gpu = Gpu::new();
-    println!("M3 (whole ticks on the GPU, mutation off): {} ; {dish} {lineages} seed {seed}, compared every {every} ticks", gpu.name);
+    println!("M3 (whole ticks on the GPU, mutation {}): {} ; {dish} {lineages} seed {seed}, compared every {every} ticks", if mutation { "on" } else { "off" }, gpu.name);
     let t = std::time::Instant::now();
     let (states, be, bc) = compare_full(&mut world, &gpu, ticks, every, true);
     println!("{ticks} ticks, {states} states compared, {} entities at the end; mismatches: entities {be}, cells {bc} ({:.1} s)", world.entities.len(), t.elapsed().as_secs_f64());

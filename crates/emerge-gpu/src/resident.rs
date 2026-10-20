@@ -25,6 +25,7 @@ pub struct Snapshot {
     pub sig: Vec<f32>,
     pub camt: Vec<u32>,
     pub gw: Vec<u32>,
+    pub mw: Vec<u32>,
 }
 
 struct Module {
@@ -54,7 +55,6 @@ pub struct Resident<'a> {
     /// Seconds spent in each phase (prep, set, move, transform, restructure), when `profile` is set.
     pub profile: Option<[f64; 5]>,
     params: Vec<u32>,
-    gw0: Vec<u32>,
     sort_cache: std::collections::HashMap<(u8, usize, bool), Vec<(u8, wgpu::BindGroup)>>,
     parity: bool,
     // modules
@@ -63,6 +63,8 @@ pub struct Resident<'a> {
     tr_m: Module,
     rs_m: Module,
     prep_m: Module,
+    mut_m: Module,
+    pool_words: usize,
     // persistent state (the second of each pair is the destination of Restructure)
     b: Buffers,
 }
@@ -82,8 +84,14 @@ struct Buffers {
     camt: wgpu::Buffer,
     ccap: wgpu::Buffer,
     gw: wgpu::Buffer,
+    mw: wgpu::Buffer,
+    pool: wgpu::Buffer,
+    menus: wgpu::Buffer,
+    rates: wgpu::Buffer,
+    work: wgpu::Buffer,
     prev: wgpu::Buffer,
     prev_out: wgpu::Buffer,
+    prev2: wgpu::Buffer,
     nbr: wgpu::Buffer,
     laws: wgpu::Buffer,
     sinkacc: wgpu::Buffer,
@@ -123,6 +131,12 @@ struct Buffers {
     list_cap: usize,
 }
 
+fn pool_buffer(gpu: &Gpu, initial: &[u32], words: usize) -> wgpu::Buffer {
+    let b = gpu.storage(words * 4);
+    gpu.queue.write_buffer(&b, 0, bytemuck::cast_slice(initial));
+    b
+}
+
 fn module(gpu: &Gpu, src: &str, bindings: u32, entries: &[&str]) -> Module {
     let (bgl, layout) = gpu.storage_layout(bindings);
     let m = gpu.module(src);
@@ -154,6 +168,9 @@ impl<'a> Resident<'a> {
         p.params[P_ISY] = (1.0 / (space.h / nby as f32)).to_bits();
         p.params[P_RADIUS] = radius.to_bits();
         p.params[P_R2] = (radius * radius).to_bits();
+        let pool_words: usize = std::env::var("EMERGE_GPU_POOL_WORDS").ok().and_then(|v| v.parse().ok()).unwrap_or(48 << 20);
+        assert!(p.gw.len() < pool_words && p.mw.len() < pool_words);
+        let (menus, rates_t) = pack_menus(world);
         let ce = |words: usize| gpu.storage(cap * words * 4);
         let pad = |v: &[u32]| -> Vec<u32> { v.iter().copied().chain([0u32, 0]).collect() };
         let zeros = |count: usize| gpu.storage(count.max(1) * 4);
@@ -181,9 +198,15 @@ impl<'a> Resident<'a> {
             sig2: ce(NSIG),
             camt: gpu.storage_with(&p.camt),
             ccap: gpu.storage_with(&p.ccap),
-            gw: gpu.storage_with(&pad(&p.gw)),
+            gw: pool_buffer(gpu, &p.gw, pool_words),
+            mw: pool_buffer(gpu, &p.mw, pool_words),
+            pool: gpu.storage_with(&[p.mw.len() as u32, p.gw.len() as u32, 0, 0]),
+            menus: gpu.storage_with(&menus),
+            rates: gpu.storage_with(&rates_t),
+            work: zeros(cap),
             prev: zeros(cap * ns),
             prev_out: zeros(cap * ns),
+            prev2: zeros(cap * ns),
             nbr: gpu.storage_with(&p.nbr),
             laws: gpu.storage_with(&pad(&p.laws)),
             sinkacc: gpu.storage_with(&pad(&p.sinkacc)),
@@ -225,10 +248,12 @@ impl<'a> Resident<'a> {
         let move_m = module(gpu, &format!("{common}\n{}", include_str!("move.wgsl")), 22, &["upkeep_fees", "collect_guards", "gen_requests", "sums", "flag_over", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
         let tr_m = module(gpu, &format!("{}\n{}", shader::constants(), include_str!("transform.wgsl")), 13, &["react_entities", "react_cells", "vent"]);
         let rs_src = format!("{common}\n{}\n{}\n{}", include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"));
-        let rs_m = module(gpu, &rs_src, 26, &["mark", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
+        let rs_m = module(gpu, &rs_src, 29, &["mark", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
         let prep_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("prep.wgsl"), crate::scan::kernels("bkt", "params[P_NBT]", "atomicLoad(&{name}_in[i])"), crate::scan::kernels("gen", "params[P_N]", "{name}_in[i]"));
         let prep_m = module(gpu, &prep_src, 12, &["assign", "finish_nstart", "scatter", "set_roff", "bkt_local", "bkt_scan_blocks", "bkt_add", "gen_local", "gen_scan_blocks", "gen_add"]);
-        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), parity: false, gw0: p.gw.clone(), set_m, move_m, tr_m, rs_m, prep_m, b }
+        let mut_src = format!("{common}\n{}\n{}", include_str!("mutate.wgsl"), include_str!("mutate_children.wgsl"));
+        let mut_m = module(gpu, &mut_src, 9, &["mutate_children"]);
+        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), parity: false, set_m, move_m, tr_m, rs_m, prep_m, mut_m, pool_words, b }
     }
 
     fn write_param(&mut self, index: usize, value: u32) {
@@ -477,7 +502,7 @@ impl<'a> Resident<'a> {
         let b = &self.b;
         self.gpu.group(
             &self.rs_m.bgl,
-            &[&b.params, &b.ent, &b.epos, &b.amounts, &b.ecap, &b.sig, &b.camt, &b.ccap, &b.rec, &b.dying, &b.gw, &b.reactions, &b.ent2, &b.epos2, &b.amounts2, &b.ecap2, &b.sig2, &b.alive_in, &b.alive_out, &b.alive_blocks, &b.cand_in, &b.cand_out, &b.cand_blocks, &b.list, &b.counters, sortp],
+            &[&b.params, &b.ent, &b.epos, &b.amounts, &b.ecap, &b.sig, &b.camt, &b.ccap, &b.rec, &b.dying, &b.gw, &b.reactions, &b.ent2, &b.epos2, &b.amounts2, &b.ecap2, &b.sig2, &b.alive_in, &b.alive_out, &b.alive_blocks, &b.cand_in, &b.cand_out, &b.cand_blocks, &b.list, &b.counters, sortp, &b.work, &b.prev_out, &b.prev2],
         )
     }
 
@@ -513,6 +538,15 @@ impl<'a> Resident<'a> {
         gpu.dispatch(&[(self.rs_m.pipe("divide"), &group, wg(n)), (self.rs_m.pipe("compact"), &group, wg(n))]);
         let max = self.params[P_MAXENT] as usize;
         let children = candidates.min(max.saturating_sub(alive));
+        // Children of lineages with variation get mutated genomes.
+        gpu.queue.write_buffer(&self.b.params, (54 * 4) as u64, bytemuck::bytes_of(&(children as u32)));
+        if children > 0 {
+            let b = &self.b;
+            let g = gpu.group(&self.mut_m.bgl, &[&b.params, &b.menus, &b.rates, &b.mw, &b.ent, &b.ent2, &b.gw, &b.pool, &b.work]);
+            gpu.dispatch(&[(self.mut_m.pipe("mutate_children"), &g, wg(children))]);
+            let tops: Vec<u32> = gpu.read(&self.b.pool, 2);
+            assert!((tops[0] as usize) < self.pool_words - 4096 && (tops[1] as usize) < self.pool_words - 4096, "the genome pools are full ({} and {} of {} words)", tops[0], tops[1], self.pool_words);
+        }
         assert!(alive + children <= self.cap, "more entities than the device arrays hold ({})", self.cap);
         // The destination arrays become the state.
         let b = &mut self.b;
@@ -521,6 +555,7 @@ impl<'a> Resident<'a> {
         std::mem::swap(&mut b.amounts, &mut b.amounts2);
         std::mem::swap(&mut b.ecap, &mut b.ecap2);
         std::mem::swap(&mut b.sig, &mut b.sig2);
+        std::mem::swap(&mut b.prev, &mut b.prev2);
         self.parity = !self.parity;
         self.n = alive + children;
         self.births += children as u64;
@@ -543,7 +578,8 @@ impl<'a> Resident<'a> {
             ecap: g.read(&self.b.ecap, n * ns),
             sig: g.read(&self.b.sig, n * NSIG),
             camt: g.read(&self.b.camt, self.nc * ns),
-            gw: self.gw0.clone(),
+            gw: g.read(&self.b.gw, g.read::<u32>(&self.b.pool, 2)[1] as usize),
+            mw: g.read(&self.b.mw, g.read::<u32>(&self.b.pool, 2)[0] as usize),
         }
     }
 }

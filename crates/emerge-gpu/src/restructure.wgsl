@@ -27,6 +27,9 @@
 @group(0) @binding(23) var<storage, read_write> list: array<u64>;
 @group(0) @binding(24) var<storage, read_write> counters: array<atomic<u32>>;
 @group(0) @binding(25) var<storage, read_write> sortp: array<u32>;
+@group(0) @binding(26) var<storage, read_write> work: array<u32>;   // parent of each child, by rank
+@group(0) @binding(27) var<storage, read_write> prev_src: array<u32>;   // `prev` as the Set phase left it
+@group(0) @binding(28) var<storage, read_write> prev_dst: array<u32>;
 
 const RX = 20u;
 const P_MAXAGE = 40u;
@@ -185,6 +188,8 @@ fn divide(@builtin(global_invocation_id) id: vec3<u32>) {
     ent2[b + 7u] = ent[e * ENT + 7u] & 5u;   // the genome's flags; a newborn has no `prev`
     ent2[b + 8u] = 0u;
     ent2[b + 9u] = ent[e * ENT + 9u];
+    ent2[b + 12u] = ent[e * ENT + 12u];   // the master genome is shared with the parent too
+    work[rank] = e;
     ent2[b + WORD_AGE] = 0u;
     ent2[b + WORD_LINEAGE] = ent[e * ENT + WORD_LINEAGE];
     for (var j = 0u; j < NSIG; j++) { sig2[child * NSIG + j] = 0.0; }
@@ -210,6 +215,11 @@ fn compact(@builtin(global_invocation_id) id: vec3<u32>) {
         ecap2[to * ns + s] = ecap[e * ns + s];
     }
     for (var j = 0u; j < NSIG; j++) { sig2[to * NSIG + j] = sig[e * NSIG + j]; }
+    // A genome with a `delta` gene keeps the amounts of its last reading.
+    if ((ent[e * ENT + 7u] & 4u) != 0u) {
+        for (var s = 0u; s < ns; s++) { prev_dst[to * ns + s] = prev_src[e * ns + s]; }
+        ent2[to * ENT + 7u] = ent2[to * ENT + 7u] | 2u;
+    }
 }
 
 // Bitonic sort of `list` (sortp = [k, j, size, kmax]). Chunks of 1024 are sorted in shared

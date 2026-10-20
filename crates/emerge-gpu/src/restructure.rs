@@ -24,7 +24,7 @@ pub fn run_restructure(gpu: &Gpu, p: &Packed, rec: &[u32], dying: &[u32]) -> Res
     let (n, ns) = (p.n, p.ns);
     let nc = p.camt.len() / ns;
     let module = gpu.module(&shader_source());
-    let (bgl, layout) = gpu.storage_layout(26);
+    let (bgl, layout) = gpu.storage_layout(29);
     let cap = 2 * n.max(1);
     let blocks = n.div_ceil(256).max(1);
     let params = gpu.storage_with(&p.params);
@@ -49,10 +49,16 @@ pub fn run_restructure(gpu: &Gpu, p: &Packed, rec: &[u32], dying: &[u32]) -> Res
     let list = gpu.storage(n.next_power_of_two().max(2) * 8);
     let counters = gpu.storage(16);
     let sortp0 = gpu.storage_with(&[0u32, 0, 0, 0]);
+    let work = gpu.storage(n.max(1) * 4);
+    let prev_src = gpu.storage(n.max(1) * ns * 4);
+    let prev_dst = gpu.storage(cap * ns * 4);
     let all = [&params, &ent, &epos, &amounts, &ecap, &sig, &camt, &ccap, &rec, &dying, &gw, &reactions, &ent2, &epos2, &amounts2, &ecap2, &sig2, &alive_in, &alive_out, &alive_blocks, &cand_in, &cand_out, &cand_blocks, &list, &counters];
     let with_sortp = |sortp: &wgpu::Buffer| {
         let mut b: Vec<&wgpu::Buffer> = all.to_vec();
         b.push(sortp);
+        b.push(&work);
+        b.push(&prev_src);
+        b.push(&prev_dst);
         gpu.group(&bgl, &b)
     };
     let group = with_sortp(&sortp0);
