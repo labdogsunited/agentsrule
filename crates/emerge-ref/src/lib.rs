@@ -28,6 +28,7 @@ pub mod arbitrate;
 pub mod budget;
 pub mod chem;
 pub mod compile;
+pub mod contract;
 pub mod diff;
 pub mod mind;
 pub mod mutate;

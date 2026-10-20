@@ -209,6 +209,40 @@ pub fn value(signals: &[f32], i: Input) -> f32 {
     }
 }
 
+/// `think` in contract mode (`contract.rs`): contributions are summed from zero in gene order
+/// and `keep·s` joins last as one fused multiply-add, so every operation has one fixed
+/// meaning on a CPU and a GPU.
+pub fn think_contract(genome: &Genome, signals: &mut [f32], readings: &[[f32; 2]], steps: u32) {
+    use crate::contract::{fma, sanitize, sigmoid_d, tanh_into};
+    for _ in 0..steps {
+        let mut acc = vec![0.0f32; signals.len()];
+        for g in (0..genome.slots.len()).filter(|&g| genome.active(g)) {
+            match &genome.slots[g].gene {
+                Gene::Sense { out, out2, .. } => {
+                    acc[*out] += readings[g][0];
+                    if let Some(o2) = out2 {
+                        acc[*o2] += readings[g][1];
+                    }
+                }
+                Gene::Weigh { bias, curve, inputs, out } => {
+                    let x = inputs.iter().fold(*bias, |a, &(w, s)| fma(w, signals[s], a));
+                    match curve {
+                        Curve::Linear => acc[*out] += x,
+                        Curve::Step => acc[*out] += if x > 0.0 { 1.0 } else { 0.0 },
+                        Curve::Sigmoid => acc[*out] += sigmoid_d(x),
+                        Curve::Tanh => acc[*out] = tanh_into(x, acc[*out]),
+                    }
+                }
+                Gene::Product { a, b, out } => acc[*out] = fma(signals[*a], signals[*b], acc[*out]),
+                _ => {}
+            }
+        }
+        for (j, s) in signals.iter_mut().enumerate() {
+            *s = sanitize(fma(genome.keep[j], *s, acc[j]), SIGNAL_LIMIT);
+        }
+    }
+}
+
 /// Runs `steps` mind steps (spec §5.4). `readings[g]` holds the one or two readings of
 /// sense gene `g`.
 ///

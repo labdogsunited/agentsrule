@@ -98,11 +98,13 @@ pub const THRESHOLD_LIMIT: f32 = 16.0;
 pub struct Draws {
     pub stream: Stream,
     pub next: u64,
+    /// Contract mode: `normal` is a sum of twelve uniform draws (`contract.rs`).
+    pub contract: bool,
 }
 
 impl Draws {
     pub fn new(stream: Stream) -> Self {
-        Draws { stream, next: 0 }
+        Draws { stream, next: 0, contract: false }
     }
 
     /// Uniform in `[0, 1)`.
@@ -110,6 +112,11 @@ impl Draws {
         let d = self.stream.draw(self.next);
         self.next += 1;
         (d >> 8) as f32 * (1.0 / 16_777_216.0)
+    }
+
+    /// `a·b + c`: fused in contract mode, where a GPU compiler may fuse it on its own.
+    pub fn mad(&self, a: f32, b: f32, c: f32) -> f32 {
+        if self.contract { crate::contract::fma(a, b, c) } else { a * b + c }
     }
 
     pub fn chance(&mut self, p: f32) -> bool {
@@ -123,6 +130,9 @@ impl Draws {
 
     /// Standard normal, by Box–Muller from two draws.
     pub fn normal(&mut self) -> f32 {
+        if self.contract {
+            return crate::contract::normal(|| self.unit());
+        }
         let (u1, u2) = (1.0 - self.unit(), self.unit());
         (-2.0 * u1.ln()).sqrt() * (std::f32::consts::TAU * u2).cos()
     }
@@ -190,7 +200,8 @@ pub(crate) fn signals_mut(g: &mut Gene) -> Vec<&mut usize> {
 }
 
 fn perturb(d: &mut Draws, x: f32, (lo, hi): (f32, f32), sigma: f32) -> f32 {
-    (x + d.normal() * sigma * (hi - lo)).clamp(lo, hi)
+    let n = d.normal();
+    d.mad(n * sigma, hi - lo, x).clamp(lo, hi)
 }
 
 fn perturb_mu(d: &mut Draws, x: Mu, range: (f32, f32), sigma: f32) -> Mu {
@@ -222,7 +233,10 @@ fn move_reaction(d: &mut Draws, menus: &Menus, reaction: &mut ReactionId, rate: 
 
 /// One point mutation of a gene's parameters (spec §8.1 step 1).
 fn point(d: &mut Draws, g: &mut Gene, menus: &Menus, sigma: f32) {
-    let threshold = |d: &mut Draws, t: &mut f32| *t = (*t + d.normal() * sigma).clamp(-THRESHOLD_LIMIT, THRESHOLD_LIMIT);
+    let threshold = |d: &mut Draws, t: &mut f32| {
+        let n = d.normal();
+        *t = d.mad(n, sigma, *t).clamp(-THRESHOLD_LIMIT, THRESHOLD_LIMIT)
+    };
     match g {
         Gene::Sense { sense, .. } => match sense {
             Sense::Inventory(s) | Sense::Cell(s) | Sense::Delta(s) => *s = pick(d, &menus.substances).unwrap_or(*s),
@@ -301,7 +315,10 @@ fn substance_action(d: &mut Draws, menu: &Option<ActionMenu>, s: &mut SubstanceI
                 *max = perturb_mu(d, *max, a.range, sigma);
             }
         }
-        _ => *t = (*t + d.normal() * sigma).clamp(-THRESHOLD_LIMIT, THRESHOLD_LIMIT),
+        _ => {
+            let n = d.normal();
+            *t = d.mad(n, sigma, *t).clamp(-THRESHOLD_LIMIT, THRESHOLD_LIMIT)
+        }
     }
 }
 
@@ -309,7 +326,10 @@ fn substance_action(d: &mut Draws, menu: &Option<ActionMenu>, s: &mut SubstanceI
 /// parameters uniform in their ranges. Senses and regulation genes write fresh signals and
 /// regulation genes read random existing ones; actions and reactions read `1.0`.
 fn random_gene(d: &mut Draws, m: &mut Modules, menus: &Menus, cap: &Capacity) -> Option<Gene> {
-    let uniform = |d: &mut Draws, (lo, hi): (f32, f32)| lo + d.unit() * (hi - lo);
+    let uniform = |d: &mut Draws, (lo, hi): (f32, f32)| {
+        let u = d.unit();
+        d.mad(u, hi - lo, lo)
+    };
     let mut kinds = Vec::new();
     if menus.inventory && !menus.substances.is_empty() {
         kinds.push(0);

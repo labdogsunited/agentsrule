@@ -13,6 +13,8 @@ pub struct Index {
     /// Entity indices grouped by bucket; bucket `b` holds `order[start[b]..start[b + 1]]`.
     start: Vec<u32>,
     order: Vec<u32>,
+    /// Contract mode (`contract.rs`): distances use the fused form.
+    pub contract: bool,
 }
 
 /// A neighbour: squared distance, entity ID and index into `World::entities`.
@@ -58,7 +60,7 @@ impl Index {
         if self.start.is_empty() {
             return;
         }
-        let r2 = radius.min(self.radius).powi(2);
+        let r2 = { let r = radius.min(self.radius); r * r };
         let p = positions[me];
         let b = self.bucket(p);
         let (bx, by) = ((b % self.buckets[0]) as isize, (b / self.buckets[0]) as isize);
@@ -84,7 +86,7 @@ impl Index {
                     if j == me {
                         continue;
                     }
-                    let d2 = distance2(space, p, positions[j]);
+                    let d2 = distance2(space, p, positions[j], self.contract);
                     if d2 <= r2 {
                         out.push((d2, ids[j], j));
                     }
@@ -96,11 +98,11 @@ impl Index {
 }
 
 /// Squared distance, along the shorter way round where the space wraps.
-pub fn distance2(space: &Space, a: [f32; 2], b: [f32; 2]) -> f32 {
+pub fn distance2(space: &Space, a: [f32; 2], b: [f32; 2], contract: bool) -> f32 {
     let d = |u: f32, v: f32, size: f32| {
         let d = (u - v).abs();
         if space.wrap { d.min(size - d) } else { d }
     };
     let (dx, dy) = (d(a[0], b[0], space.w), d(a[1], b[1], space.h));
-    dx * dx + dy * dy
+    if contract { crate::contract::distance2(dx, dy) } else { dx * dx + dy * dy }
 }

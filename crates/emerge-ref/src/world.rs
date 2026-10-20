@@ -4,7 +4,7 @@
 
 use crate::arbitrate::pro_rata;
 use crate::chem::{ChemError, Chemistry, Mu, ReactionId, SubstanceId};
-use crate::mind::{sanitize, think, value, Gene, Genome, Sense, READING_LIMIT};
+use crate::mind::{sanitize, think, think_contract, value, Gene, Genome, Sense, READING_LIMIT};
 use crate::philox::{self, Stream};
 
 pub type SourceId = usize;
@@ -56,6 +56,11 @@ impl Space {
         y as usize * self.grid_w + x as usize
     }
 
+    /// `place` in contract mode (`contract.rs`): one wrap, no `rem_euclid`.
+    pub fn place_contract(&self, p: [f32; 2]) -> [f32; 2] {
+        [crate::contract::fit(p[0], self.w, self.wrap), crate::contract::fit(p[1], self.h, self.wrap)]
+    }
+
     pub fn place(&self, p: [f32; 2]) -> [f32; 2] {
         let fit = |v: f32, size: f32| {
             if self.wrap {
@@ -70,7 +75,11 @@ impl Space {
 
     /// The neighbour of cell `c` at offset `(dx, dy)`, wrapping or staying at the edge.
     /// The cell under the point `dist` from `p` along `heading` turned `angle_deg` left.
-    fn cell_ahead(&self, p: [f32; 2], heading: [f32; 2], angle_deg: f32, dist: f32) -> usize {
+    fn cell_ahead(&self, p: [f32; 2], heading: [f32; 2], angle_deg: f32, dist: f32, contract: bool) -> usize {
+        if contract {
+            let d = crate::contract::turned(heading, angle_deg);
+            return self.cell_at(self.place_contract(crate::contract::advance(p, d, dist)));
+        }
         let (s, c) = angle_deg.to_radians().sin_cos();
         let [hx, hy] = heading;
         let d = [hx * c - hy * s, hx * s + hy * c];
@@ -432,6 +441,8 @@ pub struct World {
     pub max_age: u64,
     pub max_entities: usize,
     pub mind_steps: u32,
+    /// Contract mode (`contract.rs`): float operations a GPU can reproduce bit for bit.
+    pub contract: bool,
     pub inventory_cap: Mu,
     pub seed: u64,
     pub tick: u64,
@@ -520,6 +531,7 @@ impl World {
             max_age: u64::MAX,
             max_entities: usize::MAX,
             mind_steps: 1,
+            contract: false,
             inventory_cap: 100 * crate::chem::U,
             seed: 0,
             tick: 0,
@@ -701,6 +713,7 @@ impl World {
             self.snap_ids.clear();
             self.snap_ids.extend(self.entities.iter().map(|e| e.id));
             self.near = crate::near::Index::build(space, self.snap_pos.iter().copied());
+            self.near.contract = self.contract;
         }
 
         if let Some(a) = &mut self.accounts {
@@ -802,6 +815,11 @@ impl World {
             for (e, plan) in self.entities.iter_mut().zip(&plans) {
                 for x in plan.intents.iter().filter(|x| x.live) {
                     if let Act::Turn { angle_deg } = x.act {
+                        if self.contract {
+                            let (s, c) = crate::contract::sincos(angle_deg * crate::contract::DEG);
+                            e.heading = crate::contract::rotate(e.heading, s, c);
+                            continue;
+                        }
                         let (s, c) = angle_deg.to_radians().sin_cos();
                         let [hx, hy] = e.heading;
                         let (nx, ny) = (hx * c - hy * s, hx * s + hy * c);
@@ -811,6 +829,10 @@ impl World {
                 }
                 for x in plan.intents.iter().filter(|x| x.live) {
                     if let Act::Move { distance } = x.act {
+                        if self.contract {
+                            e.pos = space.place_contract(crate::contract::advance(e.pos, e.heading, distance));
+                            continue;
+                        }
                         let p = [e.pos[0] + e.heading[0] * distance, e.pos[1] + e.heading[1] * distance];
                         e.pos = space.place(p);
                     }
@@ -1034,7 +1056,7 @@ impl World {
                         aux: 0,
                         pass: philox::MUTATE,
                     };
-                    crate::mutate::mutate(&parent.genome, rates, cap, &self.menus, &mut crate::mutate::Draws::new(stream))
+                    crate::mutate::mutate(&parent.genome, rates, cap, &self.menus, &mut crate::mutate::Draws { contract: self.contract, ..crate::mutate::Draws::new(stream) })
                 }
                 _ => parent.genome.clone(),
             };
@@ -1093,7 +1115,11 @@ impl World {
             e.genome.slots.iter().enumerate().map(|(g, slot)| match slot.gene {
                 Gene::Sense { sense, .. } if e.genome.active(g) => {
                     let [a, b] = self.read(i, sense, &near);
-                    [sanitize(a, READING_LIMIT), sanitize(b, READING_LIMIT)]
+                    if self.contract {
+                        [crate::contract::sanitize(a, READING_LIMIT), crate::contract::sanitize(b, READING_LIMIT)]
+                    } else {
+                        [sanitize(a, READING_LIMIT), sanitize(b, READING_LIMIT)]
+                    }
                 }
                 _ => [0.0, 0.0],
             }).collect()
@@ -1103,7 +1129,11 @@ impl World {
             e.prev.clear();
             e.prev.extend_from_slice(&e.store.amounts);
         }
-        think(&e.genome, &mut e.signals, &readings, self.mind_steps);
+        if self.contract {
+            think_contract(&e.genome, &mut e.signals, &readings, self.mind_steps);
+        } else {
+            think(&e.genome, &mut e.signals, &readings, self.mind_steps);
+        }
 
         let e = &self.entities[i];
         let cell = &self.cells[e.cell];
@@ -1205,9 +1235,14 @@ impl World {
             }
             Sense::Probe { s, angle_deg, dist } => {
                 let Some(space) = &self.space else { return [0.0, 0.0] };
-                [units(self.cells[space.cell_ahead(e.pos, e.heading, angle_deg, dist)].amounts[s]), 0.0]
+                [units(self.cells[space.cell_ahead(e.pos, e.heading, angle_deg, dist, self.contract)].amounts[s]), 0.0]
             }
             Sense::Clock { period } => {
+                if self.contract {
+                    // No division: the reciprocal of the period is one rounded value.
+                    let phase = (self.tick % period as u64) as f32 * (1.0 / period as f32);
+                    return [crate::contract::sincos(std::f32::consts::TAU * phase).0, 0.0];
+                }
                 let phase = (self.tick % period as u64) as f32 / period as f32;
                 [(std::f32::consts::TAU * phase).sin(), 0.0]
             }
@@ -1221,6 +1256,10 @@ impl World {
                 let gx = (at(1, 0) - at(-1, 0)) * (space.grid_w as f32 / (2.0 * space.w));
                 let gy = (at(0, 1) - at(0, -1)) * (space.grid_h as f32 / (2.0 * space.h));
                 let [hx, hy] = e.heading;
+                if self.contract {
+                    use crate::contract::fma;
+                    return [fma(gx, hx, gy * hy), fma(gy, hx, -(gx * hy))];
+                }
                 [gx * hx + gy * hy, -gx * hy + gy * hx]
             }
         }

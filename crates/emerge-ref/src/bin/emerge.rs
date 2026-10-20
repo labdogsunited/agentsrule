@@ -125,7 +125,7 @@ fn usage() -> ExitCode {
     eprintln!("       emerge expand <file.em>");
     eprintln!("       emerge order <file.em> [WORLD]");
     eprintln!("       emerge check [--json] <file.em>");
-    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N] [--accounts FILE [--clade ID,…]] [--changes FILE] [--producers-log FILE] [--contact FILE]");
+    eprintln!("       emerge run <file.em> --lineages A[,B] [--mutation off] [--partial] [--seed N] [--ticks N] [--every N] [--flux S] [--stop-when-sustained] [--stop-when-hopeless] [--producers F] [--census N] [--inject NAME@TICK] [--blocked] [--dump] [--one-per-substance] [--ancestry N] [--accounts FILE [--clade ID,…]] [--changes FILE] [--producers-log FILE] [--contact FILE] [--contract gpu]");
     eprintln!("       emerge census <file.em> --lineage A [--flux S] [--lines N] [--generations N]");
     ExitCode::from(2)
 }
@@ -386,6 +386,7 @@ fn run(args: &[String]) -> ExitCode {
     let (mut census, mut threshold) = (0, 0.02);
     let (mut blocked, mut dump, mut one_per_substance) = (false, false, false);
     let mut ancestry_every = 0u64;
+    let mut contract = false;
     let mut inject: Option<(String, u64)> = None;
     let mut accounts_path: Option<String> = None;
     let mut changes_path: Option<String> = None;
@@ -423,6 +424,7 @@ fn run(args: &[String]) -> ExitCode {
             },
             ("--cell", _) => cell_name = Some(value.to_string()),
             ("--mutation", _) if value == "off" || value == "on" => mutation = value == "on",
+            ("--contract", _) if value == "gpu" => contract = true,
             ("--seed", Some(n)) => seed = n,
             ("--ticks", Some(n)) => ticks = n,
             ("--every", Some(n)) if n > 0 => every = n,
@@ -454,7 +456,11 @@ fn run(args: &[String]) -> ExitCode {
     let mut invader = match &inject {
         None => None,
         Some((name, _)) => match compile(&src, &[name.as_str()], Options { seed, allow_partial: partial, mutation }) {
-            Ok(c) => Some(c.world),
+            Ok(c) => {
+                let mut other = c.world;
+                other.contract = contract;
+                Some(other)
+            }
             Err(e) => {
                 eprintln!("{path}: --inject: {e}");
                 return ExitCode::FAILURE;
@@ -470,6 +476,7 @@ fn run(args: &[String]) -> ExitCode {
         format!(" left_out={}", compiled.partial.iter().map(|e| e.path.as_str()).collect::<Vec<_>>().join(","))
     };
     let mut w = compiled.world;
+    w.contract = contract;
     let find = |n: &str| w.chem.substances.iter().position(|s| s.name == n);
     let flux = match flux_name.as_deref().map(|n| (n, find(n))) {
         None => None,
