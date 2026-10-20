@@ -2,7 +2,7 @@
 
 **Core specification — draft v0.1**
 
-Status: first draft. This document defines the **core** of the language: what a program is made of and how it runs, independent of any application. Evolving creatures (`spec-v0.7.8.md`) become one application written in this core, using a standard library. Syntax here is provisional and will be merged into `language.md`.
+Status: first draft. This document defines the **core** of the language: what a program is made of and how it runs, independent of any application. Evolving creatures (`spec-v0.7.8.md`) become one application written in this core, using a standard library. Syntax here is provisional and will be merged into `language.md`. **Nothing here is compiled yet:** the terms `law`, `kind` and `edge` do not parse, and `.em` files use the vocabulary of `language.md` (worlds, rules, lineages).
 
 Conventions:
 - **MUST** / **MUST NOT** mark normative requirements.

@@ -255,7 +255,21 @@ fn check(args: &[String]) -> ExitCode {
             );
         }
     }
-    if out.iter().any(|d| d.severity == "error") {
+    // One verdict: the file is wrong, runs whole, or runs with parts left out (W1001).
+    let left_out = out.iter().filter(|d| d.code == "W1001").count();
+    let (verdict, text) = if out.iter().any(|d| d.severity == "error") {
+        ("invalid", "invalid".to_string())
+    } else if left_out > 0 {
+        ("runnable_with_parts_left_out", format!("runnable with {left_out} part{} left out", if left_out == 1 { "" } else { "s" }))
+    } else {
+        ("runnable", "runnable".to_string())
+    };
+    if json.is_empty() {
+        println!("{file_path}: verdict: {text}");
+    } else {
+        println!(r#"{{"verdict":"{verdict}","left_out":{left_out}}}"#);
+    }
+    if verdict == "invalid" {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS

@@ -949,7 +949,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E09xx` | patches and hot-swaps: stale revisions, missing destinations, unresolved paths |
 | `E10xx`, `W10xx` | the runner: a construct the language allows but the runner cannot run yet |
 
-`emerge check <file>` reports every diagnostic it can find without running the world, in the form `file:line:col: severity[code]: path: message`; `emerge check --json` prints one object per line in the form above (without `id`, and with `fixes` that carry no `base_revision`, because a file has no revision). The position is where the item starts: the declaration, entry, statement or gene. Codes in use:
+`emerge check <file>` reports every diagnostic it can find without running the world, in the form `file:line:col: severity[code]: path: message`; `emerge check --json` prints one object per line in the form above (without `id`, and with `fixes` that carry no `base_revision`, because a file has no revision). The position is where the item starts: the declaration, entry, statement or gene. The last line is a verdict: `invalid` (an error was found; exit status 1), `runnable`, or `runnable with N parts left out` (N warnings `W1001`: the file is valid, but the reference runner skips those parts). With `--json` it is `{"verdict":"runnable_with_parts_left_out","left_out":N}`. Codes in use:
 
 | Code | Meaning |
 | :-- | :-- |
