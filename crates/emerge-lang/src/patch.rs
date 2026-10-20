@@ -5,8 +5,9 @@
 //! constant, a menu entry's cost or one parameter, an argument of a labelled rule
 //! statement, a reaction's `catalyze`, a lineage's `mutation` or profile entry) and `add`
 //! (a world declaration, optionally `after`/`before` a rule or other named declaration; a
-//! menu entry `after`/`before` another entry of that menu). `replace`, `remove`, `rename`
-//! and adding genes are `E0904`: not supported yet (genes are added with `extends`).
+//! menu entry `after`/`before` another entry of that menu), `replace` (a rule's body or
+//! one labelled statement), `remove` (a declaration, a menu entry or a labelled statement)
+//! and `rename` (a rule). Lineages take `set` only; genes are added with `extends`.
 //!
 //! A path names the item as written in the file: a patch on `Builder` does not reach
 //! what `Builder` takes from the lineage it extends.
@@ -99,10 +100,126 @@ fn world_op(w: &mut World, op: &PatchOp, at: &At) -> Result<(), Problem> {
     match op {
         PatchOp::Set { path, value } => world_set(w, path, value, at),
         PatchOp::Add { position, decl } => world_add(w, position.as_ref(), decl, at),
-        PatchOp::Replace { path, .. } | PatchOp::Remove { path, .. } | PatchOp::Rename { path, .. } => {
-            Err(at.err("E0904", path, "`replace`, `remove` and `rename` are not supported by `--patch` yet".into()))
+        PatchOp::Replace { path, body } => world_replace(w, path, body, at),
+        PatchOp::Remove { path, move_to } => world_remove(w, path, move_to.as_deref(), at),
+        PatchOp::Rename { path, to } => world_rename(w, path, to, at),
+    }
+}
+
+/// The index of the declaration a path names: `rules.weather`, `reactions.rot`,
+/// `substances.body`, `consts.N`, `fields.cells`, `sources.sun`, `sinks.void`, or a setting
+/// or block by its bare name (`remains`).
+fn decl_index(w: &World, p: &Path, at: &At) -> Result<usize, Problem> {
+    let ks = keys(p);
+    match (ks[0], &ks[1..]) {
+        (Key::Field(name), []) => {
+            let i = w.decls.iter().position(|x| matches!(declared(&x.node), Some(("setting" | "block", n)) if n == name));
+            i.ok_or_else(|| unknown(at, p, &format!("setting or block `{name}`")))
+        }
+        (Key::Field(kind), [Key::Field(name)]) => {
+            let want = match kind {
+                "rules" => "rule",
+                "reactions" => "reaction",
+                "substances" => "substance",
+                "consts" => "constant",
+                "fields" => "field",
+                "sources" => "source",
+                "sinks" => "sink",
+                _ => return Err(at.err("E0114", p, format!("`{kind}` is not a kind of declaration"))),
+            };
+            let i = w.decls.iter().position(|x| declared(&x.node) == Some((want, name)));
+            i.ok_or_else(|| unknown(at, p, &format!("{want} `{name}`")))
+        }
+        _ => Err(at.err("E0114", p, "a declaration is named as `rules.weather` or `remains`".into())),
+    }
+}
+
+/// Replaces the statement labelled `label` (anywhere in the block) by `with`; empty removes it.
+fn splice(body: &mut Block, label: &str, with: &[Node<Stmt>]) -> bool {
+    if let Some(i) = body.iter().position(|s| matches!(&s.node, Stmt::Call { label: Some(l), .. } if l == label)) {
+        body.splice(i..=i, with.iter().cloned());
+        return true;
+    }
+    for s in body.iter_mut() {
+        let done = match &mut s.node {
+            Stmt::When { then, otherwise, .. } => {
+                splice(then, label, with) || otherwise.as_mut().is_some_and(|o| splice(o, label, with))
+            }
+            Stmt::For { body, .. } => splice(body, label, with),
+            _ => false,
+        };
+        if done {
+            return true;
         }
     }
+    false
+}
+
+fn rule_body<'a>(w: &'a mut World, name: &str) -> Option<&'a mut Block> {
+    w.decls.iter_mut().find_map(|d| match &mut d.node {
+        WDecl::Rule { name: n, body, .. } if n == name => Some(body),
+        _ => None,
+    })
+}
+
+fn world_replace(w: &mut World, path: &Path, body: &Block, at: &At) -> Result<(), Problem> {
+    let ks = keys(path);
+    match (ks[0], &ks[1..]) {
+        (Key::Field("rules"), [Key::Field(name)]) => {
+            let slot = rule_body(w, name).ok_or_else(|| unknown(at, path, &format!("rule `{name}`")))?;
+            *slot = body.clone();
+            Ok(())
+        }
+        (Key::Field("rules"), [Key::Field(name), Key::Label(label)]) => {
+            let b = rule_body(w, name).ok_or_else(|| unknown(at, path, &format!("rule `{name}`")))?;
+            if splice(b, label, body) { Ok(()) } else { Err(unknown(at, path, &format!("statement `@{label}` in rule `{name}`"))) }
+        }
+        _ => Err(at.err("E0904", path, "`replace` takes a rule (`rules.NAME`) or a labelled statement (`rules.NAME@label`)".into())),
+    }
+}
+
+fn world_remove(w: &mut World, path: &Path, move_to: Option<&str>, at: &At) -> Result<(), Problem> {
+    let ks = keys(path);
+    match (ks[0], &ks[1..]) {
+        (Key::Field("rules"), [Key::Field(name), Key::Label(label)]) => {
+            let b = rule_body(w, name).ok_or_else(|| unknown(at, path, &format!("rule `{name}`")))?;
+            if splice(b, label, &[]) { Ok(()) } else { Err(unknown(at, path, &format!("statement `@{label}` in rule `{name}`"))) }
+        }
+        (Key::Field(kind @ ("senses" | "actions" | "regulation")), [Key::Field(item)]) => {
+            let items = w.decls.iter_mut().find_map(|d| match &mut d.node {
+                WDecl::Menu { kind: k, items } if k == kind => Some(items),
+                _ => None,
+            });
+            let items = items.ok_or_else(|| unknown(at, path, &format!("`{kind}` menu")))?;
+            let i = items.iter().position(|m| menu_name(&m.node) == *item);
+            items.remove(i.ok_or_else(|| unknown(at, path, &format!("entry `{item}` in `{kind}`")))?);
+            Ok(())
+        }
+        _ => {
+            let i = decl_index(w, path, at)?;
+            // A substance or field may hold something; §10.3 asks where it goes. A file holds
+            // nothing, so the destination is only required, not used.
+            if matches!(declared(&w.decls[i].node), Some(("substance" | "field", _))) && move_to.is_none() {
+                return Err(at.err("E0901", path, "removing a substance or field must say where its contents go (`move_to: void`)".into()));
+            }
+            w.decls.remove(i);
+            Ok(())
+        }
+    }
+}
+
+fn world_rename(w: &mut World, path: &Path, to: &str, at: &At) -> Result<(), Problem> {
+    let ks = keys(path);
+    let (Key::Field("rules"), [Key::Field(_)]) = (ks[0], &ks[1..]) else {
+        return Err(at.err("E0904", path, "`rename` takes a rule (`rules.NAME`); other names are used elsewhere".into()));
+    };
+    let i = decl_index(w, path, at)?;
+    if w.decls.iter().any(|x| declared(&x.node).is_some_and(|(_, n)| n == to)) {
+        return Err(at.err("E0111", path, format!("`{to}` is already declared")));
+    }
+    let WDecl::Rule { name, .. } = &mut w.decls[i].node else { unreachable!() };
+    *name = to.to_string();
+    Ok(())
 }
 
 fn unknown(at: &At, path: &Path, what: &str) -> Problem {
@@ -332,26 +449,7 @@ fn world_add(w: &mut World, position: Option<&(bool, Path)>, item: &AddItem, at:
             let index = match position {
                 None => w.decls.len(),
                 Some((after, p)) => {
-                    let ks = keys(p);
-                    let i = match (ks[0], &ks[1..]) {
-                        // A setting or block is named alone: `after remains`.
-                        (Key::Field(name), []) => {
-                            let i = w.decls.iter().position(|x| matches!(declared(&x.node), Some(("setting" | "block", n)) if n == name));
-                            i.ok_or_else(|| unknown(at, p, &format!("setting or block `{name}`")))?
-                        }
-                        (Key::Field(kind), [Key::Field(name)]) => {
-                            let want = match kind {
-                                "rules" => "rule",
-                                "reactions" => "reaction",
-                                "substances" => "substance",
-                                "consts" => "constant",
-                                _ => return Err(at.err("E0114", p, format!("`{kind}` is not a kind of declaration"))),
-                            };
-                            let i = w.decls.iter().position(|x| declared(&x.node) == Some((want, name)));
-                            i.ok_or_else(|| unknown(at, p, &format!("{want} `{name}`")))?
-                        }
-                        _ => return Err(at.err("E0114", p, "a declaration goes after or before one, as `rules.weather` or `remains`".into())),
-                    };
+                    let i = decl_index(w, p, at)?;
                     if *after { i + 1 } else { i }
                 }
             };

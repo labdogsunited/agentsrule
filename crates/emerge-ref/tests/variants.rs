@@ -84,7 +84,9 @@ fn wrong_values_duplicates_and_unsupported_operations_are_errors() {
     assert_eq!(fails("patch Dish { set actions.steal.cost = 1.5; }\n").code, "E0205");
     assert_eq!(fails("patch Dish { add max_age: 5; }\n").code, "E0111");
     assert_eq!(fails("patch Dish { add after actions.steal: action take(s: any substance) cost 1mu; }\n").code, "E0111");
-    assert_eq!(fails("patch Dish { remove rules.rotting; }\n").code, "E0904");
+    assert_eq!(fails("patch Dish { rename reactions.rot to decay; }\n").code, "E0904");
+    assert_eq!(fails("patch Dish { replace actions.steal { } }\n").code, "E0904");
+    assert_eq!(fails("patch Drifter { remove mutation.rate; }\n").code, "E0904");
     assert_eq!(fails("patch Drifter { add after seed.forage: action move(d: 0u..1u) @m; }\n").code, "E0904");
     assert_eq!(fails("world X {\n}\n").code, "E0903");
 }
@@ -104,4 +106,45 @@ fn set_makes_a_one_operation_patch() {
     let out = emerge_lang::patch::apply(&emerge_lang::parse(DISH).unwrap(), &file).unwrap();
     assert!(emerge_lang::format(&out).contains("react(rot, rate: 500bp) @react_rot;"));
     assert!(emerge_lang::patch::parse_set("no equals sign").is_err());
+}
+
+#[test]
+fn replace_remove_and_rename_edit_the_text_they_name() {
+    let patch = "patch Dish {
+    remove rules.rotting;
+    rename rules.spread to diffusion;
+    remove rules.weather@transfer_nitrate;
+    replace rules.weather@transfer_body {
+        transfer(body, from: rock, to: self, amount: 2mu, overflow: void) @transfer_body;
+    }
+    remove actions.emit;
+    remove senses.inventory;
+}
+";
+    // The same edits made on the text.
+    let rotting = "    rule rotting on cells {\n        react(rot, rate: 50bp) @react_rot;\n    }\n\n";
+    let nitrate = "        transfer(nitrate, from: rock, to: self, amount: 10mu, overflow: void) @transfer_nitrate;\n";
+    let body = "amount: 1mu, overflow: void) @transfer_body;";
+    let emit = DISH.lines().find(|l| l.trim_start().starts_with("action emit")).expect("emit entry");
+    let inventory = DISH.lines().find(|l| l.trim_start().starts_with("sense inventory")).expect("inventory entry");
+    let by_hand = DISH
+        .replace(rotting, "")
+        .replace("rule spread on", "rule diffusion on")
+        .replace(nitrate, "")
+        .replace(body, "amount: 2mu, overflow: void) @transfer_body;")
+        .replace(&format!("{emit}\n"), "")
+        .replace(&format!("{inventory}\n"), "");
+    assert_ne!(by_hand, DISH);
+    let by_patch = patched(DISH, patch);
+    assert_eq!(emerge_lang::format(&by_patch), emerge_lang::format(&emerge_lang::parse(&by_hand).unwrap()));
+}
+
+#[test]
+fn removal_needs_a_destination_for_substances_and_fields_and_clashes_are_errors() {
+    assert_eq!(fails("patch Dish { remove substances.heat; }\n").code, "E0901");
+    assert_eq!(fails("patch Dish { rename rules.spread to weather; }\n").code, "E0111");
+    assert_eq!(fails("patch Dish { remove rules.weather@nope; }\n").code, "E0114");
+    assert_eq!(fails("patch Dish { replace rules.nope { } }\n").code, "E0114");
+    let out = patched(DISH, "patch Dish { remove remains; }\n");
+    assert!(!emerge_lang::format(&out).contains("remains:"));
 }
