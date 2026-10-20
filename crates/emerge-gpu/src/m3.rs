@@ -290,7 +290,7 @@ pub fn run_full_cmd(args: &[String]) {
     println!("{ticks} ticks, {states} states compared, {} entities at the end; mismatches: entities {be}, cells {bc} ({:.1} s)", world.entities.len(), t.elapsed().as_secs_f64());
 }
 
-/// `emerge-gpu run DISH LINEAGES TICKS SEED [EVERY]`: the whole run on the GPU (mutation off), with a
+/// `emerge-gpu run DISH LINEAGES TICKS SEED [EVERY]`: the whole run on the GPU (mutation with `EMERGE_GPU_MUTATION`), with a
 /// line per window: population, births and deaths in the window, entity-reaction extent by reaction.
 pub fn run_gpu_cmd(args: &[String]) {
     use crate::resident::Resident;
@@ -312,7 +312,7 @@ pub fn run_gpu_cmd(args: &[String]) {
     if std::env::var_os("EMERGE_GPU_AUDIT").is_some() {
         r.enable_audit();
     }
-    println!("run on {}: {} {} seed {seed}, {ticks} ticks, mutation off, contract mode", gpu.name, args[0], args[1]);
+    println!("run on {}: {} {} seed {seed}, {ticks} ticks, mutation {}, contract mode", gpu.name, args[0], args[1], if mutation { "on" } else { "off" });
     println!("tick,population,births,deaths,ms_per_tick,entity-reaction extent (nonzero)");
     let (mut b0, mut d0, mut e0, mut t0) = (r.births, r.deaths, r.extent(), std::time::Instant::now());
     for tick in 1..=ticks {
