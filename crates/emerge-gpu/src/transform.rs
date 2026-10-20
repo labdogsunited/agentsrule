@@ -30,7 +30,7 @@ pub fn run_transform(gpu: &Gpu, p: &Packed, rec: &[u32], dying: &[u32]) -> Trans
     let reactions = gpu.storage_with(&p.reactions);
     let rlaws = gpu.storage_with(&p.rlaws.iter().chain([&0u32, &0]).copied().collect::<Vec<_>>());
     let waste = gpu.storage_with(&p.waste.iter().chain([&0u32]).copied().collect::<Vec<_>>());
-    let stats = gpu.storage(p.reactions.len() / RX * 4 + 4);
+    let stats = gpu.storage(p.reactions.len() / RX * 8 + 8);
     let flows = gpu.storage(3 * ns * 8 + 8);
     let group = gpu.group(&bgl, &[&params, &ent, &amounts, &camt, &ccap, &ecap, &rec, &gw, &dying, &reactions, &rlaws, &waste, &stats, &flows]);
     let wg = |count: usize| (count.max(1) as u32).div_ceil(64);

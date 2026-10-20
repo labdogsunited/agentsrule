@@ -24,7 +24,11 @@
 @group(0) @binding(19) var<storage, read_write> ecap: array<u32>;
 @group(0) @binding(20) var<storage, read_write> scr: array<u64>;
 @group(0) @binding(21) var<storage, read_write> sortp: array<u32>;
-@group(0) @binding(22) var<storage, read_write> flows: array<atomic<u32>>;   // emitted, absorbed, (audit) totals by substance, 64-bit as two words
+@group(0) @binding(22) var<storage, read_write> flows: array<atomic<u32>>;
+@group(0) @binding(23) var<storage, read_write> sb_in: array<atomic<u32>>;     // requests per bucket
+@group(0) @binding(24) var<storage, read_write> sb_out: array<u32>;             // where each bucket starts
+@group(0) @binding(25) var<storage, read_write> sb_blocks: array<u32>;
+@group(0) @binding(26) var<storage, read_write> sb_cur: array<atomic<u32>>;   // emitted, absorbed, (audit) totals by substance, 64-bit as two words
 const P_BECOMES = 55u;
 fn flow_add(kind: u32, s: u32, x: u32) {
     if (x == 0u) { return; }
@@ -105,6 +109,13 @@ fn draw(stream: u32, domain: u32, aux: u32, pas: u32, index: u32) -> u32 {
     if (q == 2u) { return r.z; }
     return r.w;
 }
+
+// Stage 1 grants go to words 6 and 7 (a request that is not shared in stage 2 keeps it); stage 2 only to word 7.
+fn set_grant(r: u32, stage: u32, v: u32) {
+    if (stage == 0u) { rq[r * RQ + 6u] = v; }
+    rq[r * RQ + 7u] = v;
+}
+fn get_grant(r: u32, stage: u32) -> u32 { return rq[r * RQ + 7u]; }
 
 // ---- A: upkeep and fees, one thread per entity ----
 @compute @workgroup_size(64)
@@ -326,7 +337,7 @@ fn share(@builtin(global_invocation_id) id: vec3<u32>) {
     let s = rq[fb + 2u];
     let available = select(balance(p, s), headroom(p, s), stage == 1u);
     if (size == 1u) {
-        rq[fb + select(6u, 7u, stage == 1u)] = available;
+        set_grant(first, stage, available);
         return;
     }
     // Stream of the store being shared.
@@ -347,7 +358,7 @@ fn share(@builtin(global_invocation_id) id: vec3<u32>) {
         let g = scaled / total;
         scr[q] = scaled % total;      // the fractional part
         granted_sum += g;
-        rq[r * RQ + select(6u, 7u, stage == 1u)] = u32(g);
+        set_grant(r, stage, u32(g));
     }
     // The leftover µ, one at a time, to the largest fractions; ties by the draw, then the position.
     var leftover = u64(available) - granted_sum;
@@ -367,7 +378,7 @@ fn share(@builtin(global_invocation_id) id: vec3<u32>) {
             }
         }
         let r = u32(list[best] & u64(0xffffffffu));
-        rq[r * RQ + select(6u, 7u, stage == 1u)] += 1u;
+        set_grant(r, stage, get_grant(r, stage) + 1u);
         scr[best] = U64_MAX();
         leftover -= u64(1u);
     }
@@ -495,4 +506,69 @@ fn sort_merge_local(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invoca
         workgroupBarrier();
     }
     if (i < size) { list[i] = tile[lid.x]; }
+}
+
+// ---- grouping the oversubscribed requests: a bucket sort by hashed key, then one workgroup per bucket ----
+// The list holds (key << 32 | request) entries in no order. They are spread into buckets by a hash of
+// the key (equal keys land together), and each bucket is sorted in shared memory, so every group is
+// contiguous and in request order, which is all `share` needs.
+const P_SBN = 56u;
+var<workgroup> btile: array<u64, 256>;
+
+fn bucket_of(key: u32) -> u32 {
+    var h = key * 2654435761u;
+    h = h ^ (h >> 15u);
+    h = h * 2246822519u;
+    h = h ^ (h >> 13u);
+    return h & (params[P_SBN] - 1u);
+}
+
+@compute @workgroup_size(64)
+fn bucket_hist(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    if (i >= atomicLoad(&counters[0])) { return; }
+    atomicAdd(&sb_in[bucket_of(u32(list[i] >> 32u))], 1u);
+}
+
+@compute @workgroup_size(64)
+fn bucket_scatter(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    if (i >= atomicLoad(&counters[0])) { return; }
+    let e = list[i];
+    let b = bucket_of(u32(e >> 32u));
+    scr[sb_out[b] + atomicAdd(&sb_cur[b], 1u)] = e;
+}
+
+@compute @workgroup_size(256)
+fn bucket_sort(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+    let b = wid.x;
+    if (b >= params[P_SBN]) { return; }
+    let off = sb_out[b];
+    let cnt = atomicLoad(&sb_in[b]);
+    if (cnt > 256u) {
+        // More requests in one bucket than the tile holds: say so loudly (the host checks this word).
+        atomicStore(&flows[3u * params[P_NS] * 2u], 1u);
+        return;
+    }
+    var v = U64_MAX();
+    if (lid.x < cnt) { v = scr[off + lid.x]; }
+    btile[lid.x] = v;
+    workgroupBarrier();
+    for (var k = 2u; k <= 256u; k = k * 2u) {
+        for (var j = k / 2u; j > 0u; j = j / 2u) {
+            let i = lid.x;
+            let l = i ^ j;
+            if (l > i) {
+                let a = btile[i];
+                let c = btile[l];
+                let up = (i & k) == 0u;
+                if ((up && a > c) || (!up && a < c)) {
+                    btile[i] = c;
+                    btile[l] = a;
+                }
+            }
+            workgroupBarrier();
+        }
+    }
+    if (lid.x < cnt) { list[off + lid.x] = btile[lid.x]; }
 }

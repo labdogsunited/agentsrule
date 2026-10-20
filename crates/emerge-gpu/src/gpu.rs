@@ -8,6 +8,13 @@ pub struct Gpu {
     pub name: String,
     pub timestamps: bool,
     pub period_ns: f32,
+    /// Kernel timing (`EMERGE_GPU_KERNELS=1`): pipeline names, and total microseconds and count by name.
+    names: std::cell::RefCell<std::collections::HashMap<wgpu::ComputePipeline, String>>,
+    /// While set, `dispatch`, `clear` and `copy_word` are recorded into one command buffer that is
+    /// submitted by `flush` (and before any read), instead of one submission each.
+    pub batching: std::cell::Cell<bool>,
+    pending: std::cell::RefCell<Option<wgpu::CommandEncoder>>,
+    kernel_time: Option<std::cell::RefCell<std::collections::HashMap<String, (f64, u32)>>>,
 }
 
 impl Gpu {
@@ -34,7 +41,8 @@ impl Gpu {
         let desc = wgpu::DeviceDescriptor { label: None, required_features: features, required_limits: adapter.limits(), ..Default::default() };
         let (device, queue) = pollster::block_on(adapter.request_device(&desc)).expect("request_device");
         let period_ns = queue.get_timestamp_period();
-        Gpu { device, queue, name: format!("{} ({:?})", info.name, info.backend), timestamps, period_ns }
+        let kernel_time = (timestamps && std::env::var_os("EMERGE_GPU_KERNELS").is_some()).then(Default::default);
+        Gpu { device, queue, name: format!("{} ({:?})", info.name, info.backend), timestamps, period_ns, names: Default::default(), batching: Default::default(), pending: Default::default(), kernel_time }
     }
 
     pub fn pipeline(&self, wgsl: &str, entry: &str) -> wgpu::ComputePipeline {
@@ -84,6 +92,7 @@ impl Gpu {
 
     /// Copies `count` elements starting at element `first` to the host.
     pub fn read_at<T: bytemuck::Pod>(&self, buf: &wgpu::Buffer, first: usize, count: usize) -> Vec<T> {
+        self.flush();
         let size = std::mem::size_of::<T>();
         let (offset, bytes) = ((first * size) as u64, (count * size) as u64);
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -202,7 +211,18 @@ impl Gpu {
     }
 
     pub fn pipeline_in(&self, module: &wgpu::ShaderModule, entry: &str, layout: &wgpu::PipelineLayout) -> wgpu::ComputePipeline {
-        self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: None, layout: Some(layout), module, entry_point: Some(entry), compilation_options: Default::default(), cache: None })
+        let p = self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: None, layout: Some(layout), module, entry_point: Some(entry), compilation_options: Default::default(), cache: None });
+        if self.kernel_time.is_some() {
+            self.names.borrow_mut().insert(p.clone(), entry.to_string());
+        }
+        p
+    }
+
+    /// Total GPU microseconds and calls by kernel, when `EMERGE_GPU_KERNELS` is set.
+    pub fn kernel_report(&self) -> Vec<(String, f64, u32)> {
+        let mut v: Vec<_> = self.kernel_time.iter().flat_map(|t| t.borrow().iter().map(|(k, (us, n))| (k.clone(), *us, *n)).collect::<Vec<_>>()).collect();
+        v.sort_by(|a, b| b.1.total_cmp(&a.1));
+        v
     }
 
     pub fn group(&self, bgl: &wgpu::BindGroupLayout, buffers: &[&wgpu::Buffer]) -> wgpu::BindGroup {
@@ -212,8 +232,10 @@ impl Gpu {
 
     /// Runs the dispatches in order, in one submission. It does not wait: a `read` after it does.
     pub fn dispatch(&self, steps: &[(&wgpu::ComputePipeline, &wgpu::BindGroup, u32)]) {
-        let mut enc = self.device.create_command_encoder(&Default::default());
-        {
+        if self.kernel_time.is_some() {
+            return self.dispatch_timed(steps);
+        }
+        self.record(|enc| {
             // One pass for all steps: wgpu puts the barriers between dispatches itself.
             let mut pass = enc.begin_compute_pass(&Default::default());
             for (pipeline, group, groups) in steps {
@@ -221,20 +243,69 @@ impl Gpu {
                 pass.set_bind_group(0, *group, &[]);
                 pass.dispatch_workgroups(*groups, 1, 1);
             }
+        });
+    }
+
+    /// Runs `f` on the pending command buffer when batching, or on a fresh one that is submitted at once.
+    fn record(&self, f: impl FnOnce(&mut wgpu::CommandEncoder)) {
+        if self.batching.get() {
+            let mut p = self.pending.borrow_mut();
+            let enc = p.get_or_insert_with(|| self.device.create_command_encoder(&Default::default()));
+            f(enc);
+        } else {
+            let mut enc = self.device.create_command_encoder(&Default::default());
+            f(&mut enc);
+            self.queue.submit([enc.finish()]);
         }
-        // No wait: a later `read` is queued behind this work.
+    }
+
+    /// Submits what was recorded while batching.
+    pub fn flush(&self) {
+        if let Some(enc) = self.pending.borrow_mut().take() {
+            self.queue.submit([enc.finish()]);
+        }
+    }
+
+    /// Copies one 32-bit word between buffers, in order with the recorded dispatches.
+    pub fn copy_word(&self, src: &wgpu::Buffer, src_offset: u64, dst: &wgpu::Buffer, dst_offset: u64) {
+        self.record(|enc| enc.copy_buffer_to_buffer(src, src_offset, dst, dst_offset, 4));
+    }
+
+    /// Each step in its own pass with timestamps, waited for; for the kernel report only.
+    fn dispatch_timed(&self, steps: &[(&wgpu::ComputePipeline, &wgpu::BindGroup, u32)]) {
+        self.flush();
+        let n = steps.len() as u32;
+        let set = self.device.create_query_set(&wgpu::QuerySetDescriptor { label: None, ty: wgpu::QueryType::Timestamp, count: 2 * n });
+        let resolve = self.device.create_buffer(&wgpu::BufferDescriptor { label: None, size: 16 * n as u64, usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        for (i, (pipeline, group, groups)) in steps.iter().enumerate() {
+            let writes = wgpu::ComputePassTimestampWrites { query_set: &set, beginning_of_pass_write_index: Some(2 * i as u32), end_of_pass_write_index: Some(2 * i as u32 + 1) };
+            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: Some(writes) });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, *group, &[]);
+            pass.dispatch_workgroups(*groups, 1, 1);
+        }
+        enc.resolve_query_set(&set, 0..2 * n, &resolve, 0);
         self.queue.submit([enc.finish()]);
+        let ts: Vec<u64> = self.read(&resolve, 2 * n as usize);
+        let names = self.names.borrow();
+        let mut table = self.kernel_time.as_ref().unwrap().borrow_mut();
+        for (i, (pipeline, _, _)) in steps.iter().enumerate() {
+            let us = ts[2 * i + 1].saturating_sub(ts[2 * i]) as f64 * self.period_ns as f64 * 1e-3;
+            let e = table.entry(names.get(*pipeline).cloned().unwrap_or_else(|| "?".into())).or_insert((0.0, 0));
+            e.0 += us;
+            e.1 += 1;
+        }
     }
 
     /// Sets a buffer to zero on the GPU (no upload).
     pub fn clear(&self, buf: &wgpu::Buffer) {
-        let mut enc = self.device.create_command_encoder(&Default::default());
-        enc.clear_buffer(buf, 0, None);
-        self.queue.submit([enc.finish()]);
+        self.record(|enc| enc.clear_buffer(buf, 0, None));
     }
 
     /// Waits for all submitted work.
     pub fn sync(&self) {
+        self.flush();
         self.device.poll(wgpu::PollType::wait_indefinitely()).expect("poll");
     }
 }

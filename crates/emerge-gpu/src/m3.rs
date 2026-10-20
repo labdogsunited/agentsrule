@@ -248,9 +248,9 @@ pub fn compare_full(world: &mut World, gpu: &Gpu, ticks: u64, every: u64, verbos
             }
             let view = StateView { ent: &s.ent, epos: &s.epos, amounts: &s.amounts, ecap: &s.ecap, sig: &s.sig, camt: &s.camt, gw: &s.gw, mw: &s.mw };
             let (mut be, bc) = compare_state(world, &view, s.ns, &mut note);
-            if gpu_world.births != world.births || gpu_world.deaths != world.deaths || gpu_world.extent != world.entity_extent {
+            if gpu_world.births != world.births || gpu_world.deaths != world.deaths || gpu_world.extent() != world.entity_extent {
                 be += 1;
-                note(format!("counts: births {} vs {}, deaths {} vs {}, extent {:?} vs {:?}", gpu_world.births, world.births, gpu_world.deaths, world.deaths, gpu_world.extent, world.entity_extent));
+                note(format!("counts: births {} vs {}, deaths {} vs {}, extent {:?} vs {:?}", gpu_world.births, world.births, gpu_world.deaths, world.deaths, gpu_world.extent(), world.entity_extent));
             }
             bad_entities += be;
             bad_cells += bc;
@@ -308,18 +308,27 @@ pub fn run_gpu_cmd(args: &[String]) {
     }
     println!("run on {}: {} {} seed {seed}, {ticks} ticks, mutation off, contract mode", gpu.name, args[0], args[1]);
     println!("tick,population,births,deaths,ms_per_tick,entity-reaction extent (nonzero)");
-    let (mut b0, mut d0, mut e0, mut t0) = (r.births, r.deaths, r.extent.clone(), std::time::Instant::now());
+    let (mut b0, mut d0, mut e0, mut t0) = (r.births, r.deaths, r.extent(), std::time::Instant::now());
     for tick in 1..=ticks {
         r.tick();
         if tick % every == 0 {
             let ms = t0.elapsed().as_secs_f64() * 1e3 / every as f64;
-            let extent: Vec<String> = r.extent.iter().zip(&e0).enumerate().filter(|(_, (a, b))| a != b).map(|(k, (a, b))| format!("[{}]={}", reaction_names[k], *a - *b)).collect();
+            let now = r.extent();
+            let extent: Vec<String> = now.iter().zip(&e0).enumerate().filter(|(_, (a, b))| a != b).map(|(k, (a, b))| format!("[{}]={}", reaction_names[k], *a - *b)).collect();
             println!("{tick},{},{},{},{ms:.2},{}", r.n, r.births - b0, r.deaths - d0, extent.join(" "));
-            (b0, d0, e0, t0) = (r.births, r.deaths, r.extent.clone(), std::time::Instant::now());
+            (b0, d0, e0, t0) = (r.births, r.deaths, now.clone(), std::time::Instant::now());
         }
     }
     if let Some(a) = r.audit() {
         println!("ledger audit: {} ticks checked, {} with element totals off, largest difference {} micro-units; genome pools collected {} times", a.ticks, a.drifted, a.worst, r.collections);
+    }
+    let report = gpu.kernel_report();
+    if !report.is_empty() {
+        let total: f64 = report.iter().map(|r| r.1).sum();
+        println!("kernel time per tick (us, calls per tick): {:.0} in all", total / ticks as f64);
+        for (name, us, n) in report.iter().take(18) {
+            println!("  {name:<18} {:>8.1} us  x{:.1}", us / ticks as f64, *n as f64 / ticks as f64);
+        }
     }
     if let Some(p) = r.profile {
         let total: f64 = p.iter().sum();

@@ -51,7 +51,9 @@ fn react_entities(@builtin(global_invocation_id) id: vec3<u32>) {
         }
         for (var k = 0u; k < n_in; k++) { amounts[e * ns + reactions[r + 2u + 2u * k]] -= extent * reactions[r + 3u + 2u * k]; }
         for (var k = 0u; k < n_out; k++) { amounts[e * ns + reactions[r + 10u + 2u * k]] += extent * reactions[r + 11u + 2u * k]; }
-        atomicAdd(&stats[gw[goff + nsg + g * SLOT + 5u]], extent);
+        let si = gw[goff + nsg + g * SLOT + 5u] * 2u;
+        let old = atomicAdd(&stats[si], extent);
+        if (old + extent < old) { atomicAdd(&stats[si + 1u], 1u); }
     }
 }
 

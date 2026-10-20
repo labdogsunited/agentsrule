@@ -8,6 +8,9 @@ use crate::pack::*;
 use crate::shader;
 use emerge_ref::World;
 
+/// Most buckets of the grouping sort (a power of two).
+const SB_MAX: usize = 131072;
+const P_SBN: usize = 56;
 const P_NBT: usize = 50;
 const P_ISX: usize = 51;
 const P_ISY: usize = 52;
@@ -63,7 +66,7 @@ pub struct Resident<'a> {
     /// Children born, entities removed, and entity-reaction extent by reaction, since the start.
     pub births: u64,
     pub deaths: u64,
-    pub extent: Vec<u64>,
+    extent0: Vec<u64>,
     /// Seconds spent in each phase (prep, set, move, transform, restructure), when `profile` is set.
     pub profile: Option<[f64; 5]>,
     params: Vec<u32>,
@@ -148,6 +151,11 @@ struct Buffers {
     sum_hi: wgpu::Buffer,
     stats: wgpu::Buffer,
     flows: wgpu::Buffer,
+    consts: wgpu::Buffer,
+    sb_in: wgpu::Buffer,
+    sb_out: wgpu::Buffer,
+    sb_blocks: wgpu::Buffer,
+    sb_cur: wgpu::Buffer,
     // sized each tick
     rec: wgpu::Buffer,
     rec_ent: wgpu::Buffer,
@@ -270,8 +278,13 @@ impl<'a> Resident<'a> {
             sortp0: gpu.storage_with(&[0u32, 0, 0, 0]),
             sum_lo: zeros((nc + cap) * ns),
             sum_hi: zeros((nc + cap) * ns),
-            stats: zeros(p.reactions.len() / RX + 1),
+            stats: zeros(2 * (p.reactions.len() / RX + 1)),
+            consts: gpu.storage_with(&(0..64u32).collect::<Vec<_>>()),
             flows: zeros(3 * ns * 2 + 2),
+            sb_in: zeros(SB_MAX + 1),
+            sb_out: zeros(SB_MAX + 1),
+            sb_blocks: zeros(SB_MAX / 256 + 2),
+            sb_cur: zeros(SB_MAX + 1),
             rec: zeros(1),
             rec_ent: zeros(1),
             rq: zeros(1),
@@ -283,7 +296,7 @@ impl<'a> Resident<'a> {
         };
         let common = format!("{}\n{}", shader::constants(), shader::contract());
         let set_m = module(gpu, &format!("{common}\n{}", include_str!("set.wgsl")), 13, &["main"]);
-        let move_m = module(gpu, &format!("{common}\n{}", include_str!("move.wgsl")), 23, &["upkeep_fees", "collect_guards", "gen_requests", "sums", "flag_over", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
+        let move_m = module(gpu, &format!("{common}\n{}\n{}", include_str!("move.wgsl"), crate::scan::kernels("sb", "params[P_SBN]", "atomicLoad(&{name}_in[i])")), 27, &["bucket_hist", "bucket_scatter", "bucket_sort", "sb_local", "sb_scan_blocks", "sb_add", "upkeep_fees", "collect_guards", "gen_requests", "sums", "flag_over", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
         let tr_m = module(gpu, &format!("{}\n{}", shader::constants(), include_str!("transform.wgsl")), 14, &["react_entities", "react_cells", "vent", "audit_totals"]);
         let rs_src = format!("{common}\n{}\n{}\n{}", include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"));
         let rs_m = module(gpu, &rs_src, 30, &["mark", "finish_scans", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
@@ -293,7 +306,7 @@ impl<'a> Resident<'a> {
         let mut_m = module(gpu, &mut_src, 9, &["mutate_children"]);
         let gc_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("gc.wgsl"), crate::scan::kernels("gm", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("gv", "params[P_N]", "{name}_in[i]"));
         let gc_m = module(gpu, &gc_src, 12, &["gc_sizes", "gc_copy", "gm_local", "gm_scan_blocks", "gm_add", "gv_local", "gv_scan_blocks", "gv_add"]);
-        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), parity: false, set_m, move_m, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
+        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent0: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), parity: false, set_m, move_m, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
     }
 
     fn write_param(&mut self, index: usize, value: u32) {
@@ -311,6 +324,13 @@ impl<'a> Resident<'a> {
 
     /// One tick, in the order of spec §7: Set, Move, Transform, Restructure.
     pub fn tick(&mut self) {
+        self.gpu.batching.set(true);
+        self.tick_batched();
+        self.gpu.flush();
+        self.gpu.batching.set(false);
+    }
+
+    fn tick_batched(&mut self) {
         let gpu = self.gpu;
         let n = self.n;
         let (ns, nc) = (self.ns, self.nc);
@@ -404,16 +424,10 @@ impl<'a> Resident<'a> {
             let pipe = |name: &str| self.tr_m.pipe(name);
             gpu.dispatch(&[(&pipe("react_entities"), &g, wg(n))]);
             for l in 0..self.params[P_NRLAWS] {
-                gpu.queue.write_buffer(&self.b.params, (P_LAWIDX * 4) as u64, bytemuck::bytes_of(&l));
+                gpu.copy_word(&self.b.consts, (l * 4) as u64, &self.b.params, (P_LAWIDX * 4) as u64);
                 gpu.dispatch(&[(&pipe("react_cells"), &g, wg(nc))]);
             }
             gpu.dispatch(&[(&pipe("vent"), &g, wg(n))]);
-            let nr = self.extent.len();
-            let stats: Vec<u32> = gpu.read(&self.b.stats, nr);
-            for (total, add) in self.extent.iter_mut().zip(stats) {
-                *total += add as u64;
-            }
-            gpu.queue.write_buffer(&self.b.stats, 0, &vec![0u8; nr * 4]);
         }
 
         lap(self, 3);
@@ -477,7 +491,7 @@ impl<'a> Resident<'a> {
         let b = &self.b;
         self.gpu.group(
             &self.move_m.bgl,
-            &[&b.params, &b.ent, &b.epos, &b.amounts, &b.camt, &b.ccap, &b.rec, &b.rec_ent, &b.laws, &b.sinkacc, &b.nbr, &b.dying, &b.guards, &b.rq, &b.sum_lo, &b.sum_hi, &b.list, &b.counters, &b.gw, &b.ecap, &b.scr, sortp, &b.flows],
+            &[&b.params, &b.ent, &b.epos, &b.amounts, &b.camt, &b.ccap, &b.rec, &b.rec_ent, &b.laws, &b.sinkacc, &b.nbr, &b.dying, &b.guards, &b.rq, &b.sum_lo, &b.sum_hi, &b.list, &b.counters, &b.gw, &b.ecap, &b.scr, sortp, &b.flows, &b.sb_in, &b.sb_out, &b.sb_blocks, &b.sb_cur],
         )
     }
 
@@ -509,8 +523,7 @@ impl<'a> Resident<'a> {
         lap("upkeep+guards+gen");
         for stage in 0..2u32 {
             if stage == 1 {
-                gpu.queue.write_buffer(&self.b.params, (P_STAGE * 4) as u64, bytemuck::bytes_of(&1u32));
-                gpu.dispatch(&[(self.move_m.pipe("init_stage2"), &group, wg(r))]);
+                gpu.copy_word(&self.b.consts, 4, &self.b.params, (P_STAGE * 4) as u64);
                 gpu.clear(&self.b.sum_lo);
                 gpu.clear(&self.b.sum_hi);
                 gpu.clear(&self.b.counters);
@@ -519,10 +532,21 @@ impl<'a> Resident<'a> {
             let m = gpu.read::<u32>(&self.b.counters, 4)[0] as usize;
             lap(if stage == 0 { "stage1 sums" } else { "stage2 sums" });
             if m > 0 {
-                self.sort_groups(0, m.next_power_of_two().max(2));
-                let mut steps = self.sort_steps(0, m, &self.move_m);
-                steps.push((self.move_m.pipe("share"), &group, wg(m)));
-                gpu.dispatch(&steps);
+                // Group the oversubscribed requests (see `bucket_sort` in move.wgsl).
+                let buckets = (m / 32).next_power_of_two().clamp(1, SB_MAX);
+                self.write_param(P_SBN, buckets as u32);
+                gpu.clear(&self.b.sb_in);
+                gpu.clear(&self.b.sb_cur);
+                let mv = &self.move_m;
+                gpu.dispatch(&[
+                    (mv.pipe("bucket_hist"), &group, wg(m)),
+                    (mv.pipe("sb_local"), &group, (buckets as u32).div_ceil(256)),
+                    (mv.pipe("sb_scan_blocks"), &group, 1),
+                    (mv.pipe("sb_add"), &group, (buckets as u32).div_ceil(256)),
+                    (mv.pipe("bucket_scatter"), &group, wg(m)),
+                    (mv.pipe("bucket_sort"), &group, buckets as u32),
+                    (mv.pipe("share"), &group, wg(m)),
+                ]);
                 lap(if stage == 0 { "stage1 sort+share" } else { "stage2 sort+share" });
             }
         }
@@ -578,7 +602,7 @@ impl<'a> Resident<'a> {
         let wg = |count: usize| (count.max(1) as u32).div_ceil(64);
         let wg256 = (n.max(1) as u32).div_ceil(256);
         let group = self.rs_group(&self.b.sortp0);
-        gpu.queue.write_buffer(&self.b.counters, 0, &[0u8; 16]);
+        gpu.clear(&self.b.counters);
         {
             let m = &self.rs_m;
             let mut steps = vec![(m.pipe("mark"), &group, wg(n))];
@@ -608,6 +632,8 @@ impl<'a> Resident<'a> {
             if self.tick % 8 != 0 {
                 // The pools are checked every eighth tick (a read-back is a wait).
             } else {
+            let errors: Vec<u32> = gpu.read_at(&self.b.flows, 3 * self.ns * 2, 1);
+            assert_eq!(errors[0], 0, "a bucket of the request grouping sort overflowed its tile");
             let tops: Vec<u32> = gpu.read(&self.b.pool, 2);
             assert!((tops[0] as usize) < self.pool_words - 4096 && (tops[1] as usize) < self.pool_words - 4096, "the genome pools are full ({} and {} of {} words)", tops[0], tops[1], self.pool_words);
             assert!(self.live_after_gc < self.pool_words / 2, "the live genomes fill half of the pools ({} of {} words): raise EMERGE_GPU_POOL_WORDS", self.live_after_gc, self.pool_words);
@@ -687,6 +713,12 @@ impl<'a> Resident<'a> {
         a.ticks += 1;
         a.drifted += u64::from(bad);
         self.gpu.clear(&self.b.flows);
+    }
+
+    /// Entity-reaction extent by reaction since the world began (waits for the GPU).
+    pub fn extent(&self) -> Vec<u64> {
+        let w: Vec<u32> = self.gpu.read(&self.b.stats, 2 * self.extent0.len());
+        self.extent0.iter().enumerate().map(|(r, e)| e + (w[2 * r] as u64 | (w[2 * r + 1] as u64) << 32)).collect()
     }
 
     pub fn pool_tops(&self) -> (u32, u32) {
