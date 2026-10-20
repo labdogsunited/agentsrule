@@ -78,7 +78,7 @@ self true false and or not
 **Contextual keywords** are words that only have a special meaning in a particular position, such as the start of a declaration or statement. Everywhere else they are ordinary identifiers, so they can be argument names (`to:`, `where:`), config keys (`genes:`, `senses:`) or path segments (`Dish.rules`):
 
 ```
-world lineage ruleset view chart explore patch
+world lineage extends ruleset view chart explore patch
 element substance potential reaction field holds signal combine source sink waste
 senses sense actions action cost per requires
 rule on let when else for in genesis

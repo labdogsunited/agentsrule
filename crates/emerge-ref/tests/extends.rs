@@ -32,3 +32,13 @@ fn an_extended_lineage_runs_exactly_as_the_one_written_out() {
     assert!(a.len() > 100, "the run should keep a population");
     assert_eq!(a, b);
 }
+
+#[test]
+fn build_expands_too_for_callers_that_parse_the_file_themselves() {
+    // `emerge check` parses the file and calls `build` on the tree.
+    let file = emerge_lang::parse(&with_extends()).unwrap();
+    let options = Options { seed: 3, allow_partial: true, mutation: true };
+    let w = emerge_ref::compile::build(&file, &["Builder"], options).unwrap().world;
+    let w2 = compile(DISH, &["Builder"], options).unwrap().world;
+    assert_eq!(format!("{:?}", w.entities[0].genome), format!("{:?}", w2.entities[0].genome));
+}

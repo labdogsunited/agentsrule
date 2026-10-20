@@ -84,8 +84,6 @@ impl Default for Options {
 /// Parses and checks `src`, then builds its world seeded with `lineages`, in that order.
 pub fn compile(src: &str, lineages: &[&str], options: Options) -> Result<Compiled, Error> {
     let file = emerge_lang::parse(src).map_err(|d| Error { code: d.code, pos: Pos { line: d.line, col: d.col }, path: String::new(), message: d.message })?;
-    // Lineages that `extends` another are built in full.
-    let file = emerge_lang::expand(&file).map_err(|p| Error { code: p.code, pos: p.pos, path: p.path, message: p.message })?;
     if let Some(p) = emerge_lang::check::check(&file).into_iter().next() {
         return Err(Error { code: p.code, pos: p.pos, path: p.path, message: p.message });
     }
@@ -102,6 +100,8 @@ pub fn lineage_names(file: &ast::File) -> Vec<&str> {
 
 /// Builds the world of a parsed file whose chemistry `emerge_lang::check` has accepted.
 pub fn build(file: &ast::File, lineages: &[&str], options: Options) -> Result<Compiled, Error> {
+    // Lineages that `extends` another are built in full.
+    let file = &emerge_lang::expand(file).map_err(|p| Error { code: p.code, pos: p.pos, path: p.path, message: p.message })?;
     let at = Cell::new(Pos::default());
     build_at(file, lineages, options, &at).map_err(|mut e| {
         if e.pos.line == 0 {

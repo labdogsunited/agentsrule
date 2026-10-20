@@ -1,5 +1,5 @@
 //! `lineage B extends A in W { ... }`: the full lineage, worked out before checking
-//! (`language.md` §9). `format` never calls this, so `fmt` keeps the `extends` form.
+//! (`language.md` §8.1). `format` never calls this, so `fmt` keeps the `extends` form.
 //!
 //! `B` starts as a copy of `A` (one level only; `A` must not extend anything and must
 //! be in the same world). Each part of `B` then merges into it:
