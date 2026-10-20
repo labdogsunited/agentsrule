@@ -100,11 +100,13 @@ pub struct Draws {
     pub next: u64,
     /// Contract mode: `normal` is a sum of twelve uniform draws (`contract.rs`).
     pub contract: bool,
+    /// Debugging: draws consumed after each gene's point mutation.
+    pub trace: Option<Vec<u64>>,
 }
 
 impl Draws {
     pub fn new(stream: Stream) -> Self {
-        Draws { stream, next: 0, contract: false }
+        Draws { stream, next: 0, contract: false, trace: None }
     }
 
     /// Uniform in `[0, 1)`.
@@ -117,6 +119,23 @@ impl Draws {
     /// `a·b + c`: fused in contract mode, where a GPU compiler may fuse it on its own.
     pub fn mad(&self, a: f32, b: f32, c: f32) -> f32 {
         if self.contract { crate::contract::fma(a, b, c) } else { a * b + c }
+    }
+
+    /// `x.round()`, or in contract mode `floor(x + 0.5)` (WGSL rounds halves to even; the
+    /// values rounded here are never negative).
+    pub fn round(&self, x: f32) -> f32 {
+        if self.contract { (x + 0.5).floor() } else { x.round() }
+    }
+
+    /// `(a·b).round()`: in contract mode `floor(a·b + 0.5)` with the product fused into the sum.
+    pub fn round_prod(&self, a: f32, b: f32) -> f32 {
+        if self.contract { a.mul_add(b, 0.5).floor() } else { (a * b).round() }
+    }
+
+    /// Basis points as a fraction: a division by `10_000`, or in contract mode a product with the
+    /// rounded reciprocal (a GPU's division is not exact).
+    pub fn from_bp(&self, bp: u32) -> f32 {
+        if self.contract { bp as f32 * 0.0001 } else { bp as f32 / 10_000.0 }
     }
 
     pub fn chance(&mut self, p: f32) -> bool {
@@ -205,7 +224,8 @@ fn perturb(d: &mut Draws, x: f32, (lo, hi): (f32, f32), sigma: f32) -> f32 {
 }
 
 fn perturb_mu(d: &mut Draws, x: Mu, range: (f32, f32), sigma: f32) -> Mu {
-    perturb(d, x as f32, range, sigma).round() as Mu
+    let v = perturb(d, x as f32, range, sigma);
+    d.round(v) as Mu
 }
 
 fn pick<T: Copy>(d: &mut Draws, xs: &[T]) -> Option<T> {
@@ -253,12 +273,16 @@ fn point(d: &mut Draws, g: &mut Gene, menus: &Menus, sigma: f32) {
                 }
             }
             Sense::Neighbour { s, rank } => match (menus.neighbour, d.chance(0.5)) {
-                (Some(r), true) => *rank = perturb(d, *rank as f32, r, sigma).round() as u32,
+                (Some(r), true) => {
+                    let v = perturb(d, *rank as f32, r, sigma);
+                    *rank = d.round(v) as u32
+                }
                 _ => *s = pick(d, &menus.substances).unwrap_or(*s),
             },
             Sense::Clock { period } => {
                 if let Some(r) = menus.clock {
-                    *period = perturb(d, *period as f32, r, sigma).round().max(1.0) as u32;
+                    let v = perturb(d, *period as f32, r, sigma);
+                    *period = d.round(v).max(1.0) as u32;
                 }
             }
         },
@@ -299,8 +323,9 @@ fn point(d: &mut Draws, g: &mut Gene, menus: &Menus, sigma: f32) {
         }
         Gene::Divide { split_bp, threshold: t, .. } => match (&menus.divide, d.chance(0.5)) {
             (Some((m, _)), true) => {
-                let split = perturb(d, *split_bp as f32 / 10_000.0, m.range, sigma);
-                *split_bp = (split * 10_000.0).round() as u32;
+                let from = d.from_bp(*split_bp);
+                let split = perturb(d, from, m.range, sigma);
+                *split_bp = d.round_prod(split, 10_000.0) as u32;
             }
             _ => threshold(d, t),
         },
@@ -390,7 +415,8 @@ fn random_gene(d: &mut Draws, m: &mut Modules, menus: &Menus, cap: &Capacity) ->
         3 => Gene::Product { a: d.below(existing), b: d.below(existing), out: m.fresh(cap)? },
         4 => {
             let (reaction, max) = pick(d, &menus.reactions)?;
-            Gene::React { reaction, rate: (d.unit() * max as f32).round() as Mu, speed: ONE }
+            let u = d.unit();
+            Gene::React { reaction, rate: d.round_prod(u, max as f32) as Mu, speed: ONE }
         }
         5 => {
             let a = menus.moves.clone()?;
@@ -403,16 +429,19 @@ fn random_gene(d: &mut Draws, m: &mut Modules, menus: &Menus, cap: &Capacity) ->
         7 => {
             let a = menus.take.clone()?;
             let s = pick(d, &a.substances)?;
-            Gene::Take { s, max: uniform(d, a.range).round() as Mu, fee: a.fee, src: ONE, threshold: 0.0 }
+            let v = uniform(d, a.range);
+            Gene::Take { s, max: d.round(v) as Mu, fee: a.fee, src: ONE, threshold: 0.0 }
         }
         8 => {
             let a = menus.drop.clone()?;
             let s = pick(d, &a.substances)?;
-            Gene::Drop { s, max: uniform(d, a.range).round() as Mu, fee: a.fee, src: ONE, threshold: 0.0 }
+            let v = uniform(d, a.range);
+            Gene::Drop { s, max: d.round(v) as Mu, fee: a.fee, src: ONE, threshold: 0.0 }
         }
         9 => {
             let (a, requires) = menus.divide.clone()?;
-            let split_bp = (uniform(d, a.range) * 10_000.0).round() as u32;
+            let v = uniform(d, a.range);
+            let split_bp = d.round_prod(v, 10_000.0) as u32;
             Gene::Divide { split_bp, requires, fee: a.fee, src: ONE, threshold: 0.0 }
         }
         10 => {
@@ -438,7 +467,8 @@ fn random_gene(d: &mut Draws, m: &mut Modules, menus: &Menus, cap: &Capacity) ->
         _ => {
             let a = if k == 14 { menus.give.clone()? } else { menus.steal.clone()? };
             let s = pick(d, &a.substances)?;
-            let max = uniform(d, a.range).round() as Mu;
+            let v = uniform(d, a.range);
+            let max = d.round(v) as Mu;
             if k == 14 {
                 Gene::Give { s, max, fee: a.fee, src: ONE, threshold: 0.0 }
             } else {
@@ -488,6 +518,9 @@ pub fn mutate(parent: &Genome, rates: &Rates, cap: &Capacity, menus: &Menus, d: 
             if d.chance(rates.rate) {
                 point(d, g, menus, sigma);
             }
+            if let Some(t) = &mut d.trace {
+                t.push(d.next);
+            }
         }
     }
     for k in &mut m.keep {
@@ -495,6 +528,7 @@ pub fn mutate(parent: &Genome, rates: &Rates, cap: &Capacity, menus: &Menus, d: 
             *k = perturb(d, *k, (0.0, 1.0), sigma);
         }
     }
+    if let Some(t) = &mut d.trace { t.push(500_000 + d.next); }
     for (e, genes) in &mut m.modules {
         for (_, ge) in genes.iter_mut() {
             if d.chance(rates.expression_flip) {
@@ -506,6 +540,7 @@ pub fn mutate(parent: &Genome, rates: &Rates, cap: &Capacity, menus: &Menus, d: 
         }
     }
 
+    if let Some(t) = &mut d.trace { t.push(1_000_000 + d.next); }
     // 2. Wiring: rewire one input, or point one output at a fresh signal.
     for mi in 0..m.modules.len() {
         for gi in 0..m.modules[mi].1.len() {
@@ -554,6 +589,7 @@ pub fn mutate(parent: &Genome, rates: &Rates, cap: &Capacity, menus: &Menus, d: 
         }
     }
 
+    if let Some(t) = &mut d.trace { t.push(2_000_000 + d.next); }
     // 3. Growth, gene by gene and then module by module. New material starts dormant.
     for mi in 0..m.modules.len() {
         let mut gi = 0;
@@ -576,6 +612,7 @@ pub fn mutate(parent: &Genome, rates: &Rates, cap: &Capacity, menus: &Menus, d: 
             gi += 1;
         }
     }
+    if let Some(t) = &mut d.trace { t.push(3_000_000 + d.next); }
     let mut mi = 0;
     while mi < m.modules.len() {
         if d.chance(rates.duplicate_module) && m.modules.len() < cap.modules && m.genes() + m.modules[mi].1.len() <= cap.genes {

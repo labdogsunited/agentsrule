@@ -1,17 +1,17 @@
 // Set phase (spec §7.1) in contract mode, one thread per entity: senses, the mind, intents.
 // CONSTANTS and CONTRACT are inserted before this text.
 
-@group(0) @binding(0) var<storage, read> params: array<u32>;
-@group(0) @binding(1) var<storage, read> ent: array<u32>;
-@group(0) @binding(2) var<storage, read> epos: array<f32>;
-@group(0) @binding(3) var<storage, read> amounts: array<u32>;
-@group(0) @binding(4) var<storage, read> prev: array<u32>;
-@group(0) @binding(5) var<storage, read> gw: array<u32>;
+@group(0) @binding(0) var<storage, read_write> params: array<u32>;
+@group(0) @binding(1) var<storage, read_write> ent: array<u32>;
+@group(0) @binding(2) var<storage, read_write> epos: array<f32>;
+@group(0) @binding(3) var<storage, read_write> amounts: array<u32>;
+@group(0) @binding(4) var<storage, read_write> prev: array<u32>;
+@group(0) @binding(5) var<storage, read_write> gw: array<u32>;
 @group(0) @binding(6) var<storage, read_write> sig: array<f32>;
-@group(0) @binding(7) var<storage, read> camt: array<u32>;
-@group(0) @binding(8) var<storage, read> ccap: array<u32>;
-@group(0) @binding(9) var<storage, read> nstart: array<u32>;
-@group(0) @binding(10) var<storage, read> norder: array<u32>;
+@group(0) @binding(7) var<storage, read_write> camt: array<u32>;
+@group(0) @binding(8) var<storage, read_write> ccap: array<u32>;
+@group(0) @binding(9) var<storage, read_write> nstart: array<u32>;
+@group(0) @binding(10) var<storage, read_write> norder: array<u32>;
 @group(0) @binding(11) var<storage, read_write> rec: array<u32>;
 @group(0) @binding(12) var<storage, read_write> prev_out: array<u32>;
 
@@ -169,7 +169,8 @@ fn read_sense(e: u32, w: u32, cell: u32) -> vec2<f32> {
         }
         case SENSE_CLOCK: {
             let period = gw[w + 6u];
-            let phase = f32c(params[P_TICK] % period) * bitcast<f32>(gw[w + 4u]);
+            let p24 = u32((u64(params[P_TICK] % period) << 24u) / u64(period));
+            let phase = f32c(p24) * bitcast<f32>(0x33800000u);
             r.x = sincos(TAU_C() * phase).x;
         }
         default: {}

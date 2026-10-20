@@ -79,7 +79,13 @@ impl Gpu {
 
     /// Copies a buffer to the host.
     pub fn read<T: bytemuck::Pod>(&self, buf: &wgpu::Buffer, count: usize) -> Vec<T> {
-        let bytes = (count * std::mem::size_of::<T>()) as u64;
+        self.read_at(buf, 0, count)
+    }
+
+    /// Copies `count` elements starting at element `first` to the host.
+    pub fn read_at<T: bytemuck::Pod>(&self, buf: &wgpu::Buffer, first: usize, count: usize) -> Vec<T> {
+        let size = std::mem::size_of::<T>();
+        let (offset, bytes) = ((first * size) as u64, (count * size) as u64);
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: bytes,
@@ -87,7 +93,7 @@ impl Gpu {
             mapped_at_creation: false,
         });
         let mut enc = self.device.create_command_encoder(&Default::default());
-        enc.copy_buffer_to_buffer(buf, 0, &staging, 0, bytes);
+        enc.copy_buffer_to_buffer(buf, offset, &staging, 0, bytes);
         self.queue.submit([enc.finish()]);
         let (tx, rx) = std::sync::mpsc::channel();
         staging.slice(..).map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
@@ -204,7 +210,7 @@ impl Gpu {
         self.device.create_bind_group(&wgpu::BindGroupDescriptor { label: None, layout: bgl, entries: &entries })
     }
 
-    /// Runs the dispatches in order, in one submission, and waits.
+    /// Runs the dispatches in order, in one submission. It does not wait: a `read` after it does.
     pub fn dispatch(&self, steps: &[(&wgpu::ComputePipeline, &wgpu::BindGroup, u32)]) {
         let mut enc = self.device.create_command_encoder(&Default::default());
         for (pipeline, group, groups) in steps {
@@ -213,7 +219,12 @@ impl Gpu {
             pass.set_bind_group(0, *group, &[]);
             pass.dispatch_workgroups(*groups, 1, 1);
         }
+        // No wait: a later `read` is queued behind this work.
         self.queue.submit([enc.finish()]);
+    }
+
+    /// Waits for all submitted work.
+    pub fn sync(&self) {
         self.device.poll(wgpu::PollType::wait_indefinitely()).expect("poll");
     }
 }

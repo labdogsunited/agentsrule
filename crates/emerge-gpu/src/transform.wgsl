@@ -12,6 +12,7 @@
 @group(0) @binding(9) var<storage, read_write> reactions: array<u32>;
 @group(0) @binding(10) var<storage, read_write> rlaws: array<u32>;
 @group(0) @binding(11) var<storage, read_write> waste: array<u32>;
+@group(0) @binding(12) var<storage, read_write> stats: array<atomic<u32>>;   // entity-reaction extent by reaction
 
 const RX = 20u;
 const P_NWASTE = 38u;
@@ -42,6 +43,7 @@ fn react_entities(@builtin(global_invocation_id) id: vec3<u32>) {
         }
         for (var k = 0u; k < n_in; k++) { amounts[e * ns + reactions[r + 2u + 2u * k]] -= extent * reactions[r + 3u + 2u * k]; }
         for (var k = 0u; k < n_out; k++) { amounts[e * ns + reactions[r + 10u + 2u * k]] += extent * reactions[r + 11u + 2u * k]; }
+        atomicAdd(&stats[gw[goff + nsg + g * SLOT + 5u]], extent);
     }
 }
 

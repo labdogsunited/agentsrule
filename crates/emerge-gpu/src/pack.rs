@@ -14,9 +14,10 @@ use emerge_ref::mind::{Curve, Gene, Input, Sense};
 use emerge_ref::World;
 
 pub const ENT: usize = 12;
-pub const SLOT: usize = 16;
+pub const SLOT: usize = 18;
 pub const NSIG: usize = 32;
 pub const MAXG: usize = 48;
+/// Words of a slot: the gene's own (0 to 15), then the module and expression bit in a master genome.
 pub const NONE: u32 = u32::MAX;
 /// Records per active gene in the Set output.
 pub const REC: usize = 8;
@@ -78,6 +79,7 @@ pub const P_NLAWS: usize = 33;
 pub const P_R0: usize = 34;
 pub const P_RTOT: usize = 35;
 pub const P_NSINK: usize = 36;
+pub const P_LAWTOT: usize = 39;
 pub const P_NRLAWS: usize = 37;
 pub const P_NWASTE: usize = 38;
 pub const P_STAGE: usize = 48;
@@ -167,8 +169,7 @@ fn slot(g: usize, gene: &Gene) -> [u32; SLOT] {
                 }
                 Sense::Crowd { radius } => (w[0], w[4]) = (SENSE_CROWD, radius.to_bits()),
                 Sense::Neighbour { s, rank } => (w[0], w[5], w[6]) = (SENSE_NEIGHBOUR, s as u32, rank),
-                // The reciprocal is computed here, once: the GPU never divides.
-                Sense::Clock { period } => (w[0], w[4], w[6]) = (SENSE_CLOCK, (1.0 / period as f32).to_bits(), period),
+                Sense::Clock { period } => (w[0], w[6]) = (SENSE_CLOCK, period),
             }
         }
         Gene::Weigh { bias, curve, ref inputs, out } => {
@@ -359,7 +360,7 @@ pub fn pack_move(world: &World, p: &mut Packed) {
     set(p, P_NSINK, world.sinks.len() as u32);
     // Request slots: one per record, then each law's range (cells × width), in law order.
     let r0 = p.records as u32;
-    let mut off = r0;
+    let mut off = 0u32;
     p.laws.clear();
     let mut nlaws = 0;
     for law in &world.laws {
@@ -392,7 +393,8 @@ pub fn pack_move(world: &World, p: &mut Packed) {
     }
     set(p, P_NLAWS, nlaws);
     set(p, P_R0, r0);
-    set(p, P_RTOT, off);
+    set(p, P_RTOT, r0 + off);
+    set(p, P_LAWTOT, off);
     p.sinkacc.clear();
     for sink in &world.sinks {
         for s in 0..ns {
@@ -447,4 +449,171 @@ pub fn pack_restructure(world: &World, p: &mut Packed) {
     p.params[P_NEXTID_HI] = (world.next_id >> 32) as u32;
     p.params[P_DECOMP] = world.decompose.map_or(NONE, |r| r as u32);
     p.params[P_CHILDOFF] = space.child_offset.to_bits();
+}
+
+// ---------- mutation (milestone M4) ----------
+
+/// Words before the keep values in a master genome: counts and the module expression bits.
+pub const MASTER_HDR: usize = 20;
+/// Words of one lineage's mutation rates and capacity.
+pub const RATES: usize = 16;
+pub const MAXMOD: usize = 16;
+
+// The menu table (see `pack_menus`).
+pub const MN_SUBS: usize = 0; // count, then up to 16
+pub const MN_FIELD: usize = 17;
+pub const MN_FLAGS: usize = 34;
+pub const MN_PROBE: usize = 35; // angle lo, hi, dist lo, hi
+pub const MN_CROWD: usize = 39;
+pub const MN_NEIGH: usize = 41;
+pub const MN_CLOCK: usize = 43;
+pub const MN_WEIGH: usize = 45; // bias lo, hi, weight lo, hi, inputs min, max, n curves, curves[4]
+pub const MN_ACT: usize = 56; // eight menus of ACTW words: range lo, hi, fee, n substances, up to 16
+pub const ACTW: usize = 21;
+pub const MN_DIV_REQ: usize = 224; // substance, amount (after the eight action menus)
+pub const MN_KEEP: usize = 226; // 0.0, 1.0: the range of a keep value
+pub const MN_REACT: usize = 228; // count, then (reaction, max) pairs
+// Flag bits in MN_FLAGS.
+pub const F_INVENTORY: u32 = 1 << 0;
+pub const F_DELTA: u32 = 1 << 1;
+pub const F_GRADIENT: u32 = 1 << 2;
+pub const F_PRODUCT: u32 = 1 << 3;
+pub const F_PROBE: u32 = 1 << 4;
+pub const F_CROWD: u32 = 1 << 5;
+pub const F_NEIGH: u32 = 1 << 6;
+pub const F_CLOCK: u32 = 1 << 7;
+pub const F_WEIGH: u32 = 1 << 8;
+// Action menus, in this order from MN_ACT: move, turn, take, drop, give, steal, guard, divide.
+pub const A_MOVE: usize = 0;
+pub const A_TURN: usize = 1;
+pub const A_TAKE: usize = 2;
+pub const A_DROP: usize = 3;
+pub const A_GIVE: usize = 4;
+pub const A_STEAL: usize = 5;
+pub const A_GUARD: usize = 6;
+pub const A_DIVIDE: usize = 7;
+pub const ACTION_PRESENT: usize = 20; // word of an action menu: 1 if the menu exists
+
+/// The master words of a genome: every slot (active or not) in module order, with each slot's
+/// module and expression bit, the module expression bits and the keep values.
+pub fn master_words(g: &emerge_ref::Genome) -> Vec<u32> {
+    assert!(g.modules.len() <= MAXMOD && g.keep.len() <= NSIG && g.slots.len() <= MAXG);
+    let mut w = vec![0u32; MASTER_HDR];
+    w[0] = g.slots.len() as u32;
+    w[1] = g.modules.len() as u32;
+    w[2] = g.keep.len() as u32;
+    for (m, &e) in g.modules.iter().enumerate() {
+        w[4 + m] = u32::from(e);
+    }
+    w.extend(g.keep.iter().map(|k| k.to_bits()));
+    for s in &g.slots {
+        let mut sw = slot(0, &s.gene);
+        sw[16] = s.module as u32;
+        sw[17] = u32::from(s.expressed);
+        w.extend_from_slice(&sw);
+    }
+    w
+}
+
+/// The view words of a genome (what the Set, Move and Transform kernels read): the keep values and
+/// the active genes only, with each gene's index in the full list.
+pub fn view_words(g: &emerge_ref::Genome) -> Vec<u32> {
+    let mut w: Vec<u32> = g.keep.iter().map(|k| k.to_bits()).collect();
+    for k in (0..g.slots.len()).filter(|&k| g.active(k)) {
+        w.extend_from_slice(&slot(k, &g.slots[k].gene));
+    }
+    w
+}
+
+fn action_menu(t: &mut [u32], a: Option<&emerge_ref::mutate::ActionMenu>) {
+    if let Some(a) = a {
+        assert!(a.substances.len() <= 16);
+        t[0] = a.range.0.to_bits();
+        t[1] = a.range.1.to_bits();
+        t[2] = a.fee;
+        t[3] = a.substances.len() as u32;
+        for (k, &s) in a.substances.iter().enumerate() {
+            t[4 + k] = s as u32;
+        }
+        t[ACTION_PRESENT] = 1;
+    }
+}
+
+/// The world's menus as a flat table, and each lineage's rates and capacity.
+pub fn pack_menus(world: &World) -> (Vec<u32>, Vec<u32>) {
+    let m = &world.menus;
+    let mut t = vec![0u32; MN_REACT + 1 + 2 * m.reactions.len() + 2];
+    let list = |t: &mut [u32], base: usize, xs: &[usize]| {
+        assert!(xs.len() <= 16);
+        t[base] = xs.len() as u32;
+        for (k, &x) in xs.iter().enumerate() {
+            t[base + 1 + k] = x as u32;
+        }
+    };
+    list(&mut t, MN_SUBS, &m.substances);
+    list(&mut t, MN_FIELD, &m.field);
+    let mut flags = 0u32;
+    for (on, f) in [
+        (m.inventory, F_INVENTORY), (m.delta, F_DELTA), (m.gradient, F_GRADIENT), (m.product, F_PRODUCT), (m.probe.is_some(), F_PROBE),
+        (m.crowd.is_some(), F_CROWD), (m.neighbour.is_some(), F_NEIGH), (m.clock.is_some(), F_CLOCK), (m.weigh.is_some(), F_WEIGH),
+    ] {
+        if on {
+            flags |= f;
+        }
+    }
+    t[MN_FLAGS] = flags;
+    let range = |t: &mut [u32], at: usize, r: (f32, f32)| {
+        t[at] = r.0.to_bits();
+        t[at + 1] = r.1.to_bits();
+    };
+    if let Some((a, d)) = m.probe {
+        range(&mut t, MN_PROBE, a);
+        range(&mut t, MN_PROBE + 2, d);
+    }
+    if let Some(r) = m.crowd { range(&mut t, MN_CROWD, r); }
+    if let Some(r) = m.neighbour { range(&mut t, MN_NEIGH, r); }
+    if let Some(r) = m.clock { range(&mut t, MN_CLOCK, r); }
+    if let Some(w) = &m.weigh {
+        range(&mut t, MN_WEIGH, w.bias);
+        range(&mut t, MN_WEIGH + 2, w.weight);
+        t[MN_WEIGH + 4] = w.inputs.0 as u32;
+        t[MN_WEIGH + 5] = w.inputs.1 as u32;
+        assert!(w.curves.len() <= 4);
+        t[MN_WEIGH + 6] = w.curves.len() as u32;
+        for (k, c) in w.curves.iter().enumerate() {
+            t[MN_WEIGH + 7 + k] = match c {
+                Curve::Linear => 0,
+                Curve::Step => 1,
+                Curve::Sigmoid => 2,
+                Curve::Tanh => 3,
+            };
+        }
+    }
+    let acts = [m.moves.as_ref(), m.turn.as_ref(), m.take.as_ref(), m.drop.as_ref(), m.give.as_ref(), m.steal.as_ref(), m.guard.as_ref(), m.divide.as_ref().map(|d| &d.0)];
+    for (i, a) in acts.into_iter().enumerate() {
+        action_menu(&mut t[MN_ACT + i * ACTW..MN_ACT + (i + 1) * ACTW], a);
+    }
+    if let Some((_, (s, amount))) = &m.divide {
+        t[MN_DIV_REQ] = *s as u32;
+        t[MN_DIV_REQ + 1] = *amount;
+    }
+    t[MN_KEEP] = 0.0f32.to_bits();
+    t[MN_KEEP + 1] = 1.0f32.to_bits();
+    t[MN_REACT] = m.reactions.len() as u32;
+    for (k, &(r, max)) in m.reactions.iter().enumerate() {
+        t[MN_REACT + 1 + 2 * k] = r as u32;
+        t[MN_REACT + 2 + 2 * k] = max;
+    }
+    let mut rates = Vec::new();
+    for v in &world.variation {
+        let mut w = [0u32; RATES];
+        if let (Some((r, cap)), true) = (v, world.mutation) {
+            for (k, x) in [r.rate, r.param_sigma, r.expression_flip, r.rewire, r.diverge, r.duplicate_gene, r.insert_gene, r.delete_gene, r.duplicate_module, r.delete_module, r.split_module, r.merge_modules].into_iter().enumerate() {
+                w[k] = x.to_bits();
+            }
+            (w[12], w[13], w[14], w[15]) = (cap.genes as u32, cap.signals as u32, cap.modules as u32, 1);
+        }
+        rates.extend_from_slice(&w);
+    }
+    (t, rates)
 }

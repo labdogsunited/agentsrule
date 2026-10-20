@@ -1291,8 +1291,9 @@ impl World {
             }
             Sense::Clock { period } => {
                 if self.contract {
-                    // No division: the reciprocal of the period is one rounded value.
-                    let phase = (self.tick % period as u64) as f32 * (1.0 / period as f32);
+                    // No division of floats: the phase is an integer fraction of 2^24.
+                    let p24 = (((self.tick % period as u64) << 24) / period as u64) as u32;
+                    let phase = p24 as f32 * (1.0 / 16_777_216.0);
                     return [crate::contract::sincos(std::f32::consts::TAU * phase).0, 0.0];
                 }
                 let phase = (self.tick % period as u64) as f32 / period as f32;
