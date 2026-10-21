@@ -943,6 +943,23 @@ impl<'a> Resident<'a> {
         (t[0], t[1])
     }
 
+    /// The entity table, positions and amounts, without the pools: what a listing of creatures needs.
+    pub fn entity_table(&self) -> (Vec<u32>, Vec<f32>, Vec<u32>) {
+        let (n, ns, g) = (self.n, self.ns, self.gpu);
+        (g.read(&self.b.ent, n * ENT), g.read(&self.b.epos, n * 4), g.read(&self.b.amounts, n * ns))
+    }
+
+    /// A living entity's lineage, age and genome, decoded from the master pool (`pack::decode_master`);
+    /// `None` if no entity has that ID. Reads the entity table and one genome, not the pools.
+    pub fn genome_of(&self, id: u64) -> Option<(usize, u64, emerge_ref::Genome)> {
+        let ent: Vec<u32> = self.gpu.read(&self.b.ent, self.n * ENT);
+        let row = ent.chunks(ENT).find(|e| u64::from(e[0]) | (u64::from(e[1]) << 32) == id)?;
+        let off = row[12] as usize;
+        let header: Vec<u32> = self.gpu.read_at(&self.b.mw, off, crate::pack::MASTER_HDR);
+        let words: Vec<u32> = self.gpu.read_at(&self.b.mw, off, crate::pack::master_len(&header));
+        Some((row[11] as usize, u64::from(row[10]), crate::pack::decode_master(&words, 0)))
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         let (n, ns) = (self.n, self.ns);
         let g = self.gpu;

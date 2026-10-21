@@ -356,48 +356,88 @@ impl Run {
         f
     }
 
-    /// The genome of entity `id` in plain language (spec §12.1 `explain`). The CPU runner only:
-    /// the GPU keeps genomes as packed words, which are not decoded back yet.
-    pub fn explain(&self, id: u64) -> Result<String, String> {
-        if let Backend::Gpu(_) = self.backend {
-            return Err("genome.explain needs the CPU backend for now (GPU genomes are not decoded back yet)".into());
+    /// A living entity's lineage, age and genome. On the GPU the genome is decoded from the master
+    /// pool (`emerge_gpu::pack::decode_master`), and equals the CPU's in contract mode.
+    fn genome_of(&self, id: u64) -> Result<(usize, u64, emerge_ref::Genome), String> {
+        match &self.backend {
+            Backend::Cpu => {
+                let e = self.live.world.entities.iter().find(|e| e.id == id).ok_or_else(|| format!("no living entity {id}"))?;
+                Ok((e.lineage, e.age, e.genome.clone()))
+            }
+            Backend::Gpu(r) => r.genome_of(id).ok_or_else(|| format!("no living entity {id}")),
         }
-        let w = &self.live.world;
-        let e = w.entities.iter().find(|e| e.id == id).ok_or_else(|| format!("no living entity {id}"))?;
+    }
+
+    /// The genome of entity `id` in plain language (spec §12.1 `explain`).
+    pub fn explain(&self, id: u64) -> Result<String, String> {
+        let (lineage, age, genome) = self.genome_of(id)?;
         let field = self.live.field.as_deref().unwrap_or("cells");
-        Ok(format!("entity {id}, lineage {}, age {}:\n{}", self.spec.lineages[e.lineage], e.age, emerge_ref::print::explain(w, &e.genome, field)))
+        Ok(format!("entity {id}, lineage {}, age {age}:\n{}", self.spec.lineages[lineage], emerge_ref::print::explain(&self.live.world, &genome, field)))
     }
 
     /// A living entity's genome as boxes and signals (`proposals/node-editor.md` N5): its lineage and
-    /// age, and the graph. CPU only, like `explain`.
+    /// age, and the graph.
     pub fn genome_graph(&self, id: u64) -> Result<(String, u64, emerge_ref::print::GenomeGraph), String> {
-        if let Backend::Gpu(_) = self.backend {
-            return Err("genome.graph needs the CPU backend for now (GPU genomes are not decoded back yet)".into());
-        }
-        let w = &self.live.world;
-        let e = w.entities.iter().find(|e| e.id == id).ok_or_else(|| format!("no living entity {id}"))?;
+        let (lineage, age, genome) = self.genome_of(id)?;
         let field = self.live.field.as_deref().unwrap_or("cells");
-        Ok((self.spec.lineages[e.lineage].clone(), e.age, emerge_ref::print::genome_graph(w, &e.genome, field)))
+        Ok((self.spec.lineages[lineage].clone(), age, emerge_ref::print::genome_graph(&self.live.world, &genome, field)))
+    }
+
+    /// The ID of some living entity (the first), for a call that names none.
+    pub fn first_entity(&self) -> Option<u64> {
+        match &self.backend {
+            Backend::Cpu => self.live.world.entities.first().map(|e| e.id),
+            Backend::Gpu(r) => {
+                let (ent, _, _) = r.entity_table();
+                ent.chunks(emerge_gpu::pack::ENT).next().map(|e| u64::from(e[0]) | (u64::from(e[1]) << 32))
+            }
+        }
     }
 
     /// Entities, sampled evenly: ID, lineage, age, position, active genes, amounts carried.
     pub fn entities(&self, limit: usize) -> Result<Value, String> {
-        if let Backend::Gpu(_) = self.backend {
-            return Err("entities.query needs the CPU backend for now".into());
-        }
         let w = &self.live.world;
         let ns = w.chem.substances.len();
-        let every = (w.entities.len() / limit.max(1)).max(1);
-        let list: Vec<Value> = w
-            .entities
+        // One row per entity, from the runner's own state: the CPU world, or the GPU's entity table.
+        struct Row {
+            id: u64,
+            lineage: usize,
+            age: u64,
+            pos: [f32; 2],
+            active: usize,
+            carried: Vec<u32>,
+        }
+        let rows: Vec<Row> = match &self.backend {
+            Backend::Cpu => w
+                .entities
+                .iter()
+                .map(|e| Row { id: e.id, lineage: e.lineage, age: e.age, pos: e.pos, active: e.genome.active_genes(), carried: e.store.amounts[..ns].to_vec() })
+                .collect(),
+            Backend::Gpu(r) => {
+                let (ent, epos, amounts) = r.entity_table();
+                ent.chunks(emerge_gpu::pack::ENT)
+                    .enumerate()
+                    .map(|(i, e)| Row {
+                        id: u64::from(e[0]) | (u64::from(e[1]) << 32),
+                        lineage: e[11] as usize,
+                        age: u64::from(e[10]),
+                        pos: [epos[i * 4], epos[i * 4 + 1]],
+                        active: e[5] as usize,
+                        carried: amounts[i * ns..(i + 1) * ns].to_vec(),
+                    })
+                    .collect()
+            }
+        };
+        let every = (rows.len() / limit.max(1)).max(1);
+        let list: Vec<Value> = rows
             .iter()
             .step_by(every)
             .take(limit)
             .map(|e| {
-                let carried: serde_json::Map<String, Value> = (0..ns).filter(|&s| e.store.amounts[s] > 0).map(|s| (w.chem.substances[s].name.clone(), json!(e.store.amounts[s]))).collect();
-                json!({"id": e.id, "lineage": self.spec.lineages[e.lineage], "age": e.age, "x": e.pos[0], "y": e.pos[1], "active_genes": e.genome.active_genes(), "carried_mu": carried})
+                let carried: serde_json::Map<String, Value> = (0..ns).filter(|&s| e.carried[s] > 0).map(|s| (w.chem.substances[s].name.clone(), json!(e.carried[s]))).collect();
+                json!({"id": e.id, "lineage": self.spec.lineages[e.lineage], "age": e.age, "x": e.pos[0], "y": e.pos[1], "active_genes": e.active, "carried_mu": carried})
             })
             .collect();
-        Ok(json!({"tick": self.tick(), "total": w.entities.len(), "entities": list}))
+        Ok(json!({"tick": self.tick(), "total": rows.len(), "entities": list}))
     }
 }

@@ -300,7 +300,7 @@ impl Engine {
             "genome.explain" => {
                 let e = self.entry(p)?;
                 let id = match &p["entity"] {
-                    Value::Null => e.run.live.world.entities.first().map(|x| x.id).ok_or_else(|| bad("the world is empty"))?,
+                    Value::Null => e.run.first_entity().ok_or_else(|| bad("the world is empty"))?,
                     v => v.as_u64().ok_or_else(|| bad("`entity` must be an entity ID"))?,
                 };
                 Ok(json!({"entity": id, "explanation": e.run.explain(id).map_err(bad)?}))
@@ -310,7 +310,7 @@ impl Engine {
                 // genome view; read-only.
                 let e = self.entry(p)?;
                 let id = match &p["entity"] {
-                    Value::Null => e.run.live.world.entities.first().map(|x| x.id).ok_or_else(|| bad("the world is empty"))?,
+                    Value::Null => e.run.first_entity().ok_or_else(|| bad("the world is empty"))?,
                     v => v.as_u64().ok_or_else(|| bad("`entity` must be an entity ID"))?,
                 };
                 let (lineage, age, g) = e.run.genome_graph(id).map_err(bad)?;

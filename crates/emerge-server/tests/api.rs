@@ -382,3 +382,25 @@ fn genome_graph_gives_an_entitys_genes_and_signals() {
     // An entity that does not exist is an error.
     assert!(c.call("genome.graph", json!({"world": w, "entity": 999_999_999u64})).get("error").is_some());
 }
+
+#[test]
+fn a_gpu_worlds_creatures_and_genomes_read_like_the_cpus() {
+    // The GPU keeps genomes as packed words; they are decoded back (`emerge_gpu::pack::decode_master`).
+    // Contract mode makes the two runs equal, so the same entity has the same genome graph on both.
+    let mut c = server();
+    let source = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 96, h: 96)").replace("count: 2_000;", "count: 300;");
+    let make = |c: &mut Client, backend: &str| c.ok("world.create", json!({"source": source, "lineages": ["Drifter", "Builder"], "seed": 5, "backend": backend, "contract": true}))["world"].as_str().unwrap().to_string();
+    let (cpu, gpu) = (make(&mut c, "cpu"), make(&mut c, "gpu"));
+    for w in [&cpu, &gpu] {
+        assert_eq!(c.ok("run.step", json!({"world": w, "ticks": 150}))["tick"], 150);
+    }
+    let (a, b) = (c.ok("entities.query", json!({"world": cpu, "limit": 10})), c.ok("entities.query", json!({"world": gpu, "limit": 10})));
+    assert_eq!(a["total"], b["total"]);
+    assert_eq!(a["entities"], b["entities"], "the same entities on both");
+    let id = a["entities"][0]["id"].as_u64().unwrap();
+    assert_eq!(c.ok("genome.graph", json!({"world": cpu, "entity": id})), c.ok("genome.graph", json!({"world": gpu, "entity": id})));
+    assert_eq!(c.ok("genome.explain", json!({"world": cpu, "entity": id})), c.ok("genome.explain", json!({"world": gpu, "entity": id})));
+    // No entity named: the first one, on both.
+    assert!(c.call("genome.graph", json!({"world": gpu})).get("error").is_none());
+    assert!(c.call("genome.graph", json!({"world": gpu, "entity": 999_999_999u64})).get("error").is_some());
+}

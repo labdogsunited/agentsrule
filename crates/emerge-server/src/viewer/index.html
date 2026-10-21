@@ -793,14 +793,14 @@ let genomeData = null, genomeSel = null, genomeTick = 0;
 const gplaced = new Map();
 const GCOL = { sense: 0, regulate: 1, react: 2, action: 2 };
 
-// Why there is nothing to draw, in words: no world, a GPU world, nobody alive, a creature that died.
+// Why there is nothing to draw, in words: no world, nobody alive, a creature that died, or the server's reason.
 let genomeMsg = "";
 function showGenomeMsg() {
   const el = $("genomemsg");
   el.textContent = genomeMsg;
   el.style.display = mode === "genome" && !genomeData && genomeMsg ? "flex" : "none";
 }
-const genomeWhy = (e) => (/CPU backend/.test(String(e.message || e)) ? "This world runs on the GPU, whose genomes are not decoded back yet. Create a world that runs on the CPU (Runs on: CPU) to see creatures' genomes." : String(e.message || e));
+const genomeWhy = (e) => String(e.message || e);
 
 async function loadEntities() {
   const w = $("world").value;

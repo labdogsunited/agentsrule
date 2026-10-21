@@ -626,3 +626,78 @@ pub fn pack_menus(world: &World) -> (Vec<u32>, Vec<u32>) {
     }
     (t, rates)
 }
+
+// ---------- reading a genome back ----------
+
+fn bits(w: u32) -> f32 {
+    f32::from_bits(w)
+}
+
+/// What a packed gene reads: a signal, or the constant in the next word.
+fn input_at(w: &[u32]) -> Input {
+    if w[2] == NONE {
+        Input::Const(bits(w[3]))
+    } else {
+        Input::Signal(w[2] as usize)
+    }
+}
+
+/// The gene in a packed slot (the inverse of `slot`). `w` is the `SLOT` words of one slot.
+pub fn unslot(w: &[u32]) -> Gene {
+    let (src, threshold) = (input_at(w), bits(w[4]));
+    match w[0] {
+        SENSE_INVENTORY | SENSE_CELL | SENSE_GRADIENT | SENSE_PROBE | SENSE_CROWD | SENSE_NEIGHBOUR | SENSE_CLOCK | SENSE_DELTA => {
+            let (out, out2) = (w[2] as usize, if w[3] == NONE { None } else { Some(w[3] as usize) });
+            let s = w[5] as usize;
+            let sense = match w[0] {
+                SENSE_INVENTORY => Sense::Inventory(s),
+                SENSE_CELL => Sense::Cell(s),
+                SENSE_GRADIENT => Sense::Gradient(s),
+                SENSE_DELTA => Sense::Delta(s),
+                SENSE_PROBE => Sense::Probe { s, angle_deg: bits(w[4]), dist: bits(w[6]) },
+                SENSE_CROWD => Sense::Crowd { radius: bits(w[4]) },
+                SENSE_NEIGHBOUR => Sense::Neighbour { s, rank: w[6] },
+                _ => Sense::Clock { period: w[6] },
+            };
+            Gene::Sense { sense, out, out2 }
+        }
+        WEIGH => Gene::Weigh {
+            bias: bits(w[4]),
+            curve: [Curve::Linear, Curve::Step, Curve::Sigmoid, Curve::Tanh][w[5] as usize],
+            inputs: (0..w[6] as usize).map(|k| (bits(w[8 + 2 * k]), w[9 + 2 * k] as usize)).collect(),
+            out: w[2] as usize,
+        },
+        PRODUCT => Gene::Product { a: w[8] as usize, b: w[9] as usize, out: w[2] as usize },
+        REACT => Gene::React { reaction: w[5] as usize, rate: w[8], speed: src },
+        MOVE => Gene::Move { speed: bits(w[8]), fee_per_distance: w[9], src, threshold },
+        TURN => Gene::Turn { angle_deg: bits(w[8]), fee: w[7], src, threshold },
+        TAKE => Gene::Take { s: w[5] as usize, max: w[8], fee: w[7], src, threshold },
+        DROP => Gene::Drop { s: w[5] as usize, max: w[8], fee: w[7], src, threshold },
+        GIVE => Gene::Give { s: w[5] as usize, max: w[8], fee: w[7], src, threshold },
+        STEAL => Gene::Steal { s: w[5] as usize, max: w[8], fee: w[7], src, threshold },
+        GUARD => Gene::Guard { s: w[5] as usize, fee: w[7], src, threshold },
+        DIVIDE => Gene::Divide { split_bp: w[5], requires: (w[8] as usize, w[9]), fee: w[7], src, threshold },
+        other => panic!("packed gene kind {other} is unknown"),
+    }
+}
+
+/// The words a master genome takes from its first word: the header, the keep values and the slots.
+pub fn master_len(header: &[u32]) -> usize {
+    MASTER_HDR + header[2] as usize + header[0] as usize * SLOT
+}
+
+/// The genome whose master words start at `off` in `mw` (the inverse of `master_words`).
+pub fn decode_master(mw: &[u32], off: usize) -> emerge_ref::Genome {
+    let (slots, modules, keep) = (mw[off] as usize, mw[off + 1] as usize, mw[off + 2] as usize);
+    let first = off + MASTER_HDR + keep;
+    emerge_ref::Genome {
+        modules: (0..modules).map(|m| mw[off + 4 + m] != 0).collect(),
+        keep: (0..keep).map(|k| bits(mw[off + MASTER_HDR + k])).collect(),
+        slots: (0..slots)
+            .map(|i| {
+                let sw = &mw[first + i * SLOT..first + (i + 1) * SLOT];
+                emerge_ref::mind::Slot { gene: unslot(sw), expressed: sw[17] != 0, module: sw[16] as usize }
+            })
+            .collect(),
+    }
+}
