@@ -19,3 +19,21 @@ fn the_gpu_and_the_cpu_give_the_same_frame() {
         assert!(a == b, "frames differ at tick {}", a.tick);
     }
 }
+
+#[test]
+fn made_is_counted_the_same_on_both_backends() {
+    let source = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 96, h: 96)").replace("count: 2_000;", "count: 300;");
+    let spec = |gpu| Spec { source: source.clone(), lineages: vec!["Drifter".into(), "Builder".into()], seed: 3, mutation: true, contract: true, gpu };
+    let (mut cpu, mut gpu) = (Run::create(spec(false), Journal::memory()).unwrap(), Run::create(spec(true), Journal::memory()).unwrap());
+    cpu.step(30);
+    gpu.step(30);
+    cpu.count_made("body").unwrap();
+    gpu.count_made("body").unwrap();
+    for _ in 0..3 {
+        cpu.step(20);
+        gpu.step(20);
+        let (a, b) = (cpu.frame(), gpu.frame());
+        assert!(a.made.is_some() && a.agents.iter().any(|x| x.made > 0), "builders make body");
+        assert!(a == b, "frames (with made) differ at tick {}", a.tick);
+    }
+}
