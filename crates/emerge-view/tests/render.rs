@@ -16,7 +16,7 @@ fn view(src: &str) -> View {
 
 /// A 7 × 5 grid of one substance, `x` µ in each cell, and the given agents.
 fn frame(cells: Vec<u32>, agents: Vec<Agent>) -> Frame {
-    Frame { tick: 3, revision: 1, world_w: 14.0, world_h: 10.0, wrap: true, field: "cells".into(), grid_w: 7, grid_h: 5, substances: vec!["sugar".into()], cells, lineages: vec!["A".into(), "B".into()], agents, made: None, states: Vec::new() }
+    Frame { tick: 3, revision: 1, world_w: 14.0, world_h: 10.0, wrap: true, field: "cells".into(), grid_w: 7, grid_h: 5, substances: vec!["sugar".into()], cells, lineages: vec!["A".into(), "B".into()], agents, made: None, states: Vec::new(), history: None }
 }
 
 fn pixel(pm: &tiny_skia::Pixmap, x: u32, y: u32) -> [u8; 3] {
@@ -110,4 +110,49 @@ fn a_state_field_is_drawn_cell_by_cell_with_its_states_in_the_legend() {
     }
     let (_, key) = emerge_view::render::field_layer(&v.layers[0].node, &f);
     assert_eq!(key.categories, vec![("dead".to_string(), dead), ("alive".to_string(), alive)]);
+}
+
+fn sample(tick: u64, a: u64, b: u64, births: u64) -> emerge_view::frame::Sample {
+    emerge_view::frame::Sample { tick, revision: 0, by_lineage: vec![a, b], births, deaths: 0, drift: Some(0) }
+}
+
+#[test]
+fn a_full_history_is_thinned_and_keeps_its_counts() {
+    let mut h = emerge_view::frame::History::new(1);
+    for t in 0..10_000u64 {
+        h.push(sample(t, t, 0, 1));
+    }
+    assert!(h.samples.len() <= emerge_view::frame::MAX_SAMPLES, "{} samples", h.samples.len());
+    assert!(h.every >= 2);
+    assert_eq!(h.samples.iter().map(|s| s.births).sum::<u64>(), 10_000, "births are merged, not lost");
+    assert_eq!(h.samples.last().unwrap().tick, 9_999);
+}
+
+#[test]
+fn a_chart_draws_each_value_where_it_belongs() {
+    let mut f = frame(vec![0; 35], Vec::new());
+    let n = 40;
+    let mut h = emerge_view::frame::History::new(1);
+    for t in 0..n {
+        h.push(sample(t, 10 + t, 30, 2));
+    }
+    f.history = Some(h);
+    let v = view("view V for W {\n    layer life = agents(where: true) {\n        glyph: dot();\n        size: 1.0;\n    }\n}\n");
+    let opt = Options { cell_px: 10, legend: true };
+    let plain = render(&v, &f, opt);
+    let pm = emerge_view::render_with(&v, &f, opt, &[emerge_view::chart::Panel::Default]);
+    assert_eq!(pm.height(), plain.height() + emerge_view::chart::STRIP_H, "the strip is added under the picture");
+    // Lineage A's line passes through each sample's point, in A's colour (allowing for anti-aliasing).
+    let area = emerge_view::chart::area(0, 3, pm.width(), plain.height());
+    let top = (10 + n - 1) as f64;
+    let near = |c: [u8; 3], want: [u8; 3]| c.iter().zip(want).map(|(&a, b)| (a as i32 - b as i32).abs()).max().unwrap() < 90;
+    for i in [0usize, 13, 27, 39] {
+        let (x, y) = emerge_view::chart::place(area, i, n as usize, (10 + i) as f64, top);
+        let hit = (-1..=1).any(|dy| near(pixel(&pm, x.round() as u32, (y.round() as i32 + dy) as u32), palette::category(0)));
+        assert!(hit, "sample {i} at ({x}, {y})");
+    }
+    // Without a history the strip says so, and nothing is drawn as if it were data.
+    f.history = None;
+    let empty = emerge_view::render_with(&v, &f, opt, &[emerge_view::chart::Panel::Default]);
+    assert_eq!(empty.height(), pm.height());
 }

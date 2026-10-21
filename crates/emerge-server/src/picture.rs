@@ -3,7 +3,33 @@
 //! an exported one are the same bytes (`proposals/live-viewer.md`).
 
 use crate::run::Run;
-use emerge_lang::ast::{Item, View};
+use emerge_lang::ast::{Chart, Item, View};
+
+/// The charts to draw under a picture: `default` is the default panel, any other name a `chart`
+/// block of the run's source or of `extra`. Empty when nothing is asked for.
+#[derive(Debug, Clone)]
+pub enum Charts {
+    Default,
+    Block(Chart),
+}
+
+pub fn pick_charts(run: &Run, extra: Option<&str>, names: &[String]) -> Result<Vec<Charts>, String> {
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut file = emerge_lang::parse(&run.live.source).map_err(|d| d.message)?;
+    if let Some(src) = extra {
+        file.items.extend(emerge_lang::parse(src).map_err(|d| format!("views:{}:{}: {}", d.line, d.col, d.message))?.items);
+    }
+    let blocks: Vec<Chart> = file.items.into_iter().filter_map(|i| match i.node {
+        Item::Chart(c) => Some(c),
+        _ => None,
+    }).collect();
+    names.iter().map(|n| match n.as_str() {
+        "default" => Ok(Charts::Default),
+        n => blocks.iter().rev().find(|c| c.name == n).cloned().map(Charts::Block).ok_or(format!("no chart `{n}` (use `default` for the default panel)")),
+    }).collect()
+}
 
 /// The view named `name` (the last one by that name), or the last view, among the run's own views
 /// followed by those of `extra`; all checked against the run's world.
@@ -30,7 +56,16 @@ pub fn pick_view(run: &Run, extra: Option<&str>, name: Option<&str>) -> Result<V
 /// The run's current frame drawn with `view`, as PNG bytes, and the image's size. `cell_px` 0
 /// picks a size near 1024 pixels across.
 pub fn png(run: &Run, view: &View, cell_px: u32) -> Result<(Vec<u8>, u32, u32), String> {
-    let image = emerge_view::render(view, &run.frame(), emerge_view::Options { cell_px, legend: true });
+    png_with(run, view, cell_px, &[])
+}
+
+/// `png`, with `charts` drawn under the picture from the run's history (none: exactly `png`).
+pub fn png_with(run: &Run, view: &View, cell_px: u32, charts: &[Charts]) -> Result<(Vec<u8>, u32, u32), String> {
+    let panels: Vec<emerge_view::chart::Panel> = charts.iter().map(|c| match c {
+        Charts::Default => emerge_view::chart::Panel::Default,
+        Charts::Block(b) => emerge_view::chart::Panel::Block(b),
+    }).collect();
+    let image = emerge_view::render_with(view, &run.frame(), emerge_view::Options { cell_px, legend: true }, &panels);
     let bytes = image.encode_png().map_err(|e| e.to_string())?;
     Ok((bytes, image.width(), image.height()))
 }

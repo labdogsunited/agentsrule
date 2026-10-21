@@ -31,6 +31,7 @@ struct Sub {
     conn: Arc<Conn>,
     world: String,
     view: View,
+    charts: Vec<crate::picture::Charts>,
     every: u64,
     min_gap: Duration,
     cell: u32,
@@ -164,10 +165,12 @@ fn subscription(message: &str, engine: &Engine, subs: &mut Vec<Sub>, next_sub: &
             let world = p["world"].as_str().ok_or("`world` must be a string")?;
             let run = engine.run(world).ok_or(format!("no world `{world}`"))?;
             let view = crate::picture::pick_view(run, p["views"].as_str(), p["view"].as_str())?;
+            let names: Vec<String> = p["charts"].as_array().map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect()).unwrap_or_default();
+            let charts = crate::picture::pick_charts(run, p["views"].as_str(), &names)?;
             let num = |k: &str, d: u64| p[k].as_u64().unwrap_or(d);
             *next_sub += 1;
             let fps = num("max_fps", 10).clamp(1, 60);
-            subs.push(Sub { id: *next_sub, conn, world: world.to_string(), view, every: num("every", 1).max(1), min_gap: Duration::from_secs_f64(1.0 / fps as f64), cell: num("cell", 0) as u32, last_tick: None, last_sent: Instant::now() });
+            subs.push(Sub { id: *next_sub, conn, world: world.to_string(), view, charts, every: num("every", 1).max(1), min_gap: Duration::from_secs_f64(1.0 / fps as f64), cell: num("cell", 0) as u32, last_tick: None, last_sent: Instant::now() });
             Ok(json!({"subscription": *next_sub}))
         })()
     };
@@ -189,7 +192,7 @@ fn push_frames(engine: &Engine, subs: &mut Vec<Sub>) {
         if !due {
             return true;
         }
-        let Ok((png, w, h)) = crate::picture::png(run, &s.view, s.cell) else { return false };
+        let Ok((png, w, h)) = crate::picture::png_with(run, &s.view, s.cell, &s.charts) else { return false };
         let header = json!({"subscription": s.id, "world": s.world, "view": s.view.name, "tick": run.tick(), "revision": run.revision(), "width": w, "height": h, "format": "png"}).to_string();
         let mut frame = (header.len() as u32).to_le_bytes().to_vec();
         frame.extend_from_slice(header.as_bytes());

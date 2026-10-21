@@ -46,6 +46,63 @@ pub struct Frame {
     pub made: Option<Made>,
     /// State fields, on the same grid as the conserved field.
     pub states: Vec<States>,
+    /// The run's history so far, for charts (`None` for a frame drawn without one).
+    pub history: Option<History>,
+}
+
+/// A run's history, sampled every `every` ticks (the interval doubles as samples are thinned).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct History {
+    pub every: u64,
+    pub samples: Vec<Sample>,
+}
+
+/// One sample: the state at `tick`, and what happened since the previous sample.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sample {
+    pub tick: u64,
+    pub revision: u64,
+    /// Living entities, by founding lineage (in `Frame::lineages` order).
+    pub by_lineage: Vec<u64>,
+    pub births: u64,
+    pub deaths: u64,
+    /// Element totals against the ledger, in µ: `Some(0)` exact, `Some(d)` the largest drift of
+    /// any element, `None` not audited.
+    pub drift: Option<i128>,
+}
+
+/// Samples kept at most; past this, every other one is merged into the next and `every` doubles.
+pub const MAX_SAMPLES: usize = 4_096;
+
+impl History {
+    pub fn new(every: u64) -> History {
+        History { every: every.max(1), samples: Vec::new() }
+    }
+
+    /// Adds a sample, thinning the history if it is full.
+    pub fn push(&mut self, s: Sample) {
+        self.samples.push(s);
+        if self.samples.len() > MAX_SAMPLES {
+            let old = std::mem::take(&mut self.samples);
+            let mut it = old.into_iter();
+            while let Some(a) = it.next() {
+                match it.next() {
+                    Some(mut b) => {
+                        // The pair becomes one sample at the later tick, covering both intervals.
+                        b.births += a.births;
+                        b.deaths += a.deaths;
+                        b.drift = match (a.drift, b.drift) {
+                            (Some(x), Some(y)) => Some(if x.abs() > y.abs() { x } else { y }),
+                            _ => None,
+                        };
+                        self.samples.push(b);
+                    }
+                    None => self.samples.push(a),
+                }
+            }
+            self.every *= 2;
+        }
+    }
 }
 
 /// A state field in a frame: its name, its states' names, and each cell's state (row-major).
@@ -90,6 +147,7 @@ impl Frame {
                 .collect(),
             made: None,
             states: w.states.iter().map(|f| States { name: f.name.clone(), names: f.names.clone(), cells: f.cells.clone() }).collect(),
+            history: None,
         }
     }
 }

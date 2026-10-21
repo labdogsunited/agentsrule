@@ -68,6 +68,7 @@
       <div><label for="every">Every (ticks)</label><input id="every" type="number" value="5" min="1"></div>
       <div><label for="fps">Max fps</label><input id="fps" type="number" value="8" min="1" max="30"></div>
     </div>
+    <div class="checks"><label><input type="checkbox" id="charts" checked> Charts (population, births and deaths, ledger)</label></div>
     <h2>Run</h2>
     <div class="row">
       <button id="play">Play</button>
@@ -143,7 +144,8 @@ async function subscribe() {
   const world = $("world").value, view = $("view").value;
   if (!world || !view) return;
   if (sub) { await call("view.unsubscribe", { subscription: sub }).catch(() => {}); sub = null; }
-  const r = await call("view.subscribe", { world, view, views: example.views, every: +$("every").value || 1, max_fps: +$("fps").value || 8 });
+  const charts = $("charts").checked ? ["default"] : [];
+  const r = await call("view.subscribe", { world, view, views: example.views, charts, every: +$("every").value || 1, max_fps: +$("fps").value || 8 });
   sub = r.subscription;
 }
 
@@ -193,7 +195,7 @@ function connect() {
 
 $("create").onclick = () => create().catch(oops);
 $("world").onchange = () => refreshViews().then(subscribe).then(stats).catch(oops);
-$("view").onchange = $("every").onchange = $("fps").onchange = () => subscribe().catch(oops);
+$("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().catch(oops);
 $("play").onclick = () => call("run.resume", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
 $("pause").onclick = () => call("run.pause", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
 $("step").onclick = () => call("run.step", { world: $("world").value, ticks: +$("steps").value || 1 }).then(stats).catch(oops);

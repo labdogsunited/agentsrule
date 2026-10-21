@@ -30,3 +30,18 @@ fn counting_made_changes_nothing_and_finds_the_producers() {
     assert!(producers > 0 && builders > 0, "producers {producers}, builders among them {builders}");
     assert!(counted.count_made("gold").is_err());
 }
+
+#[test]
+fn a_run_records_the_history_charts_draw() {
+    let mut run = Run::create(common::spec(false), Journal::memory()).unwrap();
+    run.step(50);
+    let h = &run.history;
+    assert_eq!((h.every, h.samples.len()), (1, 51), "a sample at tick 0 and after every tick");
+    let last = h.samples.last().unwrap();
+    assert_eq!((last.tick, last.by_lineage.iter().sum::<u64>()), (50, run.population() as u64));
+    assert_eq!(h.samples.iter().map(|s| s.births).sum::<u64>(), run.births());
+    assert!(h.samples.iter().all(|s| s.drift == Some(0)), "the CPU audits every sample");
+    let charts = emerge_server::picture::pick_charts(&run, None, &["default".into()]).unwrap();
+    assert_eq!(charts.len(), 1);
+    assert!(emerge_server::picture::pick_charts(&run, None, &["Nope".into()]).is_err());
+}

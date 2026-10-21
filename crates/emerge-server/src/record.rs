@@ -12,6 +12,7 @@ pub struct Recording {
     world: String,
     view: View,
     views: Option<String>,
+    charts: Vec<crate::picture::Charts>,
     every: u64,
     left: u64,
     cell: u32,
@@ -29,6 +30,8 @@ impl Recording {
         let run = engine.run(world).ok_or(format!("no world `{world}`"))?;
         let views = p["views"].as_str().map(String::from);
         let view = crate::picture::pick_view(run, views.as_deref(), p["view"].as_str())?;
+        let names: Vec<String> = p["charts"].as_array().map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect()).unwrap_or_default();
+        let charts = crate::picture::pick_charts(run, views.as_deref(), &names)?;
         let frames = p["frames"].as_u64().ok_or("`frames` must be a whole number")?;
         if frames == 0 || frames > 100_000 {
             return Err("`frames` must be 1 to 100_000".into());
@@ -36,7 +39,7 @@ impl Recording {
         let dir = root.join("recordings").join(format!("{world}-r{id}"));
         std::fs::create_dir_all(dir.parent().expect("a parent")).map_err(|e| e.to_string())?;
         std::fs::create_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        Ok(Recording { id, world: world.to_string(), view, views, every: p["every"].as_u64().unwrap_or(1).max(1), left: frames, cell: p["cell"].as_u64().unwrap_or(0) as u32, dir, frames: Vec::new(), last_tick: None })
+        Ok(Recording { id, world: world.to_string(), view, views, charts, every: p["every"].as_u64().unwrap_or(1).max(1), left: frames, cell: p["cell"].as_u64().unwrap_or(0) as u32, dir, frames: Vec::new(), last_tick: None })
     }
 
     /// Writes a frame if one is due (the first at once, then every `every` ticks of the world).
@@ -45,7 +48,7 @@ impl Recording {
     pub fn advance(&mut self, engine: &Engine) -> Result<bool, String> {
         let run = engine.run(&self.world).ok_or("the world is gone")?;
         if self.last_tick.is_none_or(|t| run.tick() >= t + self.every) {
-            let (png, _, _) = crate::picture::png(run, &self.view, self.cell)?;
+            let (png, _, _) = crate::picture::png_with(run, &self.view, self.cell, &self.charts)?;
             let file = format!("frame-{:06}.png", self.frames.len() + 1);
             std::fs::write(self.dir.join(&file), png).map_err(|e| e.to_string())?;
             self.frames.push((file, run.tick(), run.revision()));

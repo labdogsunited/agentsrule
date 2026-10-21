@@ -429,10 +429,26 @@ pub fn agents_layer(layer: &Layer, frame: &Frame) -> (Vec<([f32; 2], Attributes)
 /// Renders `view` of `frame`. The picture is the grid at `cell_px` pixels per cell, with the
 /// legend to its right.
 pub fn render(view: &View, frame: &Frame, opt: Options) -> Pixmap {
+    render_into(view, frame, opt, 0).0
+}
+
+/// `render`, with a strip of charts (`chart::Panel`s, drawn from the frame's history) under it.
+pub fn render_with(view: &View, frame: &Frame, opt: Options, panels: &[crate::chart::Panel]) -> Pixmap {
+    if panels.is_empty() {
+        return render(view, frame, opt);
+    }
+    let (mut pm, main_h) = render_into(view, frame, opt, crate::chart::STRIP_H);
+    crate::chart::draw_strip(&mut pm, main_h, panels, frame);
+    pm
+}
+
+/// The picture, `extra` pixels taller than it needs, and the height of the picture itself.
+fn render_into(view: &View, frame: &Frame, opt: Options, extra: u32) -> (Pixmap, u32) {
     let k = if opt.cell_px > 0 { opt.cell_px } else { (1024 / frame.grid_w.max(1) as u32).max(1) };
     let (w, h) = (frame.grid_w as u32 * k, frame.grid_h as u32 * k);
     let total_w = w + if opt.legend { LEGEND_W } else { 0 };
-    let mut pm = Pixmap::new(total_w, h.max(if opt.legend { 520 } else { 1 })).expect("an image of this size");
+    let main_h = h.max(if opt.legend { 520 } else { 1 });
+    let mut pm = Pixmap::new(total_w, main_h + extra).expect("an image of this size");
     pm.fill(tiny_skia::Color::from_rgba8(EMPTY[0], EMPTY[1], EMPTY[2], 255));
     let mut keys = Vec::new();
     // World units to pixels.
@@ -463,7 +479,7 @@ pub fn render(view: &View, frame: &Frame, opt: Options) -> Pixmap {
     if opt.legend {
         legend(&mut pm, w, view, frame, &keys);
     }
-    pm
+    (pm, main_h)
 }
 
 fn draw_agent(pm: &mut Pixmap, p: [f32; 2], at: &Attributes, px_per_unit: f32, w: f32, h: f32, wrap: bool) {

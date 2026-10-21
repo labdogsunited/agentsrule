@@ -912,6 +912,18 @@ impl<'a> Resident<'a> {
         ent.chunks(ENT).map(|w| w[14] as u64 | (w[15] as u64) << 32).collect()
     }
 
+    /// Living entities by founding lineage (`lineages` of them), read from the device.
+    pub fn lineage_counts(&self, lineages: usize) -> Vec<u64> {
+        let ent: Vec<u32> = self.gpu.read(&self.b.ent, self.n * ENT);
+        let mut out = vec![0u64; lineages];
+        for e in ent.chunks(ENT) {
+            if let Some(c) = out.get_mut(e[11] as usize) {
+                *c += 1;
+            }
+        }
+        out
+    }
+
     /// Which substance `made` counts (`World::track`), from the next tick; `None` counts nothing.
     pub fn set_track(&mut self, track: Option<usize>) {
         self.write_param(P_TRACK, track.map_or(0, |t| t as u32 + 1));

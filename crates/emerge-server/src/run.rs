@@ -40,6 +40,11 @@ pub struct Run {
     audit: Option<(u64, u64)>,
     /// The window `made` counts over, once `count_made` started one.
     made: Option<emerge_view::frame::Made>,
+    /// What charts draw: sampled every tick on the CPU, every 10 on the GPU (counting lineages
+    /// there needs a read-back), thinned past `emerge_view::frame::MAX_SAMPLES`.
+    pub history: emerge_view::frame::History,
+    /// Births and deaths at the last sample.
+    sampled: (u64, u64),
 }
 
 impl Run {
@@ -61,7 +66,11 @@ impl Run {
             (Backend::Cpu, "cpu: emerge-ref".to_string())
         };
         journal.header(&spec, &device);
-        Ok(Run { spec, live, backend, journal, device, last_swap: None, audit: None, made: None })
+        let every = if spec.gpu { 10 } else { 1 };
+        let mut run = Run { spec, live, backend, journal, device, last_swap: None, audit: None, made: None, history: emerge_view::frame::History::new(every), sampled: (0, 0) };
+        run.sampled = (run.births(), run.deaths());
+        run.sample();
+        Ok(run)
     }
 
     pub fn tick(&self) -> u64 {
@@ -103,8 +112,34 @@ impl Run {
                 Backend::Gpu(r) => r.tick(),
             }
             done += 1;
+            if self.tick() % self.history.every == 0 {
+                self.sample();
+            }
         }
         done
+    }
+
+    /// Adds the current state to the history: population by lineage, births and deaths since the
+    /// last sample, and the ledger check (the CPU audits every sample; the GPU reports its audit
+    /// if it is on, else nothing).
+    fn sample(&mut self) {
+        let lineages = self.spec.lineages.len();
+        let (by_lineage, drift) = match &self.backend {
+            Backend::Cpu => {
+                let w = &self.live.world;
+                let mut by = vec![0u64; lineages];
+                for e in &w.entities {
+                    if let Some(c) = by.get_mut(e.lineage) {
+                        *c += 1;
+                    }
+                }
+                (by, Some(w.audit().map_or_else(|e| e.drift, |_| 0)))
+            }
+            Backend::Gpu(r) => (r.lineage_counts(lineages), r.audit().map(|a| if a.drifted == 0 { 0 } else { a.worst })),
+        };
+        let (b, d) = (self.births(), self.deaths());
+        self.history.push(emerge_view::frame::Sample { tick: self.tick(), revision: self.revision(), by_lineage, births: b - self.sampled.0, deaths: d - self.sampled.1, drift });
+        self.sampled = (b, d);
     }
 
     /// A hot-swap at the current tick boundary, journalled whatever its outcome.
@@ -155,6 +190,13 @@ impl Run {
         match &self.backend {
             Backend::Cpu => self.live.world.births,
             Backend::Gpu(r) => r.births,
+        }
+    }
+
+    pub fn deaths(&self) -> u64 {
+        match &self.backend {
+            Backend::Cpu => self.live.world.deaths,
+            Backend::Gpu(r) => r.deaths,
         }
     }
 
@@ -288,6 +330,7 @@ impl Run {
         let field = self.live.field.as_deref().unwrap_or("cells");
         let mut f = emerge_view::Frame::of_world(&self.live.world, field, &self.spec.lineages, self.revision());
         f.made = self.made.clone();
+        f.history = Some(self.history.clone());
         if let Backend::Gpu(r) = &self.backend {
             use emerge_gpu::pack::ENT;
             let s = r.snapshot();

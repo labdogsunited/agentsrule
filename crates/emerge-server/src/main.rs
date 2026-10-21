@@ -5,7 +5,7 @@
 //! (default port 7878); with `--journal-dir`, every world's journal is written there as `<world>.jsonl`.
 //! `emerge-server mcp [--journal-dir DIR]`: the MCP adapter over stdio (for Claude and other MCP clients).
 //! `emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--seed S] [--mutation off]
-//! [--contract] [--gpu] [--made S --window W] [--views FILE] [--view NAME] [--cell PX] [--out PNG]`: draws
+//! [--contract] [--gpu] [--made S --window W] [--views FILE] [--view NAME] [--chart default|NAME]... [--cell PX] [--out PNG]`: draws
 //! a view of the run at tick T (a journal is replayed, a dish is run from its seed), so any experiment
 //! can be drawn; with `--made`, each agent's `made` is the µ of S its reactions made in ticks T−W to T.
 
@@ -77,7 +77,7 @@ fn main() -> ExitCode {
             }
         }
         _ => {
-            eprintln!("usage: emerge-server exit2 DISH [--gpu] [--ticks N] [--journal FILE]\n       emerge-server replay JOURNAL\n       emerge-server mov RECORDING_DIR [--fps N]\n       emerge-server serve [--port N] [--journal-dir DIR] [--viewer]\n       emerge-server mcp [--journal-dir DIR]\n       emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--made S --window W] [--views FILE] [--view NAME] [--out PNG]");
+            eprintln!("usage: emerge-server exit2 DISH [--gpu] [--ticks N] [--journal FILE]\n       emerge-server replay JOURNAL\n       emerge-server mov RECORDING_DIR [--fps N]\n       emerge-server serve [--port N] [--journal-dir DIR] [--viewer]\n       emerge-server mcp [--journal-dir DIR]\n       emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--made S --window W] [--views FILE] [--view NAME] [--chart default|NAME]... [--out PNG]");
             ExitCode::FAILURE
         }
     }
@@ -120,7 +120,9 @@ fn render(args: &[String]) -> Result<String, String> {
     };
     let view = emerge_server::picture::pick_view(&run, extra.as_deref(), flag(args, "--view"))?;
     let cell_px = flag(args, "--cell").map_or(Ok(0), |c| c.parse().map_err(|_| "--cell PX"))?;
-    let (png, _, _) = emerge_server::picture::png(&run, &view, cell_px)?;
+    let names: Vec<String> = args.windows(2).filter(|w| w[0] == "--chart").map(|w| w[1].clone()).collect();
+    let charts = emerge_server::picture::pick_charts(&run, extra.as_deref(), &names)?;
+    let (png, _, _) = emerge_server::picture::png_with(&run, &view, cell_px, &charts)?;
     let out = flag(args, "--out").map(String::from).unwrap_or(format!("{}-tick{}.png", view.name, run.tick()));
     std::fs::write(&out, png).map_err(|e| format!("{out}: {e}"))?;
     Ok(out)
