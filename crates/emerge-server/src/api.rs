@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 const LANGUAGE: &str = include_str!("../../../language.md");
 const EXAMPLE: &str = include_str!("../../../examples/dish.em");
+const EXAMPLE_VIEWS: &str = include_str!("../../../examples/views/dish.em");
 
 /// A JSON-RPC error: code, message, and data for a rejected swap.
 #[derive(Debug, Clone, PartialEq)]
@@ -147,6 +148,10 @@ impl Engine {
                 let names: Vec<String> = p["lineages"].as_array().map(|l| l.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
                 Ok(validate(text(p, "source")?, &names))
             }
+            "world.list" => Ok(json!({"worlds": self.runs.iter().map(|(id, e)| json!({
+                "world": id, "tick": e.run.tick(), "revision": e.run.revision(), "population": e.run.population(),
+                "lineages": e.run.spec.lineages, "running": e.running, "backend": e.run.device,
+            })).collect::<Vec<_>>()})),
             "world.source" => {
                 let e = self.entry(p)?;
                 Ok(json!({"revision": e.run.revision(), "source": e.run.live.source}))
@@ -200,7 +205,7 @@ impl Engine {
             }
             "journal.read" => Ok(json!({"lines": self.entry(p)?.run.journal.lines})),
             "docs.query" => Ok(docs(p["query"].as_str().unwrap_or(""))),
-            "docs.example" => Ok(json!({"name": "examples/dish.em", "about": "the reference world: chemistry, a conserved field, world rules, menus and two lineages (Drifter, Builder); a new world is easiest written as a changed copy of it", "source": EXAMPLE})),
+            "docs.example" => Ok(json!({"name": "examples/dish.em", "about": "the reference world: chemistry, a conserved field, world rules, menus and two lineages (Drifter, Builder); a new world is easiest written as a changed copy of it", "source": EXAMPLE, "views": EXAMPLE_VIEWS})),
             _ => Err(fault(-32601, format!("no method `{method}`"))),
         }
     }

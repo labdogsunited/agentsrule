@@ -34,10 +34,11 @@ pub fn tools() -> Vec<Value> {
     let world = json!({"type": "string", "description": "the world ID returned by world_create"});
     let t = |method: &str, description: &str, input: Value| json!({"name": tool_name(method), "description": description, "inputSchema": input});
     vec![
-        t("docs.example", "The reference world `examples/dish.em` in full: a starting point for writing a world.", json!({"type": "object", "additionalProperties": false})),
+        t("docs.example", "The reference world `examples/dish.em` in full, and example views for it (`views`): a starting point for writing a world.", json!({"type": "object", "additionalProperties": false})),
         t("docs.query", "Sections of the `.em` language reference that mention `query`; with no query, the list of sections.", schema(json!({"query": {"type": "string"}}), &[])),
         t("world.validate", "Parse, check and compile a `.em` source without running it: errors with codes and positions, and the parts a run would leave out.", schema(json!({"source": {"type": "string"}, "lineages": {"type": "array", "items": {"type": "string"}}}), &["source"])),
         t("world.create", "Compile a `.em` source and start a world at tick 0, revision 0, seeded with the named lineages. Returns its `world` ID.", schema(json!({"source": {"type": "string"}, "lineages": {"type": "array", "items": {"type": "string"}}, "seed": {"type": "integer"}, "mutation": {"type": "boolean", "description": "children vary (default true)"}, "backend": {"type": "string", "enum": ["cpu", "gpu"]}}), &["source", "lineages"])),
+        t("world.list", "Every world the server holds: ID, tick, revision, population, lineages, whether it is running.", json!({"type": "object", "additionalProperties": false})),
         t("world.source", "The world's current source and revision.", schema(json!({"world": world}), &["world"])),
         t("world.hotswap", "Change a running world with a patch, between ticks. Needs the current revision as `base_revision`; a stale, invalid, not swappable or preflight-failing patch is rejected and changes nothing.", schema(json!({"world": world, "base_revision": {"type": "integer"}, "patch": {"type": "string", "description": "a `patch Dish { ... }` item"}, "reason": {"type": "string", "description": "why, for the journal"}}), &["world", "base_revision", "patch"])),
         t("run.step", "Run the world for `ticks` ticks (default 1); stops early if it dies out.", schema(json!({"world": world, "ticks": {"type": "integer"}}), &["world"])),
