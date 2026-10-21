@@ -526,9 +526,12 @@ fn pattern(p: &Pattern) -> Vec<P> {
 
 fn patch_op(out: &mut Out, i: usize, op: &PatchOp) {
     match op {
-        PatchOp::Set { path: p, value: v } => {
+        PatchOp::Set { path: p, value: v, move_to } => {
             let mut line = vec![t(format!("set {} = ", path(p)))];
             line.extend(value(v));
+            if let Some(m) = move_to {
+                line.push(t(format!(" move_to: {m}")));
+            }
             line.push(t(";"));
             out.layout(i, line);
         }

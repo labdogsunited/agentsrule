@@ -47,6 +47,8 @@ fn the_same_swaps_give_the_same_world_on_cpu_and_gpu() {
         // Action fees (H7): every live gene and the menu that mutation copies from.
         (34, "patch Dish {\n    set actions.take.cost = 8mu;\n    set actions.turn.cost = 0u;\n    set actions.move.cost = 30mu;\n}\n".into()),
         (70, "patch Dish {\n    set actions.steal.cost = 12mu;\n    set actions.take.cost = 3mu;\n}\n".into()),
+        // A lowered cap with somewhere for the excess to go (H8).
+        (90, "patch Dish {\n    set limits.inventory_cap = 6u move_to: void;\n}\n".into()),
     ];
     let gpu = Gpu::new();
     let mut cpu = live(&src);
@@ -74,7 +76,7 @@ fn the_same_swaps_give_the_same_world_on_cpu_and_gpu() {
         bad += differences(&cpu, &r, tick);
         assert_eq!(bad, 0, "tick {tick}: CPU and GPU differ");
     }
-    assert_eq!((cpu.revision, on_gpu.revision), (9, 9));
+    assert_eq!((cpu.revision, on_gpu.revision), (10, 10));
     let w = &cpu.world;
     assert!(w.births > 0 && w.deaths > 0 && !w.entities.is_empty(), "births {}, deaths {}, alive {}", w.births, w.deaths, w.entities.len());
     cpu.world.audit().unwrap();
@@ -100,3 +102,27 @@ fn a_rule_change_pauses_the_full_dish_briefly() {
     assert!(pause < 0.2, "the fee swap's pause took {pause} s");
     r.tick();
 }
+
+#[test]
+fn a_spill_keeps_the_gpu_ledger_exact() {
+    // H8: the excess of a lowered cap leaves the entities and the audit counts it as absorbed.
+    let src = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 96, h: 96)").replace("count: 2_000;", "count: 300;");
+    let gpu = Gpu::new();
+    let mut l = live(&src);
+    let mut r = Resident::new(&gpu, &mut l.world);
+    r.enable_audit();
+    for _ in 0..20 {
+        r.tick();
+    }
+    let (_, amounts, _) = r.balances();
+    let over: u64 = amounts.iter().map(|&a| a.saturating_sub(6_000) as u64).sum();
+    assert!(over > 0, "something is above the new cap");
+    hotswap(&mut l, &mut r, "patch Dish {\n    set limits.inventory_cap = 6u move_to: void;\n}\n", 0).unwrap();
+    assert!(r.balances().1.iter().all(|&a| a <= 6_000));
+    for _ in 0..30 {
+        r.tick();
+    }
+    let a = r.audit().unwrap();
+    assert!(a.ticks == 50 && a.drifted == 0, "{} ticks audited, {} off, worst {}", a.ticks, a.drifted, a.worst);
+}
+

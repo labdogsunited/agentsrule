@@ -98,7 +98,14 @@ pub fn parse_set(spec: &str) -> Result<File, crate::Diag> {
 
 fn world_op(w: &mut World, op: &PatchOp, at: &At) -> Result<(), Problem> {
     match op {
-        PatchOp::Set { path, value } => world_set(w, path, value, at),
+        PatchOp::Set { path, value, move_to } => {
+            // `move_to` says where a lowered cap's excess goes; a file holds no balances, so it is
+            // checked here and used only by a hot-swap. Only the inventory cap takes one so far.
+            if move_to.is_some() && keys(path) != [Key::Field("limits"), Key::Field("inventory_cap")] {
+                return Err(at.err("E0904", path, "`move_to` after `set` is supported only for `limits.inventory_cap`".into()));
+            }
+            world_set(w, path, value, at)
+        }
         PatchOp::Add { position, decl } => world_add(w, position.as_ref(), decl, at),
         PatchOp::Replace { path, body } => world_replace(w, path, body, at),
         PatchOp::Remove { path, move_to } => world_remove(w, path, move_to.as_deref(), at),
@@ -463,7 +470,10 @@ fn world_add(w: &mut World, position: Option<&(bool, Path)>, item: &AddItem, at:
 
 fn lineage_op(l: &mut Lineage, op: &PatchOp, at: &At) -> Result<(), Problem> {
     match op {
-        PatchOp::Set { path, value } => {
+        PatchOp::Set { path, value, move_to } => {
+            if move_to.is_some() {
+                return Err(at.err("E0904", path, "`move_to` after `set` is supported only for `limits.inventory_cap`".into()));
+            }
             let ks = keys(path);
             let Key::Field(head) = ks[0] else { unreachable!() };
             match (head, &ks[1..]) {

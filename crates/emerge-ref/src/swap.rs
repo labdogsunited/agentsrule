@@ -133,6 +133,8 @@ pub struct Staged {
     pub config: Config,
     /// The patched world compiled afresh: its configuration is `config` (a GPU packs it).
     pub world: World,
+    /// The sink a lowered inventory cap's excess goes to (`set limits.inventory_cap = … move_to: SINK;`).
+    pub spill: Option<Sink>,
     /// Time to patch, compile and diff, in seconds (spec §13.2 reports it apart from the pause).
     pub compile_s: f64,
 }
@@ -199,10 +201,21 @@ impl Live {
             }
         }
         let patched = emerge_lang::patch::apply(&file, &patches).map_err(|p| invalid(p.code, &p.path, &p.message))?;
+        let spill_to = patches.items.iter().filter_map(|i| match &i.node {
+            emerge_lang::ast::Item::Patch(p) => Some(p.ops.iter().filter_map(|o| match &o.node {
+                emerge_lang::ast::PatchOp::Set { move_to: Some(m), .. } => Some(m.clone()),
+                _ => None,
+            })),
+            _ => None,
+        }).flatten().last();
         let source = emerge_lang::format(&patched);
         let mut old = self.compile(&self.source)?.world;
         let mut new = self.compile(&source)?.world;
         let config = Config::of(&new);
+        let spill = match spill_to {
+            Some(name) => Some(new.sinks.iter().find(|s| s.name == name).cloned().ok_or_else(|| invalid("E0901", "move_to", &format!("`{name}` is not a sink")))?),
+            None => None,
+        };
         let candidate = new.clone();
         let keep = (old.sources.len(), old.sinks.len());
         if new.sources.len() < keep.0 || new.sinks.len() < keep.1 {
@@ -218,7 +231,7 @@ impl Live {
             let part = parts(&old).into_iter().zip(parts(&new)).find(|(x, y)| x.1 != y.1).map_or("the world", |(x, _)| x.0);
             return Err(Rejected::NotSwappable(format!("`{part}` changed; {}", first_difference(&a, &b))));
         }
-        Ok(Staged { base, source, config, world: candidate, compile_s: t.elapsed().as_secs_f64() })
+        Ok(Staged { base, source, config, world: candidate, spill, compile_s: t.elapsed().as_secs_f64() })
     }
 
     /// Steps 4 and 5, between ticks: the revision again, the patch against the current balances,
@@ -229,7 +242,10 @@ impl Live {
             return Err(Rejected::Stale { base: staged.base, current: self.revision });
         }
         let w = &self.world;
-        preflight(&staged.config, w, w.cells.iter().map(|c| &c.amounts[..]), w.entities.iter().map(|e| (e.id, &e.store.amounts[..])))?;
+        preflight(&staged.config, staged.spill.as_ref(), w, w.cells.iter().map(|c| &c.amounts[..]), w.entities.iter().map(|e| (e.id, &e.store.amounts[..])))?;
+        if staged.spill.is_some() {
+            spill(&mut self.world, staged.config.inventory_cap);
+        }
         apply(&mut self.world, &staged.config);
         self.advance(staged);
         Ok(t.elapsed().as_secs_f64())
@@ -251,8 +267,9 @@ impl Live {
 }
 
 /// Step 4 of spec §13.2: the new caps against the current balances (amounts by substance, for
-/// every cell and for every entity with its ID). `names` gives the substances.
-pub fn preflight<'a>(c: &Config, names: &World, cells: impl Iterator<Item = &'a [Mu]>, entities: impl Iterator<Item = (u64, &'a [Mu])>) -> Result<(), Rejected> {
+/// every cell and for every entity with its ID). `names` gives the substances. An entity above a
+/// lowered inventory cap passes only if `spill` names a sink that accepts each substance in excess.
+pub fn preflight<'a>(c: &Config, spill: Option<&Sink>, names: &World, cells: impl Iterator<Item = &'a [Mu]>, entities: impl Iterator<Item = (u64, &'a [Mu])>) -> Result<(), Rejected> {
     let ns = names.chem.substances.len();
     for (i, (amounts, caps)) in cells.zip(&c.cell_caps).enumerate() {
         if let Some(s) = (0..ns).find(|&s| amounts[s] > caps[s]) {
@@ -260,11 +277,37 @@ pub fn preflight<'a>(c: &Config, names: &World, cells: impl Iterator<Item = &'a 
         }
     }
     for (id, amounts) in entities {
-        if amounts[..ns].iter().any(|&a| a > c.inventory_cap) {
-            return Err(Rejected::Preflight(format!("entity {id} holds more than the new inventory cap {}µ", c.inventory_cap)));
+        for s in (0..ns).filter(|&s| amounts[s] > c.inventory_cap) {
+            match spill {
+                None => return Err(Rejected::Preflight(format!("entity {id} holds more than the new inventory cap {}µ (say where the excess goes: `move_to: SINK`)", c.inventory_cap))),
+                Some(sink) if !sink.accepts(s) => return Err(Rejected::Preflight(format!("entity {id} holds {}µ of {}, above the new cap, and sink `{}` does not accept it", amounts[s], names.chem.substances[s].name, sink.name))),
+                Some(_) => {}
+            }
         }
     }
     Ok(())
+}
+
+/// What a lowered inventory cap moves to its sink: every entity's excess over `cap`, of every
+/// substance, leaves the entity and is absorbed (the ledger's `absorbed` grows by its elements).
+/// Returns the µ moved, by substance. Preflight has checked that the sink accepts each one.
+pub fn spill(w: &mut World, cap: Mu) -> Vec<u64> {
+    let ns = w.chem.substances.len();
+    let mut moved = vec![0u64; ns];
+    for e in &mut w.entities {
+        for (s, a) in e.store.amounts[..ns].iter_mut().enumerate() {
+            if *a > cap {
+                moved[s] += (*a - cap) as u64;
+                *a = cap;
+            }
+        }
+    }
+    for (s, &m) in moved.iter().enumerate() {
+        for (e, &n) in w.chem.substances[s].comp.iter().enumerate() {
+            w.absorbed[e] += m * n as u64;
+        }
+    }
+    moved
 }
 
 /// Copies a configuration into a running world.

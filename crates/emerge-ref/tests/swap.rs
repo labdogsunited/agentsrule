@@ -162,3 +162,39 @@ fn a_fee_swap_changes_what_an_entity_pays() {
     a.world.audit().unwrap();
     b.world.audit().unwrap();
 }
+
+#[test]
+fn a_lowered_cap_with_move_to_spills_the_excess_into_the_sink() {
+    let mut l = live(true);
+    run(&mut l, 20);
+    let cap = 6_000;
+    let ns = l.world.chem.substances.len();
+    let over: Vec<u64> = (0..ns).map(|s| l.world.entities.iter().map(|e| e.store.amounts[s].saturating_sub(cap) as u64).sum()).collect();
+    assert!(over.iter().sum::<u64>() > 0, "some entity holds more than 6u of something");
+    let absorbed = l.world.absorbed.clone();
+    // Without `move_to` it fails preflight, as before.
+    assert!(matches!(l.hotswap("patch Dish {\n    set limits.inventory_cap = 6u;\n}\n", 0), Err(Rejected::Preflight(_))));
+    l.hotswap("patch Dish {\n    set limits.inventory_cap = 6u move_to: void;\n}\n", 0).unwrap();
+    assert!(l.source.contains("inventory_cap: 6u;"), "the source has the new cap");
+    assert!(l.world.entities.iter().all(|e| e.store.amounts[..ns].iter().all(|&a| a <= cap) && e.store.caps[0] == cap));
+    // The sink absorbed exactly the excess, element by element; the ledger holds.
+    for (el, (now, was)) in l.world.absorbed.iter().zip(&absorbed).enumerate() {
+        let want: u64 = (0..ns).map(|s| over[s] * l.world.chem.substances[s].comp[el] as u64).sum();
+        assert_eq!(now - was, want, "element {el}");
+    }
+    l.world.audit().unwrap();
+    run(&mut l, 20);
+}
+
+#[test]
+fn move_to_needs_a_sink_that_takes_the_excess() {
+    let mut l = live(true);
+    run(&mut l, 20);
+    let was = state(&l);
+    // A sink that accepts only heat cannot take the energy above the cap: rejected, nothing changes.
+    let tray = "patch Dish {\n    add sink tray : [heat];\n    set limits.inventory_cap = 6u move_to: tray;\n}\n";
+    assert!(matches!(l.hotswap(tray, 0), Err(Rejected::Preflight(m)) if m.contains("does not accept")), "{:?}", l.hotswap(tray, 0));
+    assert!(matches!(l.hotswap("patch Dish {\n    set limits.inventory_cap = 6u move_to: nowhere;\n}\n", 0), Err(Rejected::Invalid { code, .. }) if code == "E0901"));
+    assert!(matches!(l.hotswap("patch Dish {\n    set upkeep.base = 25mu move_to: void;\n}\n", 0), Err(Rejected::Invalid { code, .. }) if code == "E0904"));
+    assert_eq!(state(&l), was);
+}

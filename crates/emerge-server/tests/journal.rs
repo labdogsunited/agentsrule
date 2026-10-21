@@ -44,3 +44,18 @@ fn a_run_with_fee_swaps_replays() {
     let again = replay(&text).unwrap();
     assert_eq!((again.tick(), again.revision(), again.digest()), (run.tick(), run.revision(), run.digest()));
 }
+
+#[test]
+fn a_run_with_a_spill_replays() {
+    use emerge_server::journal::Journal;
+    use emerge_server::run::Run;
+    let mut run = Run::create(common::spec(false), Journal::memory()).unwrap();
+    run.step(20);
+    run.hotswap("patch Dish {\n    set limits.inventory_cap = 6u move_to: void;\n}\n", 0, "less room").unwrap();
+    run.step(30);
+    run.close();
+    let text = run.journal.text();
+    assert!(text.contains("move_to: void"));
+    let again = replay(&text).unwrap();
+    assert_eq!((again.tick(), again.revision(), again.digest()), (run.tick(), run.revision(), run.digest()));
+}

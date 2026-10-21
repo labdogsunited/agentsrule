@@ -825,6 +825,31 @@ impl<'a> Resident<'a> {
         }
     }
 
+    /// A lowered inventory cap's excess, sent to its sink (`emerge_ref::swap::spill` on the CPU):
+    /// every entity keeps at most `cap` µ of each substance, and the audit counts the rest as
+    /// absorbed. Returns the µ moved, by substance.
+    pub fn spill(&mut self, cap: u32) -> Vec<u64> {
+        let (g, ns) = (self.gpu, self.ns);
+        let mut amounts: Vec<u32> = g.read(&self.b.amounts, self.n * ns);
+        let mut moved = vec![0u64; ns];
+        for row in amounts.chunks_mut(ns) {
+            for (s, a) in row.iter_mut().enumerate() {
+                if *a > cap {
+                    moved[s] += (*a - cap) as u64;
+                    *a = cap;
+                }
+            }
+        }
+        if !amounts.is_empty() {
+            g.queue.write_buffer(&self.b.amounts, 0, bytemuck::cast_slice(&amounts));
+        }
+        let absorbed = self.elements(&moved.iter().map(|&m| m as u128).collect::<Vec<_>>());
+        if let Some(a) = self.audit.as_mut() {
+            a.absorbed.iter_mut().zip(&absorbed).for_each(|(x, y)| *x += y);
+        }
+        moved
+    }
+
     /// Every live genome's action fees set to `fees` (by action, in `emerge_ref::swap::ACTIONS`
     /// order), in the master and in the view copy; a copy shared by several entities is rewritten
     /// once. Genes copy their fee from the menu and never mutate it, so this keeps each gene's fee

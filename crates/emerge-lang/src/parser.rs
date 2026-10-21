@@ -849,8 +849,14 @@ impl Parser {
             let path = self.path()?;
             self.expect("=")?;
             let value = self.value()?;
+            let move_to = if self.eat_word("move_to") {
+                self.expect(":")?;
+                Some(self.ident()?)
+            } else {
+                None
+            };
             self.expect(";")?;
-            return Ok(PatchOp::Set { path, value });
+            return Ok(PatchOp::Set { path, value, move_to });
         }
         if self.eat_word("add") {
             let position = if self.is_word("after") || self.is_word("before") {

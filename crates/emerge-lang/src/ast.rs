@@ -346,7 +346,8 @@ pub struct Explore {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PatchOp {
-    Set { path: Path, value: Value },
+    /// `move_to`: where the excess goes when the value lowers a cap below current balances (a sink).
+    Set { path: Path, value: Value, move_to: Option<String> },
     Add { position: Option<(bool, Path)>, decl: Box<AddItem> },
     Replace { path: Path, body: Block },
     Remove { path: Path, move_to: Option<String> },

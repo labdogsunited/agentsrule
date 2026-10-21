@@ -13,7 +13,10 @@ pub fn hotswap(live: &mut Live, r: &mut Resident, patch: &str, base: u64) -> Res
     let t = std::time::Instant::now();
     let ns = r.ns();
     let (cells, amounts, ids) = r.balances();
-    preflight(&staged.config, &staged.world, cells.chunks(ns), ids.into_iter().zip(amounts.chunks(ns)))?;
+    preflight(&staged.config, staged.spill.as_ref(), &staged.world, cells.chunks(ns), ids.into_iter().zip(amounts.chunks(ns)))?;
+    if staged.spill.is_some() {
+        r.spill(staged.config.inventory_cap);
+    }
     r.apply_config(&mut staged.world);
     r.sync();
     let compile = staged.compile_s;
