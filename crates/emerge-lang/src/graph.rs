@@ -291,7 +291,7 @@ pub enum Op {
     Wire { from: String, to: String },
     /// Remove a statement (its rule too, if it was the rule's only one).
     Delete { id: String },
-    /// A new rule with one statement of `kind` (`transfer`, `react` or `diffuse`) with defaults
+    /// A new rule with one statement of `kind` (`transfer`, `react`, `diffuse` or `code`) with defaults
     /// the world allows; every rule holds one kind of effect, so a new box is a new rule.
     AddRule { kind: String },
 }
@@ -452,7 +452,14 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<(String,
                     let (_, p) = source.ok_or("the world has no source that emits something")?;
                     format!("diffuse_conserved([{p}], rate: 100bp) @diffuse_conserved_{n};")
                 }
-                other => return Err(format!("unknown kind `{other}`: transfer, react or diffuse")),
+                // A code box: a statement to type over. It starts as a diffusion of the first source's
+                // substance (valid, and it moves nothing the world did not already allow), labelled
+                // `code_N` so the page draws it as a code box.
+                "code" => {
+                    let (_, p) = source.ok_or("the world has no source that emits something")?;
+                    format!("diffuse_conserved([{p}], rate: 100bp) @code_{n};")
+                }
+                other => return Err(format!("unknown kind `{other}`: transfer, react, diffuse or code")),
             };
             let label = stmt.rsplit('@').next().unwrap_or("").trim_end_matches(';').to_string();
             let patch = format!("patch {world} base {base} {{ add after rules.{last_rule}: rule {name} on {field} {{ {stmt} }} }}");

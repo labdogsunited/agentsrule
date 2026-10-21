@@ -273,3 +273,43 @@ fn graph_operations_are_patches_that_swap_the_running_world() {
     emerge_server::journal::replay(&journal).expect("the journal replays");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_code_box_runs_exactly_as_the_same_statement_written_in_a_rule() {
+    use emerge_server::api::Engine;
+    let stmt = "transfer(carbon, from: rock, to: self, amount: 2u) @code_1;";
+    let mut engine = Engine::new();
+    let source = small_dish();
+    let create = |engine: &mut Engine, src: &str| engine.call("world.create", &json!({"source": src, "lineages": ["Drifter"], "seed": 5})).unwrap()["world"].as_str().unwrap().to_string();
+
+    // A: a code box added in the editor, then typed over, at tick 0.
+    let a = create(&mut engine, &source);
+    let r = engine.call("world.graph_op", &json!({"world": a, "base_revision": 0, "op": {"op": "add_rule", "kind": "code"}})).unwrap();
+    let id = r["selected"].as_str().unwrap().to_string();
+    assert_eq!(id, "Dish.rules.new_code_1@code_1");
+    engine.call("world.graph_edit", &json!({"world": a, "id": id, "text": stmt, "base_revision": 1})).unwrap();
+
+    // B: the same rule written in the source from the start.
+    let rule = format!("    rule new_code_1 on cells {{\n        {stmt}\n    }}\n");
+    let marker = "    genesis {";
+    assert!(source.find(marker).unwrap() < source.find("lineage Drifter").unwrap(), "the first `genesis` is the world's");
+    let b = create(&mut engine, &source.replacen(marker, &format!("{rule}\n{marker}"), 1));
+
+    for w in [&a, &b] {
+        engine.call("run.step", &json!({"world": w, "ticks": 1000})).unwrap();
+    }
+    let (da, db) = (engine.run(&a).unwrap().digest(), engine.run(&b).unwrap().digest());
+    assert_eq!(da, db, "the code box and the written rule give the same state after 1000 ticks");
+    // And the rule really did something: without it the digest differs.
+    let c = create(&mut engine, &source);
+    engine.call("run.step", &json!({"world": c, "ticks": 1000})).unwrap();
+    assert_ne!(engine.run(&c).unwrap().digest(), da);
+
+    // Code the engine does not run in a world rule is refused with the reason, and nothing changes.
+    let rev = engine.run(&a).unwrap().revision();
+    for code in ["when true { transfer(carbon, from: rock, to: self, amount: 2u) @code_1; }", "let x = 1u;"] {
+        let r = engine.call("world.graph_edit", &json!({"world": a, "id": id, "text": code, "base_revision": rev}));
+        assert!(r.is_err(), "`{code}` was accepted");
+        assert_eq!(engine.run(&a).unwrap().revision(), rev);
+    }
+}
