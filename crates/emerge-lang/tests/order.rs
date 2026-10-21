@@ -64,14 +64,22 @@ fn dish_rules_land_in_their_phases() {
 }
 
 #[test]
-fn a_rule_that_mixes_kinds_is_reported_not_placed() {
+fn a_rule_that_mixes_kinds_is_placed_by_statement() {
+    // The runner builds a law for each statement of such a rule, so the report lists each statement
+    // under its own step (decision 7).
     let src = DISH.replace(
         "react(rot, rate: 50bp) @react_rot;",
         "react(rot, rate: 50bp) @react_rot;\n        diffuse_conserved([sugar], rate: 300bp) @diffuse_conserved;",
     );
     let r = report(&src, "Dish");
-    assert!(r.contains("rule rotting on cells: not placed, it mixes kinds of effect"), "{r}");
-    assert!(!r.contains("       rule rotting"), "{r}");
+    assert!(!r.contains("not placed"), "{r}");
+    let (transfers, world_rx, venting) = (r.find("Transfers").unwrap(), r.find("World reactions").unwrap(), r.find("Venting").unwrap());
+    let rotting: Vec<usize> = r.match_indices("rule rotting on cells").map(|(i, _)| i).collect();
+    assert_eq!(rotting.len(), 2, "{r}");
+    assert!(transfers < rotting[0] && rotting[0] < world_rx && world_rx < rotting[1] && rotting[1] < venting, "{r}");
+    // Each listing holds only the statements that run in that step.
+    assert!(r[rotting[0]..world_rx].contains("diffuse_conserved") && !r[rotting[0]..world_rx].contains("react(rot"), "{r}");
+    assert!(r[rotting[1]..venting].contains("react(rot") && !r[rotting[1]..venting].contains("diffuse_conserved"), "{r}");
 }
 
 #[test]

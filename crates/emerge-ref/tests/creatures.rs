@@ -54,7 +54,7 @@ fn a_world_without_creatures_refuses_entities() {
     let w = compile(LIFE, &[], opts()).unwrap().world;
     let mut target = w.clone();
     let other = compile(DISH, &["Drifter"], opts()).unwrap().world;
-    let e = target.inject(other, 0).err().expect("injection is refused");
+    let e = target.inject(other, 0).expect_err("injection is refused");
     assert!(e.contains("no creature capability"), "{e}");
     assert!(target.entities.is_empty());
 }

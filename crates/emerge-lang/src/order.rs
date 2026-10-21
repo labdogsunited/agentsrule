@@ -30,10 +30,12 @@ pub fn order(file: &File, world: &str) -> Result<String, String> {
 
     let mut out = format!("world {world}: one tick, in order (spec §7)\n");
     let mut unplaced = Vec::new();
+    // (step, rule, the statements of the rule that run in that step); a rule of several kinds
+    // appears under each of its steps.
     let mut placed = Vec::new();
     for r in &schedule.rules {
-        match &r.slot {
-            Ok(slot) => placed.push((*slot, r)),
+        match r.placements() {
+            Ok(parts) => placed.extend(parts.into_iter().map(|(slot, stmts)| (slot, r, stmts))),
             Err(why) => unplaced.push(format!("rule {} on {}: not placed, {why}", r.name, r.on)),
         }
     }
@@ -75,12 +77,12 @@ pub fn order(file: &File, world: &str) -> Result<String, String> {
             _ => {}
         }
         if s.slot != Slot::None {
-            for (slot, r) in &placed {
+            for (slot, r, stmts) in &placed {
                 if *slot != s.slot {
                     continue;
                 }
                 out.push_str(&format!("       rule {} on {}\n", r.name, r.on));
-                for st in &r.stmts {
+                for st in stmts {
                     out.push_str(&format!("         {}\n", st.text));
                 }
             }

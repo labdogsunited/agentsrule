@@ -180,6 +180,32 @@ pub struct RuleLowering {
 }
 
 impl RuleLowering {
+    /// Where the rule's statements run: one step for a rule of one kind, one entry per step for a
+    /// rule that mixes kinds (the runner runs each statement in its own step). `Err` when some
+    /// statement has no step either, or the rule has no effect at all. Statements without an
+    /// effect (`let`) are left out of a mixed rule.
+    pub fn placements(&self) -> Result<Vec<(Slot, Vec<&StmtLowering>)>, String> {
+        let whole = match &self.slot {
+            Ok(slot) => return Ok(vec![(*slot, self.stmts.iter().collect())]),
+            Err(why) => why,
+        };
+        let mut out: Vec<(Slot, Vec<&StmtLowering>)> = Vec::new();
+        for st in &self.stmts {
+            match &st.slot {
+                Ok(slot) => match out.iter_mut().find(|(s, _)| s == slot) {
+                    Some((_, v)) => v.push(st),
+                    None => out.push((*slot, vec![st])),
+                },
+                Err(why) if why == NO_EFFECT => {}
+                Err(_) => return Err(whole.clone()),
+            }
+        }
+        if out.is_empty() {
+            return Err(whole.clone());
+        }
+        Ok(out)
+    }
+
     /// The path of a statement: `Dish.rules.weather@transfer_nitrate`, or the rule's alone.
     pub fn path(&self, world: &str, st: &StmtLowering) -> String {
         match &st.label {
@@ -272,6 +298,8 @@ pub fn lower(file: &File, world: &str) -> Result<Schedule, String> {
     })
 }
 
+const NO_EFFECT: &str = "it has no effect";
+
 /// The slot a rule's statements put it in, or why it has none.
 pub fn block_slot(body: &[Node<Stmt>]) -> Result<Slot, String> {
     let mut kinds = Vec::new();
@@ -285,7 +313,7 @@ pub fn block_slot(body: &[Node<Stmt>]) -> Result<Slot, String> {
         slot = this;
     }
     if slot == Slot::None {
-        return Err("it has no effect".to_string());
+        return Err(NO_EFFECT.to_string());
     }
     Ok(slot)
 }
