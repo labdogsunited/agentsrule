@@ -391,6 +391,7 @@ pub fn pack_move(world: &World, p: &mut Packed) {
                 w[8] = 4 * substances.len() as u32;
             }
             Law::React { .. } => continue,
+            Law::When { .. } => panic!("{}", world.gpu_unsupported().expect("a conditional law")),
         }
         w[7] = off;
         off += w[8] * nc as u32;
@@ -440,7 +441,8 @@ pub fn pack_transform(world: &World, p: &mut Packed) {
     }
     p.rlaws.clear();
     for law in &world.laws {
-        if let Law::React { reaction, rate_bp } = law {
+        if let Law::React { reaction, rate_bp } = law.parts().0 {
+            assert!(!law.is_conditional(), "{}", world.gpu_unsupported().unwrap_or_default());
             p.rlaws.extend_from_slice(&[*reaction as u32, *rate_bp]);
         }
     }

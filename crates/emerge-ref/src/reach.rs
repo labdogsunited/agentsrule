@@ -28,7 +28,7 @@ pub struct Reach {
 /// The reactions the closure uses: the reaction space, reaction rules and `decompose`.
 fn in_scope(w: &World) -> Vec<ReactionId> {
     let mut r: Vec<ReactionId> = w.menus.reactions.iter().map(|&(r, _)| r).collect();
-    r.extend(w.laws.iter().filter_map(|l| match l {
+    r.extend(w.laws.iter().filter_map(|l| match l.parts().0 {
         Law::React { reaction, .. } => Some(*reaction),
         _ => None,
     }));
@@ -46,8 +46,9 @@ pub fn reach(w: &World) -> Reach {
             *p |= store.amounts[s] > 0;
         }
     }
+    // A conditional inflow counts: the closure is optimistic about when a rule acts.
     for l in &w.laws {
-        if let Law::Inflow { s, .. } = l {
+        if let Law::Inflow { s, .. } = l.parts().0 {
             possible[*s] = true;
         }
     }

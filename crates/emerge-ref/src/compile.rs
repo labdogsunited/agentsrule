@@ -822,54 +822,102 @@ impl<'a> Compiler<'a> {
         if self.grid.as_deref() != Some(on) {
             return err("E0114", path, format!("unknown field `{on}`"));
         }
-        for (i, stmt) in body.iter().enumerate() {
+        let mut lets = Vec::new();
+        self.lower_rule(body, None, &mut lets, &path)
+    }
+
+    /// The statements of a world rule, in order, as laws. A `when` makes the laws inside it
+    /// conditional (`Law::When`), `else` takes the complement, and `let` names an expression for
+    /// the conditions after it (`proposals/rule-conditions.md`). Every effect statement keeps its
+    /// place in declaration order, so each request keeps its position and its random draws.
+    fn lower_rule(&mut self, body: &ast::Block, cond: Option<crate::cond::Ex>, lets: &mut Vec<(String, (crate::cond::Ex, crate::cond::Ty))>, path: &str) -> Result<(), Error> {
+        use crate::cond::{Ex, Ty};
+        for stmt in body {
             self.at.set(stmt.pos);
-            // The step is the schedule's: the runner builds a law only for what the schedule puts there.
-            let step = self.schedule.rules.iter().find(|r| r.name == name).and_then(|r| r.stmts.get(i)).and_then(|st| st.slot.clone().ok()).unwrap_or(Step::None);
-            let Stmt::Call { call: c, .. } = &stmt.node else {
-                return err("E1001", path, "emerge-ref runs only `transfer`, `react` and `diffuse_conserved` statements in rules");
-            };
-            let law = match (step, c.name.as_str()) {
-                (Step::Transfer, "transfer") => {
-                    only_args(c, &["from", "to", "amount", "overflow"], &path)?;
-                    let s = self.held(self.substance(name_of(subject(c, &path)?, &path)?, &path)?, &path)?;
-                    let from = name_of(arg(c, "from", &path)?, &path)?;
-                    if !self.sources.contains_key(from) {
-                        return err("E1001", path, format!("`{from}` is not a source; emerge-ref supports rule transfers from sources only"));
+            match &stmt.node {
+                Stmt::Let { name: n, value } => {
+                    let built = self.condition(value, lets, path)?;
+                    lets.push((n.clone(), built));
+                }
+                Stmt::When { cond: c, then, otherwise } => {
+                    let (ex, ty) = self.condition(c, lets, path)?;
+                    if ty != Ty::Bool {
+                        return err("E0205", path, format!("a `when` needs a true or false condition, not a value of kind {ty:?}"));
                     }
-                    let source = self.emitting_source(from, s, &path)?;
-                    if name_of(arg(c, "to", &path)?, &path)? != "self" {
-                        return err("E0301", path, "a rule's transfer must go `to: self`");
-                    }
-                    let overflow = match opt_arg(c, "overflow") {
-                        Some(o) => Some(self.accepting_sink(name_of(o, &path)?, s, &path)?),
-                        None => None,
+                    let join = |extra: Ex| match &cond {
+                        Some(outer) => outer.clone().and(extra),
+                        None => extra,
                     };
-                    Law::Inflow { s, source, amount: amount(arg(c, "amount", &path)?, &path)?, overflow }
-                }
-                (Step::React, "react") => {
-                    only_args(c, &["rate"], &path)?;
-                    let r = lookup(&self.reactions, name_of(subject(c, &path)?, &path)?, &path, "reaction")?;
-                    let rx = &self.world.chem.reactions[r];
-                    for &(s, _) in rx.inputs.iter().chain(&rx.outputs) {
-                        self.held(s, &path)?;
+                    self.lower_rule(then, Some(join(ex.clone())), &mut lets.clone(), path)?;
+                    if let Some(other) = otherwise {
+                        self.lower_rule(other, Some(join(Ex::Not(Box::new(ex)))), &mut lets.clone(), path)?;
                     }
-                    Law::React { reaction: r, rate_bp: fraction(arg(c, "rate", &path)?, &path)? }
                 }
-                (Step::Transfer, "diffuse_conserved") => {
-                    only_args(c, &["rate"], &path)?;
-                    let Expr::List(items) = subject(c, &path)? else { return err("E0205", path, "expected a list of substances") };
-                    let substances = items
-                        .iter()
-                        .map(|v| self.held(self.substance(name_of(expr(v)?, &path)?, &path)?, &path))
-                        .collect::<Result<_, _>>()?;
-                    Law::Diffuse { substances, rate_bp: fraction(arg(c, "rate", &path)?, &path)? }
+                Stmt::Call { call: c, .. } => {
+                    // The step is the schedule's (`schedule::block_slot`, the one classifier): the runner
+                    // builds a law only for what the schedule puts there.
+                    let step = emerge_lang::schedule::block_slot(std::slice::from_ref(stmt)).unwrap_or(Step::None);
+                    let law = self.effect(c, step, path)?;
+                    self.world.laws.push(match &cond {
+                        Some(ex) => Law::When { cond: ex.clone(), law: Box::new(law) },
+                        None => law,
+                    });
                 }
-                (_, other) => return err("E1001", path, format!("`{other}` is not supported by emerge-ref yet")),
-            };
-            self.world.laws.push(law);
+                _ => return err("E1001", path, "emerge-ref runs only `transfer`, `react`, `diffuse_conserved`, `when` and `let` in rules"),
+            }
         }
         Ok(())
+    }
+
+    /// A condition, typed: integers, amounts of the field's substances at the start of the tick, caps
+    /// and the tick (`cond::build`).
+    fn condition(&self, e: &Expr, lets: &[(String, (crate::cond::Ex, crate::cond::Ty))], path: &str) -> Result<(crate::cond::Ex, crate::cond::Ty), Error> {
+        let substance = |n: &str| self.substance(n, path).ok().filter(|&s| self.held(s, path).is_ok());
+        crate::cond::build(e, &substance, lets).or_else(|(code, message)| err(code, path, message))
+    }
+
+    /// One effect statement as a law.
+    fn effect(&mut self, c: &ast::Call, step: Step, path: &str) -> Result<Law, Error> {
+        let path = path.to_string();
+        let law = match (step, c.name.as_str()) {
+            (Step::Transfer, "transfer") => {
+                only_args(c, &["from", "to", "amount", "overflow"], &path)?;
+                let s = self.held(self.substance(name_of(subject(c, &path)?, &path)?, &path)?, &path)?;
+                let from = name_of(arg(c, "from", &path)?, &path)?;
+                if !self.sources.contains_key(from) {
+                    return err("E1001", path, format!("`{from}` is not a source; emerge-ref supports rule transfers from sources only"));
+                }
+                let source = self.emitting_source(from, s, &path)?;
+                if name_of(arg(c, "to", &path)?, &path)? != "self" {
+                    return err("E0301", path, "a rule's transfer must go `to: self`");
+                }
+                let overflow = match opt_arg(c, "overflow") {
+                    Some(o) => Some(self.accepting_sink(name_of(o, &path)?, s, &path)?),
+                    None => None,
+                };
+                Law::Inflow { s, source, amount: amount(arg(c, "amount", &path)?, &path)?, overflow }
+            }
+            (Step::React, "react") => {
+                only_args(c, &["rate"], &path)?;
+                let r = lookup(&self.reactions, name_of(subject(c, &path)?, &path)?, &path, "reaction")?;
+                let rx = &self.world.chem.reactions[r];
+                for &(s, _) in rx.inputs.iter().chain(&rx.outputs) {
+                    self.held(s, &path)?;
+                }
+                Law::React { reaction: r, rate_bp: fraction(arg(c, "rate", &path)?, &path)? }
+            }
+            (Step::Transfer, "diffuse_conserved") => {
+                only_args(c, &["rate"], &path)?;
+                let Expr::List(items) = subject(c, &path)? else { return err("E0205", path, "expected a list of substances") };
+                let substances = items
+                    .iter()
+                    .map(|v| self.held(self.substance(name_of(expr(v)?, &path)?, &path)?, &path))
+                    .collect::<Result<_, _>>()?;
+                Law::Diffuse { substances, rate_bp: fraction(arg(c, "rate", &path)?, &path)? }
+            }
+            (_, other) => return err("E1001", path, format!("`{other}` is not supported by emerge-ref yet")),
+        };
+        Ok(law)
     }
 
     /// A rule on a state field: one `life_like(born: […], survives: […])` on a two-state field.

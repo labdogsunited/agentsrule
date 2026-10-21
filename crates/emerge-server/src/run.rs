@@ -59,6 +59,11 @@ impl Run {
         if spec.gpu && !live.world.states.is_empty() {
             return Err(Rejected::Invalid { code: "E1001".into(), path: "fields".into(), message: "state fields run on the CPU only; the GPU runtime would leave them out".into() });
         }
+        if spec.gpu {
+            if let Some(why) = live.world.gpu_unsupported() {
+                return Err(Rejected::Invalid { code: "E1001".into(), path: "rules".into(), message: why });
+            }
+        }
         let (backend, device) = if spec.gpu {
             let gpu: &'static Gpu = Box::leak(Box::new(Gpu::new()));
             (Backend::Gpu(Box::new(Resident::new(gpu, &mut live.world))), format!("gpu: {}", gpu.name))

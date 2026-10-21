@@ -230,6 +230,33 @@ pub enum Law {
     Diffuse { substances: Vec<SubstanceId>, rate_bp: u32 },
     /// Reaction rule: `react(reaction, rate)`. Transform.
     React { reaction: ReactionId, rate_bp: u32 },
+    /// A `when` around one of the others (`proposals/rule-conditions.md`): it acts in the cells where
+    /// the condition holds on the start-of-tick snapshot, and in no others. Never nested: the
+    /// conditions of nested `when`s and of `else` are joined into one.
+    When { cond: crate::cond::Ex, law: Box<Law> },
+}
+
+impl World {
+    /// Why the GPU runtime cannot run this world, if it cannot: a conditional world rule
+    /// (`proposals/rule-conditions.md`, stage 2 adds the kernels).
+    pub fn gpu_unsupported(&self) -> Option<String> {
+        self.laws.iter().any(Law::is_conditional).then(|| "a world rule with `when` runs on the CPU runner only for now; the GPU runtime has no kernel for conditions yet (proposals/rule-conditions.md, stage 2)".to_string())
+    }
+}
+
+impl Law {
+    /// The law that acts, and the condition it acts under, if any.
+    pub fn parts(&self) -> (&Law, Option<&crate::cond::Ex>) {
+        match self {
+            Law::When { cond, law } => (law, Some(cond)),
+            other => (other, None),
+        }
+    }
+
+    /// Whether a condition guards it (the GPU runtime has no kernel for conditions yet).
+    pub fn is_conditional(&self) -> bool {
+        matches!(self, Law::When { .. })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -422,7 +449,7 @@ pub struct LedgerError {
     pub drift: i128,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct World {
     pub chem: Chemistry,
     pub cells: Vec<Store>,
@@ -433,6 +460,9 @@ pub struct World {
     pub sources: Vec<String>,
     pub sinks: Vec<Sink>,
     pub laws: Vec<Law>,
+    /// Per law, in the cells of a conditional reaction rule, whether its condition held when the tick's
+    /// requests were made (the start-of-tick state); used in Transform, after the transfers.
+    pub react_masks: Vec<Option<Vec<bool>>>,
     /// State fields (`field NAME : Grid(…) states […]`): one discrete state per cell, outside the
     /// ledger, updated at the start of Set from the previous states (`proposals/field-rules.md`).
     pub states: Vec<StateField>,
@@ -507,6 +537,68 @@ pub struct World {
     snap_ids: Vec<u64>,
 }
 
+// The state digest of a run is a hash of this output (`emerge-server`'s `Run::digest`), so it must not
+// change when a field that is not state is added: `react_masks` is scratch space between two phases of
+// a tick, and is left out, which keeps every recorded digest valid.
+impl std::fmt::Debug for World {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("World")
+            .field("chem", &self.chem)
+            .field("cells", &self.cells)
+            .field("neighbours", &self.neighbours)
+            .field("space", &self.space)
+            .field("entities", &self.entities)
+            .field("sources", &self.sources)
+            .field("sinks", &self.sinks)
+            .field("laws", &self.laws)
+            .field("states", &self.states)
+            .field("creatures", &self.creatures)
+            .field("upkeep", &self.upkeep)
+            .field("waste", &self.waste)
+            .field("remains", &self.remains)
+            .field("decompose", &self.decompose)
+            .field("max_age", &self.max_age)
+            .field("max_entities", &self.max_entities)
+            .field("mind_steps", &self.mind_steps)
+            .field("contract", &self.contract)
+            .field("inventory_cap", &self.inventory_cap)
+            .field("seed", &self.seed)
+            .field("tick", &self.tick)
+            .field("next_id", &self.next_id)
+            .field("emitted", &self.emitted)
+            .field("absorbed", &self.absorbed)
+            .field("record_events", &self.record_events)
+            .field("events", &self.events)
+            .field("births", &self.births)
+            .field("deaths", &self.deaths)
+            .field("entity_extent", &self.entity_extent)
+            .field("stolen", &self.stolen)
+            .field("record_genome_changes", &self.record_genome_changes)
+            .field("genome_changes", &self.genome_changes)
+            .field("deaths_log", &self.deaths_log)
+            .field("accounts", &self.accounts)
+            .field("guarded", &self.guarded)
+            .field("blocked", &self.blocked)
+            .field("one_per_substance", &self.one_per_substance)
+            .field("binding", &self.binding)
+            .field("track", &self.track)
+            .field("record_transfers", &self.record_transfers)
+            .field("last_transfers", &self.last_transfers)
+            .field("mutation", &self.mutation)
+            .field("variation", &self.variation)
+            .field("menus", &self.menus)
+            .field("requests", &self.requests)
+            .field("sums", &self.sums)
+            .field("stage1", &self.stage1)
+            .field("stage2", &self.stage2)
+            .field("over", &self.over)
+            .field("near", &self.near)
+            .field("snap_pos", &self.snap_pos)
+            .field("snap_ids", &self.snap_ids)
+            .finish()
+    }
+}
+
 impl World {
     /// A world with creatures: `upkeep` and `remains` are checked together, so a payment route
     /// that does not close is an error.
@@ -544,6 +636,7 @@ impl World {
             sources: Vec::new(),
             sinks,
             laws: Vec::new(),
+            react_masks: Vec::new(),
             states: Vec::new(),
             creatures,
             upkeep,
@@ -838,8 +931,24 @@ impl World {
                 }
             }
         }
-        for law in &self.laws {
+        // A condition reads the cell as the tick begins, which is how the cell is now: nothing has
+        // changed a cell's amounts yet (transfers are only requested here, and settled below).
+        self.react_masks = vec![None; self.laws.len()];
+        for (li, law) in self.laws.iter().enumerate() {
+            let (law, cond) = law.parts();
+            if cond.is_some() && matches!(law, Law::React { .. }) {
+                self.react_masks[li] = Some(vec![true; self.cells.len()]);
+            }
             for c in 0..self.cells.len() {
+                if let Some(cond) = cond {
+                    let cell = &self.cells[c];
+                    if !cond.holds(&crate::cond::Ctx { tick: self.tick, amounts: &cell.amounts[..], caps: &cell.caps[..] }) {
+                        if let Some(m) = &mut self.react_masks[li] {
+                            m[c] = false;
+                        }
+                        continue;
+                    }
+                }
                 match law {
                     Law::Inflow { s, source, amount, overflow } => {
                         request(End::Source(*source), End::Cell(c), *s, *amount, *overflow, false)
@@ -858,6 +967,7 @@ impl World {
                         }
                     }
                     Law::React { .. } => {}
+                    Law::When { .. } => unreachable!("a `when` is never nested"),
                 }
             }
         }
@@ -979,10 +1089,13 @@ impl World {
                 }
             }
         }
-        for law in &self.laws {
-            if let Law::React { reaction, rate_bp } = *law {
+        for (li, law) in self.laws.iter().enumerate() {
+            if let Law::React { reaction, rate_bp } = *law.parts().0 {
                 let r = &self.chem.reactions[reaction];
-                for cell in &mut self.cells {
+                for (ci, cell) in self.cells.iter_mut().enumerate() {
+                    if self.react_masks.get(li).and_then(|m| m.as_ref()).is_some_and(|m| !m[ci]) {
+                        continue;
+                    }
                     // At most the whole input: a catalysed rate above 10_000bp would take more than the cell holds.
                     let rate_bp = r.catalyst.map_or(rate_bp, |k| k.scale_in(contract, rate_bp, cell.amounts[k.s]).min(10_000));
                     let mut extent = Mu::MAX;

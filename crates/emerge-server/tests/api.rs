@@ -306,8 +306,12 @@ fn a_code_box_runs_exactly_as_the_same_statement_written_in_a_rule() {
     assert_ne!(engine.run(&c).unwrap().digest(), da);
 
     // Code the engine does not run in a world rule is refused with the reason, and nothing changes.
+    // A `when` runs since decision 12 stage 1 (the code box takes it); what stage 2 adds does not yet.
+    let when = "when self.carbon < 30u { transfer(carbon, from: rock, to: self, amount: 2u) @code_1; }";
+    let r = engine.call("world.graph_edit", &json!({"world": a, "id": id, "text": when, "base_revision": engine.run(&a).unwrap().revision()}));
+    assert!(r.is_ok(), "a conditional statement is accepted: {r:?}");
     let rev = engine.run(&a).unwrap().revision();
-    for code in ["when true { transfer(carbon, from: rock, to: self, amount: 2u) @code_1; }", "let x = 1u;"] {
+    for code in ["when above.carbon > 0u { transfer(carbon, from: rock, to: self, amount: 2u) @code_1; }", "for cell in cells { transfer(carbon, from: rock, to: self, amount: 2u) @code_1; }", "let x = 1u;"] {
         let r = engine.call("world.graph_edit", &json!({"world": a, "id": id, "text": code, "base_revision": rev}));
         assert!(r.is_err(), "`{code}` was accepted");
         assert_eq!(engine.run(&a).unwrap().revision(), rev);
@@ -437,4 +441,25 @@ fn view_pick_tells_what_is_at_a_point_on_both_backends() {
     // Outside the world, and not numbers, are errors.
     assert!(c.call("view.pick", json!({"world": cpu, "x": -1.0, "y": 5.0})).get("error").is_some());
     assert!(c.call("view.pick", json!({"world": cpu, "x": "left", "y": 5.0})).get("error").is_some());
+}
+
+#[test]
+fn a_conditional_world_rule_runs_on_the_cpu_and_the_gpu_refuses_it() {
+    let mut c = server();
+    let source = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 96, h: 96)").replace("count: 2_000;", "count: 300;");
+    let gate = "    rule gate on cells {\n        when self.nitrate < 30u {\n            transfer(nitrate, from: rock, to: self, amount: 1u, overflow: void) @transfer_gate;\n        }\n    }\n\n";
+    let conditional = source.replacen("    genesis {", &format!("{gate}    genesis {{"), 1);
+    // On the CPU it runs, and its box is in the graph.
+    let cpu = c.ok("world.create", json!({"source": conditional, "lineages": ["Drifter"], "seed": 2}))["world"].as_str().unwrap().to_string();
+    assert_eq!(c.ok("run.step", json!({"world": cpu, "ticks": 20}))["tick"], 20);
+    let g = c.ok("world.graph", json!({"world": cpu}));
+    assert!(g["nodes"].as_array().unwrap().iter().any(|n| n["id"].as_str().is_some_and(|i| i.starts_with("Dish.rules.gate")) && n["kind"] == "code"), "the `when` is a code box");
+    // The GPU refuses it at creation, with the reason, and in a swap of a world it already runs.
+    let refused = c.call("world.create", json!({"source": conditional, "lineages": ["Drifter"], "seed": 2, "backend": "gpu"}));
+    assert!(refused["error"]["message"].as_str().unwrap_or_default().contains("CPU runner only"), "{refused}");
+    let gpu = c.ok("world.create", json!({"source": source, "lineages": ["Drifter"], "seed": 2, "backend": "gpu"}))["world"].as_str().unwrap().to_string();
+    let patch = "patch Dish {\n    add after rules.spread: rule gate on cells { when self.nitrate < 30u { transfer(nitrate, from: rock, to: self, amount: 1u, overflow: void) @transfer_gate; } }\n}\n";
+    let swap = c.call("world.hotswap", json!({"world": gpu, "base_revision": 0, "patch": patch}));
+    assert_eq!(swap["error"]["data"]["kind"], "not_swappable", "{swap}");
+    assert_eq!(c.ok("run.step", json!({"world": gpu, "ticks": 5}))["tick"], 5, "the GPU world is unchanged and runs on");
 }

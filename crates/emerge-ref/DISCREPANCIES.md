@@ -10,6 +10,6 @@ Settled: a rule that mixes kinds of effect is `E0303`, and a rule with no effect
 
 ## Not yet covered by the runner
 
-The `channel` sense; `delay` and arithmetic regulation kinds; `emit` and field signals (so mutation cannot insert `emit` genes yet); rewrite rulesets; rounds and `every N ticks` (`core.md` §6.5); `rate: evolvable`; recombination; derived edges; `charge` laws in their general form (only upkeep); the birth log and attribution counters.
+`when`, `else` and `let` in world rules run only in stage 1's form (`proposals/rule-conditions.md`): conditions over `self.<substance>`, `cap()` and `tick`, on the CPU; `for` in a rule, neighbour and other-field reads, division, floats and cell-to-cell transfers are refused with `E1001`; the GPU refuses a conditional rule. The `channel` sense; `delay` and arithmetic regulation kinds; `emit` and field signals (so mutation cannot insert `emit` genes yet); rewrite rulesets; rounds and `every N ticks` (`core.md` §6.5); `rate: evolvable`; recombination; derived edges; `charge` laws in their general form (only upkeep); the birth log and attribution counters.
 
 What each construct does in the checker, the CPU runner and the GPU runtime is in `language.md` §15.

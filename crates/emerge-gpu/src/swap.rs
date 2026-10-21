@@ -10,6 +10,9 @@ use emerge_ref::swap::{preflight, Live, Rejected};
 /// time apart from it.
 pub fn hotswap(live: &mut Live, r: &mut Resident, patch: &str, base: u64) -> Result<(f64, f64), Rejected> {
     let mut staged = live.stage(patch, base)?;
+    if let Some(why) = staged.world.gpu_unsupported() {
+        return Err(Rejected::NotSwappable(why));
+    }
     let t = std::time::Instant::now();
     let ns = r.ns();
     let (cells, amounts, ids) = r.balances();

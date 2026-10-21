@@ -450,6 +450,8 @@ rule conway on life {
 
 Senses do not read state fields, so a gene cannot (`any quantity` does not include them). Rules on state fields are not swappable.
 
+**What the runner evaluates (stage 1, `proposals/rule-conditions.md`).** `when`, `else` and `let` run in transfer and reaction rules on the CPU runner, around the effects that already run (`transfer` from a source to `self`, `react`, `diffuse_conserved`). The condition is evaluated in each cell on the start-of-tick snapshot, in exact integers: `self.<substance>`, `cap(<substance>)`, `tick`, amount and integer literals, `+`, `-`, `*` by an integer, comparisons, `and`, `or`, `not`; amounts compare with amounts and integers with integers (`E0205`). Division, floats, neighbour and other-field reads, reductions and `for` are refused with `E1001` and are stage 2. The GPU runtime refuses a world with a conditional rule, at creation and in a swap.
+
 ### 7.3 Statements
 
 | Statement | Allowed in |
