@@ -112,7 +112,7 @@ impl Run {
                 Backend::Gpu(r) => r.tick(),
             }
             done += 1;
-            if self.tick() % self.history.every == 0 {
+            if self.tick().is_multiple_of(self.history.every) {
                 self.sample();
             }
         }
