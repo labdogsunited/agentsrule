@@ -138,3 +138,61 @@ fn world_graph_draws_the_running_source() {
     // An unknown world is an error, not a panic.
     assert!(c.call("world.graph", json!({"world": "nope"})).get("error").is_some());
 }
+
+fn small_dish() -> String {
+    DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 32, h: 32)").replace("count: 2_000;", "count: 50;")
+}
+
+fn text_of(g: &Value, id: &str) -> String {
+    g["nodes"].as_array().unwrap().iter().find(|n| n["id"] == id).unwrap_or_else(|| panic!("no box {id}"))["text"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn editing_a_box_swaps_the_running_world_and_the_journal_replays() {
+    let dir = std::env::temp_dir().join(format!("emerge-graph-edit-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut c = client(start(Some(dir.clone())));
+    let w = c.ok("world.create", json!({"source": small_dish(), "lineages": ["Drifter"], "seed": 2}))["world"].as_str().unwrap().to_string();
+    c.ok("run.step", json!({"world": w, "ticks": 20}));
+    let g = c.ok("world.graph", json!({"world": w}));
+    let id = "Dish.rules.sunlight@transfer_light";
+    assert!(text_of(&g, id).contains("amount: 40mu"));
+    let base = g["revision"].as_u64().unwrap();
+
+    // A labelled statement: the amount of sunlight changes, the revision moves, the world runs on.
+    let edited = text_of(&g, id).replace("40mu", "20mu");
+    c.ok("world.graph_edit", json!({"world": w, "id": id, "text": edited, "base_revision": base}));
+    let g2 = c.ok("world.graph", json!({"world": w}));
+    assert_eq!(g2["revision"].as_u64().unwrap(), base + 1);
+    assert!(text_of(&g2, id).contains("amount: 20mu"), "{}", text_of(&g2, id));
+    assert_eq!(c.ok("run.step", json!({"world": w, "ticks": 10}))["tick"], 30);
+
+    // A statement without a label: the rule's body is replaced with that statement swapped.
+    let smell = g2["nodes"].as_array().unwrap().iter().find(|n| n["group"] == "Dish.rules.smell").unwrap().clone();
+    let id2 = smell["id"].as_str().unwrap();
+    assert!(id2.contains('#'), "{id2}");
+    c.ok("world.graph_edit", json!({"world": w, "id": id2, "text": smell["text"].as_str().unwrap().replace("keep: 0.9", "keep: 0.8"), "base_revision": base + 1}));
+    let g3 = c.ok("world.graph", json!({"world": w}));
+    assert!(text_of(&g3, id2).contains("keep: 0.8"), "{}", text_of(&g3, id2));
+
+    // A bad edit, and a stale one, change nothing.
+    let rev = g3["revision"].as_u64().unwrap();
+    let bad = c.call("world.graph_edit", json!({"world": w, "id": id, "text": "transfer(light, from: sun", "base_revision": rev}));
+    assert!(bad["error"]["message"].as_str().unwrap().contains("at the end of the text"), "{bad}");
+    let unknown = c.call("world.graph_edit", json!({"world": w, "id": id, "text": text_of(&g3, id).replace("transfer(light,", "transfer(unobtainium,"), "base_revision": rev}));
+    assert_eq!(unknown["error"]["data"]["kind"], "invalid", "{unknown}");
+    let stale = c.call("world.graph_edit", json!({"world": w, "id": id, "text": text_of(&g3, id), "base_revision": base}));
+    assert_eq!(stale["error"]["data"]["kind"], "stale", "{stale}");
+    let not_a_statement = c.call("world.graph_edit", json!({"world": w, "id": "Dish.fields.cells", "text": "x", "base_revision": rev}));
+    assert!(not_a_statement.get("error").is_some());
+    let g4 = c.ok("world.graph", json!({"world": w}));
+    assert_eq!((g4["revision"].as_u64().unwrap(), text_of(&g4, id)), (rev, text_of(&g3, id)));
+
+    // The journal holds the edits, and replays to the same state.
+    let journal = std::fs::read_to_string(dir.join(format!("{w}.jsonl"))).unwrap();
+    assert!(journal.contains("graph edit of Dish.rules.sunlight@transfer_light"), "the swap is journalled with its reason");
+    let replayed = emerge_server::journal::replay(&journal).expect("the journal replays");
+    // The journal is replayed to its last entry, the second swap at tick 30; swaps that were refused are not in it.
+    assert_eq!((replayed.tick(), replayed.revision()), (30, rev));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

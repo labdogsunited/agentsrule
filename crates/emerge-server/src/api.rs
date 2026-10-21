@@ -178,6 +178,29 @@ impl Engine {
                     "wires": g.wires.iter().map(|w| json!({"from": w.from, "to": w.to, "substance": w.substance})).collect::<Vec<_>>(),
                 }))
             }
+            "world.graph_edit" => {
+                // Replaces the text of one statement box: the patch is made from the graph's model
+                // and goes through the same `hotswap` as any patch (checked, preflighted, journalled).
+                let (id, text) = (text(p, "id")?.to_string(), text(p, "text")?.to_string());
+                let base = number(p, "base_revision", None)?;
+                let e = self.entry(p)?;
+                let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+                let world = file.items.iter().find_map(|i| match &i.node {
+                    emerge_lang::ast::Item::World(w) => Some(w.name.clone()),
+                    _ => None,
+                });
+                let g = emerge_lang::graph::graph(&file, &world.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?).map_err(|m| fault(-32005, m))?;
+                let patch = emerge_lang::graph::edit_patch(&g, &id, &text, base).map_err(|m| fault(-32602, m))?;
+                // A syntax error is told in terms of the user's text, not of the patch made from it.
+                if let Err(d) = emerge_lang::parse(&patch) {
+                    if let (1, Some(off)) = (d.line, patch.find(&text)) {
+                        let col = d.col.saturating_sub(off);
+                        let at = if col == 0 || col > text.chars().count() { "at the end of the text".to_string() } else { format!("at column {col} of the text") };
+                        return Err(Fault { code: -32001, message: format!("invalid: {} {at}: {}", d.code, d.message), data: Some(json!({"kind": "invalid"})) });
+                    }
+                }
+                e.run.hotswap(&patch, base, &format!("graph edit of {id}")).map_err(|r| rejected(&r))
+            }
             "world.hotswap" => {
                 let (patch, reason) = (text(p, "patch")?.to_string(), p["reason"].as_str().unwrap_or("").to_string());
                 let base = number(p, "base_revision", None)?;

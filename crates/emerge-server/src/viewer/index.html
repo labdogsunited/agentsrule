@@ -19,7 +19,7 @@
   #status.bad { color: var(--bad); }
   #where { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
   .layout { flex: 1; display: flex; min-height: 0; }
-  aside { width: 280px; flex: none; padding: 14px 16px; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; }
+  aside { display: flex; flex-direction: column; width: 280px; flex: none; padding: 14px 16px; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; }
   aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 18px 0 8px; font-weight: 600; }
   aside h2:first-child { margin-top: 0; }
   label { display: block; color: var(--muted); font-size: 12px; margin: 8px 0 3px; }
@@ -42,6 +42,8 @@
   #empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
   #cam { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 4px 4px 10px; color: var(--muted); font-variant-numeric: tabular-nums; cursor: default; }
   #cam button { padding: 3px 8px; }
+  body.graph #sel { order: -1; margin-bottom: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  body.graph #sel h2 { margin-top: 0; }
   .modes { display: flex; gap: 4px; }
   .modes button { padding: 3px 10px; }
   .modes button.on { background: var(--accent); color: #1a1408; border-color: var(--accent); font-weight: 600; }
@@ -63,6 +65,13 @@
   .box.k-code .t { background: #9aa1ad; }
   .col-head { position: absolute; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
   #picked { font: 12px/1.4 ui-monospace, monospace; color: var(--ink); white-space: pre-wrap; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 260px; overflow: auto; }
+  #picked textarea { width: 100%; min-height: 90px; resize: vertical; background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; font: inherit; }
+  #picked textarea.dirty { border-color: var(--accent); }
+  #picked .edit { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
+  #picked .edit button { padding: 4px 10px; }
+  #picked .msg { font: 12px system-ui, sans-serif; margin-top: 6px; white-space: pre-wrap; }
+  #picked .msg.bad { color: var(--bad); }
+  #picked .msg.ok { color: var(--ok); }
   #picked small { display: block; color: var(--muted); font: 11px system-ui, sans-serif; margin-bottom: 4px; }
   @media (max-width: 720px) {
     .layout { flex-direction: column; }
@@ -106,10 +115,12 @@
     </div>
     <h2>Stats</h2>
     <div id="stats">–</div>
-    <h2>Selected</h2>
-    <div id="picked">Click a box in the graph.</div>
-    <label for="decls">Other declarations</label>
-    <select id="decls"><option value="">–</option></select>
+    <div id="sel">
+      <h2>Selected</h2>
+      <div id="picked">Click a box in the graph.</div>
+      <label for="decls">Other declarations</label>
+      <select id="decls"><option value="">–</option></select>
+    </div>
     <div id="error"></div>
   </aside>
   <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
@@ -277,7 +288,8 @@ function drawGraph() {
   const cam = cams.graph;
   if (cam.fit || cam.w !== maxX || cam.h !== maxY) { cam.w = maxX; cam.h = maxY; if (cam.fit) fitCam(cam); }
   drawWires();
-  if (selected) select(selected);
+  if (selected && !dirty) select(selected);
+  else for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === selected);
   if (mode === "graph") applyCam(cam);
   const other = g.nodes.filter((n) => !["store", "reaction", "transfer", "react", "diffuse", "signal", "code", "rule"].includes(n.kind));
   $("decls").innerHTML = `<option value="">${other.length} declarations</option>` + other.map((n) => `<option value="${n.id}"></option>`).join("");
@@ -319,8 +331,13 @@ function drawWires() {
   }
 }
 
+// The selected box. A statement is edited in place: Apply sends the new text, the server makes the
+// patch and swaps the running world (`world.graph_edit`); a refused edit changes nothing and its
+// reason is shown. Other boxes are read-only so far.
+let dirty = false;
 function select(id) {
   selected = id;
+  dirty = false;
   for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === id);
   const n = graphData && graphData.nodes.find((x) => x.id === id);
   const picked = $("picked");
@@ -328,7 +345,38 @@ function select(id) {
   if (!n) { picked.textContent = "Click a box in the graph."; return; }
   const small = document.createElement("small");
   small.textContent = `${n.id}${n.step ? ` · runs in ${n.step}` : ""} · line ${n.line}`;
-  picked.append(small, document.createTextNode(n.text));
+  picked.append(small);
+  if (!n.group) { picked.append(document.createTextNode(n.text)); return; }
+  const ta = document.createElement("textarea"), msg = document.createElement("div"), row = document.createElement("div");
+  const apply = document.createElement("button"), revert = document.createElement("button");
+  ta.value = n.text;
+  ta.spellcheck = false;
+  ta.rows = Math.min(8, Math.max(3, Math.ceil(n.text.length / 34)));
+  ta.oninput = () => { dirty = ta.value !== n.text; ta.classList.toggle("dirty", dirty); };
+  msg.className = "msg";
+  row.className = "edit";
+  apply.textContent = "Apply";
+  apply.className = "primary";
+  revert.textContent = "Revert";
+  const doApply = async () => {
+    msg.className = "msg";
+    msg.textContent = "";
+    try {
+      await call("world.graph_edit", { world: $("world").value, id: n.id, text: ta.value, base_revision: graphData.revision });
+      dirty = false;
+      await loadGraph();
+      const m = $("picked").querySelector(".msg");
+      if (m) { m.className = "msg ok"; m.textContent = `Applied: the world runs the new text (revision ${graphData.revision}).`; }
+    } catch (e) {
+      msg.className = "msg bad";
+      msg.textContent = String(e.message || e);
+    }
+  };
+  apply.onclick = doApply;
+  ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doApply(); } };
+  revert.onclick = () => select(n.id);
+  row.append(apply, revert);
+  picked.append(ta, row, msg);
 }
 
 async function loadGraph() {
@@ -344,6 +392,7 @@ function setMode(m) {
   $("m-picture").classList.toggle("on", m === "picture");
   $("m-graph").classList.toggle("on", m === "graph");
   $("graph").style.display = m === "graph" ? "block" : "none";
+  document.body.classList.toggle("graph", m === "graph");
   const pic = m === "picture";
   $("frame").style.display = pic && $("frame").src ? "block" : "none";
   $("empty").style.display = pic && !$("frame").src ? "flex" : "none";

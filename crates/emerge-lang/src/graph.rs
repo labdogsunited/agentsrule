@@ -255,3 +255,21 @@ pub fn graph(file: &File, world: &str) -> Result<Graph, String> {
     }
     Ok(Graph { world: world.to_string(), nodes, wires })
 }
+
+/// The patch that replaces the text of one statement box (`proposals/node-editor.md` §6, N2):
+/// `replace rules.R@label { … }` for a labelled statement, and for one without a label the rule's
+/// whole body with that statement swapped. `base` is the revision the graph was drawn at. Only
+/// statements can be edited; the other boxes are not yet (a reaction or a store has no `replace`).
+pub fn edit_patch(g: &Graph, id: &str, text: &str, base: u64) -> Result<String, String> {
+    let node = g.nodes.iter().find(|n| n.id == id).ok_or_else(|| format!("no box `{id}`"))?;
+    let Some(rule_id) = &node.group else { return Err(format!("`{id}` is not a statement; only statements can be edited so far")) };
+    let prefix = format!("{}.", g.world);
+    let rel = |s: &str| s.strip_prefix(&prefix).unwrap_or(s).to_string();
+    let body = if id.contains('@') {
+        format!("replace {} {{ {text} }}", rel(id))
+    } else {
+        let stmts: Vec<String> = g.nodes.iter().filter(|n| n.group.as_ref() == Some(rule_id)).map(|n| if n.id == id { text.to_string() } else { n.text.clone() }).collect();
+        format!("replace {} {{ {} }}", rel(rule_id), stmts.join(" "))
+    };
+    Ok(format!("patch {} base {base} {{ {body} }}", g.world))
+}
