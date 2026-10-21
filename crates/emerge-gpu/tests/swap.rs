@@ -44,6 +44,9 @@ fn the_same_swaps_give_the_same_world_on_cpu_and_gpu() {
         (20, "patch Drifter {\n    set mutation.rate = 0.2;\n    set mutation.duplicate_gene = 0.1;\n}\n".into()),
         (24, "patch Dish {\n    set limits.inventory_cap = 150u;\n}\n".into()),
         (28, "patch Dish {\n    remove rules.rain;\n    remove rules.many;\n}\n".into()),
+        // Action fees (H7): every live gene and the menu that mutation copies from.
+        (34, "patch Dish {\n    set actions.take.cost = 8mu;\n    set actions.turn.cost = 0u;\n    set actions.move.cost = 30mu;\n}\n".into()),
+        (70, "patch Dish {\n    set actions.steal.cost = 12mu;\n    set actions.take.cost = 3mu;\n}\n".into()),
     ];
     let gpu = Gpu::new();
     let mut cpu = live(&src);
@@ -71,7 +74,7 @@ fn the_same_swaps_give_the_same_world_on_cpu_and_gpu() {
         bad += differences(&cpu, &r, tick);
         assert_eq!(bad, 0, "tick {tick}: CPU and GPU differ");
     }
-    assert_eq!((cpu.revision, on_gpu.revision), (7, 7));
+    assert_eq!((cpu.revision, on_gpu.revision), (9, 9));
     let w = &cpu.world;
     assert!(w.births > 0 && w.deaths > 0 && !w.entities.is_empty(), "births {}, deaths {}, alive {}", w.births, w.deaths, w.entities.len());
     cpu.world.audit().unwrap();
@@ -90,5 +93,10 @@ fn a_rule_change_pauses_the_full_dish_briefly() {
     let (pause, compile) = hotswap(&mut l, &mut r, "patch Dish {\n    set rules.rotting@react_rot.rate = 80bp;\n}\n", 0).unwrap();
     println!("full dish, {} entities: pause {:.1} ms, compile {:.0} ms", r.n, pause * 1e3, compile * 1e3);
     assert!(pause < 0.2, "the pause took {pause} s");
+    r.tick();
+    // A fee change rewrites every live genome's fee words as well (H7).
+    let (pause, _) = hotswap(&mut l, &mut r, "patch Dish {\n    set actions.take.cost = 8mu;\n}\n", 1).unwrap();
+    println!("full dish, {} entities: fee swap pause {:.1} ms", r.n, pause * 1e3);
+    assert!(pause < 0.2, "the fee swap's pause took {pause} s");
     r.tick();
 }

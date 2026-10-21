@@ -25,7 +25,7 @@ const REJECTED: [(&str, &str); 5] = [
     ("stale", "patch Dish {\n    set upkeep.base = 22mu;\n}\n"),
     ("invalid", "patch Dish {\n    set rules.rotting@react_rot.rate = 20_000bp;\n}\n"),
     ("not swappable: space", "patch Dish {\n    set space.max_interaction_radius = 3.0;\n}\n"),
-    ("not swappable: an action fee", "patch Dish {\n    set actions.steal.cost = 200mu;\n}\n"),
+    ("not swappable: a menu range", "patch Dish {\n    set actions.steal.max = 0u..2u;\n}\n"),
     ("preflight: a lower inventory cap", "patch Dish {\n    set limits.inventory_cap = 6u;\n}\n"),
 ];
 

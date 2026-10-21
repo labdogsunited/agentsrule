@@ -63,7 +63,7 @@ fn rejected_swaps_change_nothing() {
         ("unknown path", "patch Dish {\n    set rules.nowhere@x.amount = 1u;\n}\n", 0),
         ("does not check", "patch Dish {\n    set rules.rotting@react_rot.rate = 20_000bp;\n}\n", 0),
         ("space", "patch Dish {\n    set space.max_interaction_radius = 3.0;\n}\n", 0),
-        ("an action fee", "patch Dish {\n    set actions.steal.cost = 200mu;\n}\n", 0),
+        ("a menu range", "patch Dish {\n    set actions.steal.max = 0u..2u;\n}\n", 0),
         ("a new reaction", "patch Dish {\n    add after reactions.rot: reaction leak : light -> energy;\n}\n", 0),
         ("preflight: entities hold more than the new cap", "patch Dish {\n    set limits.inventory_cap = 6u;\n}\n", 0),
     ];
@@ -106,4 +106,59 @@ fn swappable_parts_change_and_the_ledger_holds() {
     // The running world now has the configuration of a fresh compile of its own source.
     let fresh = Live::new(&l.source, &["Drifter", "Builder"], l.options).unwrap();
     assert_eq!(emerge_ref::swap::Config::of(&fresh.world), emerge_ref::swap::Config::of(&l.world));
+}
+
+/// Every action gene's fee, with its action index, across the living entities.
+fn gene_fees(l: &mut Live) -> Vec<(usize, u32)> {
+    let mut out = Vec::new();
+    for e in &mut l.world.entities {
+        for s in &mut e.genome.slots {
+            if let Some((a, f)) = emerge_ref::swap::gene_fee(&mut s.gene) {
+                out.push((a, *f));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn a_fee_swap_reaches_every_gene_and_what_entities_pay() {
+    let mut l = live(true);
+    run(&mut l, 10);
+    let take = emerge_ref::swap::ACTIONS.iter().position(|&a| a == "take").unwrap();
+    assert!(gene_fees(&mut l).iter().any(|&(a, f)| a == take && f == 5), "takes cost 5mu in the dish");
+    l.hotswap("patch Dish {\n    set actions.take.cost = 8mu;\n    set actions.turn.cost = 0u;\n}\n", 0).unwrap();
+    let turn = emerge_ref::swap::ACTIONS.iter().position(|&a| a == "turn").unwrap();
+    let check = |l: &mut Live| {
+        let fees = gene_fees(l);
+        assert!(fees.iter().any(|&(a, _)| a == take) && fees.iter().filter(|&&(a, _)| a == take).all(|&(_, f)| f == 8), "every take gene costs 8mu (population {}): {:?}", l.world.entities.len(), fees.iter().filter(|&&(a, _)| a == take).map(|x| x.1).collect::<std::collections::BTreeSet<_>>());
+        assert!(fees.iter().filter(|&&(a, _)| a == turn).all(|&(_, f)| f == 0), "turns are free");
+        assert_eq!(l.world.menus.take.as_ref().unwrap().fee, 8, "and so does mutation's menu");
+    };
+    check(&mut l);
+    // Children born after the swap, mutated or not, carry the new fees too.
+    let born = l.world.births;
+    run(&mut l, 60);
+    assert!(l.world.births > born && !l.world.entities.is_empty(), "births {} -> {}, population {}", born, l.world.births, l.world.entities.len());
+    check(&mut l);
+    // The running world has the configuration of a fresh compile of its own source.
+    let fresh = Live::new(&l.source, &["Drifter", "Builder"], l.options).unwrap();
+    assert_eq!(emerge_ref::swap::Config::of(&fresh.world), emerge_ref::swap::Config::of(&l.world));
+}
+
+#[test]
+fn a_fee_swap_changes_what_an_entity_pays() {
+    // Two copies of one world, one with take at 40mu: after one tick, the dearer one has less
+    // left to pay with, and both ledgers hold.
+    let (mut a, mut b) = (live(false), live(false));
+    b.hotswap("patch Dish {\n    set actions.take.cost = 40mu;\n}\n", 0).unwrap();
+    let pay = a.world.upkeep.pay;
+    let before: Vec<u32> = a.world.entities.iter().map(|e| e.store.amounts[pay]).collect();
+    assert_eq!(before, b.world.entities.iter().map(|e| e.store.amounts[pay]).collect::<Vec<_>>());
+    a.world.run_tick();
+    b.world.run_tick();
+    let paid = |l: &Live| l.world.entities.iter().map(|e| e.store.amounts[pay] as i64).sum::<i64>();
+    assert!(paid(&a) > paid(&b), "dearer takes leave less to pay with");
+    a.world.audit().unwrap();
+    b.world.audit().unwrap();
 }

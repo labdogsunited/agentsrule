@@ -6,7 +6,8 @@
 //! must be identical, so a part nobody listed is rejected rather than half-applied.
 
 use crate::compile::{compile, Compiled, Options};
-use crate::mutate::Rates;
+use crate::mind::{Gene, Genome};
+use crate::mutate::{ActionMenu, Menus, Rates};
 use crate::world::{Law, Sink};
 use crate::{Mu, World};
 
@@ -63,6 +64,47 @@ pub struct Config {
     pub inventory_cap: Mu,
     pub sources: Vec<String>,
     pub sinks: Vec<Sink>,
+    /// The fee of each action on the menu, by `ACTIONS` (`move`'s per distance); `None` if off the menu.
+    pub fees: [Option<Mu>; 8],
+}
+
+/// The actions whose fees a swap may change, in the order of `Config::fees`.
+pub const ACTIONS: [&str; 8] = ["move", "turn", "take", "drop", "give", "steal", "guard", "divide"];
+
+fn menu_entries(m: &mut Menus) -> [Option<&mut ActionMenu>; 8] {
+    [m.moves.as_mut(), m.turn.as_mut(), m.take.as_mut(), m.drop.as_mut(), m.give.as_mut(), m.steal.as_mut(), m.guard.as_mut(), m.divide.as_mut().map(|d| &mut d.0)]
+}
+
+/// The fees on a menu, by `ACTIONS`.
+pub fn fees_of(m: &Menus) -> [Option<Mu>; 8] {
+    menu_entries(&mut m.clone()).map(|a| a.map(|a| a.fee))
+}
+
+/// A gene's action (index into `ACTIONS`) and its copy of the fee; `None` for other genes.
+pub fn gene_fee(g: &mut Gene) -> Option<(usize, &mut Mu)> {
+    Some(match g {
+        Gene::Move { fee_per_distance, .. } => (0, fee_per_distance),
+        Gene::Turn { fee, .. } => (1, fee),
+        Gene::Take { fee, .. } => (2, fee),
+        Gene::Drop { fee, .. } => (3, fee),
+        Gene::Give { fee, .. } => (4, fee),
+        Gene::Steal { fee, .. } => (5, fee),
+        Gene::Guard { fee, .. } => (6, fee),
+        Gene::Divide { fee, .. } => (7, fee),
+        _ => return None,
+    })
+}
+
+/// Every action gene's fee set to its menu's (genes copy the fee when they are made, and it is
+/// never mutated, so a gene's fee always equals its menu entry's; a fee swap keeps that true).
+pub fn refee(genome: &mut Genome, fees: &[Option<Mu>; 8]) {
+    for slot in &mut genome.slots {
+        if let Some((a, fee)) = gene_fee(&mut slot.gene) {
+            if let Some(f) = fees[a] {
+                *fee = f;
+            }
+        }
+    }
 }
 
 impl Config {
@@ -79,6 +121,7 @@ impl Config {
             inventory_cap: w.inventory_cap,
             sources: w.sources.clone(),
             sinks: w.sinks.clone(),
+            fees: fees_of(&w.menus),
         }
     }
 }
@@ -112,6 +155,13 @@ fn blank(w: &mut World, keep: (usize, usize)) {
     }
     w.sources.truncate(keep.0);
     w.sinks.truncate(keep.1);
+    for a in menu_entries(&mut w.menus).into_iter().flatten() {
+        a.fee = 0;
+    }
+    let zero = fees_of(&w.menus);
+    for e in &mut w.entities {
+        refee(&mut e.genome, &zero);
+    }
 }
 
 fn invalid(code: &str, path: &str, message: &str) -> Rejected {
@@ -238,6 +288,14 @@ pub fn apply(w: &mut World, c: &Config) {
     }
     w.sources = c.sources.clone();
     w.sinks = c.sinks.clone();
+    for (a, f) in menu_entries(&mut w.menus).into_iter().zip(c.fees) {
+        if let (Some(a), Some(f)) = (a, f) {
+            a.fee = f;
+        }
+    }
+    for e in &mut w.entities {
+        refee(&mut e.genome, &c.fees);
+    }
 }
 
 /// The source in `emerge fmt` form.

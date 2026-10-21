@@ -71,6 +71,8 @@ pub struct Resident<'a> {
     pub profile: Option<[f64; 5]>,
     params: Vec<u32>,
     sort_cache: std::collections::HashMap<(u8, usize, bool), Vec<(u8, wgpu::BindGroup)>>,
+    /// The action fees every live gene carries (`refee` rewrites them when a swap changes them).
+    fees: [Option<u32>; 8],
     parity: bool,
     // modules
     set_m: Module,
@@ -342,7 +344,7 @@ impl<'a> Resident<'a> {
         let mut_m = module(gpu, &mut_src, 9, &["mutate_children"]);
         let gc_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("gc.wgsl"), crate::scan::kernels("gm", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("gv", "params[P_N]", "{name}_in[i]"));
         let gc_m = module(gpu, &gc_src, 12, &["gc_sizes", "gc_copy", "gm_local", "gm_scan_blocks", "gm_add", "gv_local", "gv_scan_blocks", "gv_add"]);
-        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent0: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), parity: false, set_m, move_m, plan_m, world_grid, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
+        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent0: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), fees: emerge_ref::swap::fees_of(&world.menus), parity: false, set_m, move_m, plan_m, world_grid, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
     }
 
     fn write_param(&mut self, index: usize, value: u32) {
@@ -785,7 +787,8 @@ impl<'a> Resident<'a> {
     /// A hot-swap's commit on the GPU (spec §13.2 step 5): the configuration of `w`, a fresh compile
     /// of the new source, replaces the running one. Only configuration parameters are written (never
     /// the counts, tick, IDs or tracking of the run); the buffers sized by the laws are made anew,
-    /// and the cached bind groups that point at them are dropped. The kernels do not change.
+    /// and the cached bind groups that point at them are dropped. Action fees go into the menu table
+    /// and into every live genome (`refee`). The kernels do not change.
     pub fn apply_config(&mut self, w: &mut World) {
         let gpu = self.gpu;
         w.begin_tick();
@@ -809,12 +812,54 @@ impl<'a> Resident<'a> {
         if !ecap.is_empty() {
             gpu.queue.write_buffer(&b.ecap, 0, bytemuck::cast_slice(&ecap));
         }
-        let (_, rates) = pack_menus(w);
+        let (menus, rates) = pack_menus(w);
+        gpu.queue.write_buffer(&b.menus, 0, bytemuck::cast_slice(&menus));
         if !rates.is_empty() {
             gpu.queue.write_buffer(&b.rates, 0, bytemuck::cast_slice(&rates));
         }
         self.world_grid = world_grid(&p, self.nc);
         self.sort_cache.clear();
+        let fees = emerge_ref::swap::fees_of(&w.menus);
+        if fees != self.fees {
+            self.refee(&fees);
+        }
+    }
+
+    /// Every live genome's action fees set to `fees` (by action, in `emerge_ref::swap::ACTIONS`
+    /// order), in the master and in the view copy; a copy shared by several entities is rewritten
+    /// once. Genes copy their fee from the menu and never mutate it, so this keeps each gene's fee
+    /// equal to its menu entry's, as `emerge_ref::swap::refee` does on the CPU.
+    pub fn refee(&mut self, fees: &[Option<u32>; 8]) {
+        self.fees = *fees;
+        let g = self.gpu;
+        let ent: Vec<u32> = g.read(&self.b.ent, self.n * ENT);
+        let tops = g.read::<u32>(&self.b.pool, 2);
+        let (mut mw, mut gw): (Vec<u32>, Vec<u32>) = (g.read(&self.b.mw, tops[0] as usize), g.read(&self.b.gw, tops[1] as usize));
+        let fix = |w: &mut [u32]| {
+            if (MOVE..=DIVIDE).contains(&w[0]) {
+                if let Some(f) = fees[(w[0] - MOVE) as usize] {
+                    w[if w[0] == MOVE { 9 } else { 7 }] = f;
+                }
+            }
+        };
+        let (mut views, mut masters) = (std::collections::HashSet::new(), std::collections::HashSet::new());
+        for e in ent.chunks(ENT) {
+            let (view, active, keep, master) = (e[4] as usize, e[5] as usize, e[6] as usize, e[12] as usize);
+            if views.insert(view) {
+                gw[view + keep..view + keep + active * SLOT].chunks_mut(SLOT).for_each(fix);
+            }
+            if masters.insert(master) {
+                let (slots, keep) = (mw[master] as usize, mw[master + 2] as usize);
+                let first = master + MASTER_HDR + keep;
+                mw[first..first + slots * SLOT].chunks_mut(SLOT).for_each(fix);
+            }
+        }
+        if !mw.is_empty() {
+            g.queue.write_buffer(&self.b.mw, 0, bytemuck::cast_slice(&mw));
+        }
+        if !gw.is_empty() {
+            g.queue.write_buffer(&self.b.gw, 0, bytemuck::cast_slice(&gw));
+        }
     }
 
     /// The current balances, for a swap's preflight: cell amounts and entity amounts (by substance),

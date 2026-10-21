@@ -1026,7 +1026,7 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | `view` | yes (names and kinds; `W1201` for bindings not computed yet) | drawn to PNG by `emerge-server render` (exact cells, glyphs, a legend) | drawn the same (the GPU's frame equals the CPU's) |
 | `chart` | yes | not drawn yet | — |
 | `explore` | parsed only | noted as "not used by a run" | — |
-| Hot-swap (a patch at a revision, `world.hotswap` in `emerge-server`) | yes | yes, the Phase 0 subset (`proposals/engine-api.md`: rules, rates and amounts, upkeep costs, limits, `mind_steps`, mutation rates, raised caps); anything else is rejected and changes nothing | yes, the same subset |
+| Hot-swap (a patch at a revision, `world.hotswap` in `emerge-server`) | yes | yes, the Phase 0 subset (`proposals/engine-api.md`: rules, rates and amounts, upkeep costs, action fees, limits, `mind_steps`, mutation rates, raised caps); anything else is rejected and changes nothing | yes, the same subset |
 | `core.md` syntax (graph core, rules as data, living scopes) | not parsed | — | — |
 | **Runner output** | | | |
 | `--accounts`, `--blocked`, `--census`, `--contact`, `--changes`, `--inject`, `--clade`, `--features`, `--producers-log` | — | yes | no |
