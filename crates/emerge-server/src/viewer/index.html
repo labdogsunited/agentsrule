@@ -49,6 +49,18 @@
   #code .bar { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
   #code .bar select { width: auto; flex: 1; min-width: 0; }
   #code .bar button { padding: 3px 8px; }
+  #codeedit { display: none; flex: 1; flex-direction: column; min-height: 0; }
+  body.code-editing #codeedit { display: flex; }
+  body.code-editing #codebody { display: none; }
+  #codeedit .note { padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+  #codeedit textarea { flex: 1; min-height: 120px; resize: none; border: 0; border-radius: 0; background: var(--bg); color: var(--ink); font: 12px/1.55 ui-monospace, monospace; padding: 8px 10px; tab-size: 4; white-space: pre; overflow: auto; }
+  #codeedit .actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line); }
+  #codeedit .actions button { padding: 4px 10px; white-space: nowrap; }
+  #codeerrors { max-height: 150px; overflow: auto; padding: 0 10px 8px; font: 12px/1.45 ui-monospace, monospace; }
+  #codeerrors div { padding: 2px 0; cursor: pointer; }
+  #codeerrors .bad { color: var(--bad); }
+  #codeerrors .ok { color: var(--ok); }
+  #codeerrors .muted { color: var(--muted); }
   #code-world { display: none; }
   body.codeonly #code-world { display: block; }
   #codehandle { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 2; }
@@ -164,8 +176,21 @@
   <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
   <section id="code">
     <div id="codehandle"></div>
-    <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
+    <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
     <div id="codebody"><span style="padding:10px;color:var(--muted)">Create a world, or pick one.</span></div>
+    <div id="codeedit">
+      <div class="note">Editing a copy. The running world is not changed until you make a new world from this text. Open any <code>.em</code> file, or write one.</div>
+      <textarea id="codetext" spellcheck="false"></textarea>
+      <div id="codeerrors"></div>
+      <div class="actions">
+        <button id="openfile">Open file…</button>
+        <button id="validatecode">Check</button>
+        <button id="makeworld" class="primary">New world from this text</button>
+        <button id="savecode">Save</button>
+        <button id="canceledit">Back to the running code</button>
+        <input type="file" id="fileinput" accept=".em,.txt,text/plain" style="display:none">
+      </div>
+    </div>
   </section>
 </div>
 <script>
@@ -431,6 +456,86 @@ $("code-world").onchange = () => loadCode().catch(oops);
   });
   h.addEventListener("pointerup", () => { dragging = null; });
 }
+// ---- Editing a copy of the code, or opening a file: Check shows the errors with their lines, and
+// "New world from this text" makes a separate world (the running one is never changed this way; the
+// graph is the way to change a running world).
+let checked = null;
+function codeNote(kind, text, line) {
+  const d = document.createElement("div");
+  d.className = kind;
+  d.textContent = line ? `line ${line}: ${text}` : text;
+  if (line) d.onclick = () => {
+    const ta = $("codetext"), lines = ta.value.split("\n");
+    const start = lines.slice(0, line - 1).join("\n").length + (line > 1 ? 1 : 0);
+    ta.focus();
+    ta.setSelectionRange(start, start + (lines[line - 1] || "").length);
+    ta.scrollTop = Math.max(0, (line - 4) * 18.6);
+  };
+  $("codeerrors").append(d);
+}
+async function checkCode() {
+  checked = null;
+  $("codeerrors").textContent = "";
+  const r = await call("world.validate", { source: $("codetext").value });
+  if (!r.valid) {
+    for (const e of r.errors) codeNote("bad", `${e.code} ${e.message}`, e.line);
+    return false;
+  }
+  checked = r;
+  codeNote("ok", `Valid. Lineages: ${r.lineages.join(", ") || "none"}.`);
+  for (const l of r.left_out || []) codeNote("muted", `left out of the run: ${l}`);
+  for (const w of r.warnings || []) codeNote("muted", `${w.code} ${w.message}`);
+  return true;
+}
+function setEditing(on) {
+  document.body.classList.toggle("code-editing", on);
+  $("editcode").classList.toggle("on", on);
+  if (on) {
+    $("codetext").value = codeLines.length ? codeLines.join("\n") + "\n" : "";
+    $("codeerrors").textContent = "";
+    checked = null;
+    $("codetext").focus();
+  }
+}
+$("editcode").onclick = () => setEditing(!document.body.classList.contains("code-editing"));
+$("canceledit").onclick = () => setEditing(false);
+$("openfile").onclick = () => $("fileinput").click();
+$("fileinput").onchange = async () => {
+  const f = $("fileinput").files[0];
+  if (!f) return;
+  $("codetext").value = await f.text();
+  $("fileinput").value = "";
+  checkCode().catch(oops);
+};
+$("validatecode").onclick = () => checkCode().catch(oops);
+$("savecode").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([$("codetext").value], { type: "text/plain" }));
+  a.download = "world.em";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+$("makeworld").onclick = async () => {
+  try {
+    if (!(await checkCode())) return;
+    const { world } = await call("world.create", { source: $("codetext").value, lineages: checked.lineages, seed: +$("seed").value || 1, backend: $("backend").value });
+    setEditing(false);
+    await refreshWorlds(world);
+    $("code-world").value = world;
+    if (!codeonly) { await refreshViews(); await subscribe(); await stats(); if (mode === "graph") await loadGraph(); }
+    await loadCode();
+  } catch (e) {
+    codeNote("bad", String(e.message || e));
+  }
+};
+$("codetext").addEventListener("keydown", (e) => {
+  if (e.key === "Tab") {
+    e.preventDefault();
+    const t = e.target, a = t.selectionStart;
+    t.setRangeText("    ", a, t.selectionEnd, "end");
+  }
+});
+
 try { if (!codeonly && localStorage.getItem("emerge.code") === "1") { document.body.classList.add("code-open"); $("codebtn").classList.add("on"); } } catch (_) {}
 
 // ---- The graph (`proposals/node-editor.md`): boxes and wires, a projection of the source text.
@@ -690,8 +795,13 @@ function onFrame(buf) {
 
 const viewNames = (src) => [...src.matchAll(/^view\s+(\w+)\s+for\s+\w+/gm)].map((m) => m[1]);
 
+// A list that was asked for before a newer one is dropped when it arrives, so a slow poll cannot put
+// the selection back on an older world.
+let worldGen = 0;
 async function refreshWorlds(select) {
+  const gen = ++worldGen;
   const { worlds } = await call("world.list");
+  if (gen !== worldGen) return worlds;
   const sel = $("world"), keep = select || sel.value;
   const cwPrev = $("code-world").value;
   sel.innerHTML = worlds.map((w) => `<option value="${w.world}">${w.world}: ${w.lineages.join(", ")}${w.backend && w.backend !== "cpu" ? ` [${w.backend}]` : ""}${w.running ? " (running)" : ""}</option>`).join("");
