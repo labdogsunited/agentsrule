@@ -101,26 +101,14 @@ fn render(args: &[String]) -> Result<String, String> {
     }
     run.step(tick - run.tick());
     // The views: the run's own, then those of `--views`, checked against the run's world.
-    let mut file = emerge_lang::parse(&run.live.source).map_err(|d| d.message)?;
-    if let Some(v) = flag(args, "--views") {
-        let extra = emerge_lang::parse(&std::fs::read_to_string(v).map_err(|e| format!("{v}: {e}"))?).map_err(|d| format!("{v}:{}:{}: {}", d.line, d.col, d.message))?;
-        file.items.extend(extra.items);
-    }
-    let (errors, _) = emerge_lang::view::check(&file);
-    if let Some(e) = errors.first() {
-        return Err(format!("{}: {} {}", e.path, e.code, e.message));
-    }
-    let views: Vec<&emerge_lang::ast::View> = file.items.iter().filter_map(|i| match &i.node {
-        emerge_lang::ast::Item::View(v) => Some(v),
-        _ => None,
-    }).collect();
-    let view = match flag(args, "--view") {
-        Some(name) => views.iter().rev().find(|v| v.name == name).ok_or(format!("no view `{name}`"))?,
-        None => views.last().ok_or("the world has no view: write one, or pass --views FILE")?,
+    let extra = match flag(args, "--views") {
+        Some(v) => Some(std::fs::read_to_string(v).map_err(|e| format!("{v}: {e}"))?),
+        None => None,
     };
+    let view = emerge_server::picture::pick_view(&run, extra.as_deref(), flag(args, "--view"))?;
     let cell_px = flag(args, "--cell").map_or(Ok(0), |c| c.parse().map_err(|_| "--cell PX"))?;
-    let image = emerge_view::render(view, &run.frame(), emerge_view::Options { cell_px, legend: true });
+    let (png, _, _) = emerge_server::picture::png(&run, &view, cell_px)?;
     let out = flag(args, "--out").map(String::from).unwrap_or(format!("{}-tick{}.png", view.name, run.tick()));
-    image.save_png(&out).map_err(|e| format!("{out}: {e}"))?;
+    std::fs::write(&out, png).map_err(|e| format!("{out}: {e}"))?;
     Ok(out)
 }

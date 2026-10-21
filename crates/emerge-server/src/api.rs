@@ -87,6 +87,11 @@ impl Engine {
         self.runs.get_mut(id).ok_or_else(|| fault(-32004, format!("no world `{id}`")))
     }
 
+    /// The run of world `id`, to read (pictures, tests).
+    pub fn run(&self, id: &str) -> Option<&Run> {
+        self.runs.get(id).map(|e| &e.run)
+    }
+
     /// Whether any run is ticking in the background.
     pub fn busy(&self) -> bool {
         self.runs.values().any(|e| e.running)

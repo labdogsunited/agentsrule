@@ -66,3 +66,60 @@ fn the_server_serves_its_page() {
     assert!(page.starts_with("HTTP/1.1 200") && page.contains("<title>Emerge viewer</title>"), "{page}");
     assert!(get("/journal.jsonl").starts_with("HTTP/1.1 404"));
 }
+
+const DISH: &str = include_str!("../../../examples/dish.em");
+const VIEWS: &str = include_str!("../../../examples/views/dish.em");
+
+/// The next binary frame: its JSON header and its PNG bytes.
+fn frame(ws: &mut tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<TcpStream>>) -> (serde_json::Value, Vec<u8>) {
+    loop {
+        if let Message::Binary(b) = ws.read().unwrap() {
+            let n = u32::from_le_bytes(b[..4].try_into().unwrap()) as usize;
+            return (serde_json::from_slice(&b[4..4 + n]).unwrap(), b[4 + n..].to_vec());
+        }
+    }
+}
+
+#[test]
+fn a_live_frame_is_the_same_picture_as_render() {
+    use emerge_server::journal::Journal;
+    use emerge_server::run::{Run, Spec};
+    use serde_json::json;
+    let (port, _) = start();
+    let (mut ws, _) = connect(format!("ws://127.0.0.1:{port}/")).unwrap();
+    let mut call = |ws: &mut tungstenite::WebSocket<_>, id: u64, method: &str, params: serde_json::Value| {
+        ws.send(Message::Text(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string().into())).unwrap();
+        loop {
+            if let Message::Text(t) = ws.read().unwrap() {
+                let v: serde_json::Value = serde_json::from_str(&t).unwrap();
+                assert!(v.get("error").is_none(), "{method}: {v}");
+                return v["result"].clone();
+            }
+        }
+    };
+    let source = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 48, h: 48)").replace("count: 2_000;", "count: 150;");
+    let w = call(&mut ws, 1, "world.create", json!({"source": source, "lineages": ["Drifter", "Builder"], "seed": 4}))["world"].clone();
+    let sub = call(&mut ws, 2, "view.subscribe", json!({"world": w, "views": VIEWS, "view": "Lineages", "every": 10, "cell": 4}));
+    assert_eq!(sub["subscription"], 1);
+    let (h0, _) = frame(&mut ws);
+    assert_eq!((h0["tick"].as_u64(), h0["view"].as_str(), h0["format"].as_str()), (Some(0), Some("Lineages"), Some("png")));
+    call(&mut ws, 3, "run.step", json!({"world": w, "ticks": 25}));
+    let (h, png) = frame(&mut ws);
+    assert_eq!(h["tick"], 25, "{h}");
+    // The same run, drawn the way `emerge-server render` draws it.
+    let mut run = Run::create(Spec { source, lineages: vec!["Drifter".into(), "Builder".into()], seed: 4, mutation: true, contract: false, gpu: false }, Journal::memory()).unwrap();
+    run.step(25);
+    let view = emerge_server::picture::pick_view(&run, Some(VIEWS), Some("Lineages")).unwrap();
+    let (expected, w_px, h_px) = emerge_server::picture::png(&run, &view, 4).unwrap();
+    assert_eq!((h["width"].as_u64(), h["height"].as_u64()), (Some(w_px as u64), Some(h_px as u64)));
+    assert!(png == expected, "the live frame differs from render's picture");
+    // A bad view is refused, and unsubscribing stops the frames.
+    ws.send(Message::Text(json!({"jsonrpc": "2.0", "id": 4, "method": "view.subscribe", "params": {"world": w, "view": "Nope"}}).to_string().into())).unwrap();
+    let refused = loop {
+        if let Message::Text(t) = ws.read().unwrap() {
+            break serde_json::from_str::<serde_json::Value>(&t).unwrap();
+        }
+    };
+    assert_eq!(refused["error"]["code"], -32602, "{refused}");
+    assert_eq!(call(&mut ws, 5, "view.unsubscribe", json!({"subscription": 1}))["unsubscribed"], 1);
+}
