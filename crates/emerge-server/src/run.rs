@@ -383,6 +383,61 @@ impl Run {
         Ok((self.spec.lineages[lineage].clone(), age, emerge_ref::print::genome_graph(&self.live.world, &genome, field)))
     }
 
+    /// What is at a point of the world (`view.pick`, the viewer's info picker): the cell there with its
+    /// amounts, and the creatures within `radius` world units, nearest first.
+    pub fn pick(&self, x: f32, y: f32, radius: f32, limit: usize) -> Result<Value, String> {
+        let w = &self.live.world;
+        let space = w.space.as_ref().ok_or("the world has no space to pick in")?;
+        if !(x.is_finite() && y.is_finite()) || x < 0.0 || y < 0.0 || x > space.w || y > space.h {
+            return Err(format!("({x}, {y}) is outside the world ({} by {})", space.w, space.h));
+        }
+        let ns = w.chem.substances.len();
+        let cell = space.cell_at([x, y]);
+        let amounts = match &self.backend {
+            Backend::Cpu => w.cells[cell].amounts[..ns].to_vec(),
+            Backend::Gpu(r) => r.cell_amounts(cell),
+        };
+        let cell_amounts: serde_json::Map<String, Value> = (0..ns).filter(|&s| amounts[s] > 0).map(|s| (w.chem.substances[s].name.clone(), json!(amounts[s]))).collect();
+        struct Near {
+            id: u64,
+            lineage: usize,
+            age: u64,
+            pos: [f32; 2],
+            active: usize,
+            carried: Vec<u32>,
+            d2: f32,
+        }
+        let near = |id, lineage, age, pos: [f32; 2], active, carried: Vec<u32>| {
+            let (dx, dy) = (pos[0] - x, pos[1] - y);
+            Some(Near { id, lineage, age, pos, active, carried, d2: dx * dx + dy * dy }).filter(|n| n.d2 <= radius * radius)
+        };
+        let mut found: Vec<Near> = match &self.backend {
+            Backend::Cpu => w.entities.iter().filter_map(|e| near(e.id, e.lineage, e.age, e.pos, e.genome.active_genes(), e.store.amounts[..ns].to_vec())).collect(),
+            Backend::Gpu(r) => {
+                let (ent, epos, amounts) = r.entity_table();
+                ent.chunks(emerge_gpu::pack::ENT)
+                    .enumerate()
+                    .filter_map(|(i, e)| near(u64::from(e[0]) | (u64::from(e[1]) << 32), e[11] as usize, u64::from(e[10]), [epos[i * 4], epos[i * 4 + 1]], e[5] as usize, amounts[i * ns..(i + 1) * ns].to_vec()))
+                    .collect()
+            }
+        };
+        found.sort_by(|a, b| a.d2.total_cmp(&b.d2).then(a.id.cmp(&b.id)));
+        let total = found.len();
+        let entities: Vec<Value> = found
+            .iter()
+            .take(limit)
+            .map(|e| {
+                let carried: serde_json::Map<String, Value> = (0..ns).filter(|&s| e.carried[s] > 0).map(|s| (w.chem.substances[s].name.clone(), json!(e.carried[s]))).collect();
+                json!({"id": e.id, "lineage": self.spec.lineages[e.lineage], "age": e.age, "x": e.pos[0], "y": e.pos[1], "distance": e.d2.sqrt(), "active_genes": e.active, "carried_mu": carried})
+            })
+            .collect();
+        Ok(json!({
+            "tick": self.tick(), "x": x, "y": y, "radius": radius,
+            "cell": {"x": cell % space.grid_w, "y": cell / space.grid_w, "field": self.live.field, "amounts_mu": cell_amounts},
+            "creatures_near": total, "creatures": entities,
+        }))
+    }
+
     /// The ID of some living entity (the first), for a call that names none.
     pub fn first_entity(&self) -> Option<u64> {
         match &self.backend {

@@ -305,6 +305,14 @@ impl Engine {
                 };
                 Ok(json!({"entity": id, "explanation": e.run.explain(id).map_err(bad)?}))
             }
+            "view.pick" => {
+                // What is at a point of the world: the cell's amounts and the creatures near it.
+                let coord = |k: &str| p[k].as_f64().map(|v| v as f32).ok_or_else(|| bad(format!("`{k}` must be a number")));
+                let (x, y) = (coord("x")?, coord("y")?);
+                let radius = p["radius"].as_f64().map_or(6.0, |v| v as f32).clamp(0.0, 1000.0);
+                let limit = number(p, "limit", Some(8))?.min(50) as usize;
+                self.entry(p)?.run.pick(x, y, radius, limit).map_err(bad)
+            }
             "genome.graph" => {
                 // One entity's genome as boxes (genes, in modules) and signals, for the node editor's
                 // genome view; read-only.

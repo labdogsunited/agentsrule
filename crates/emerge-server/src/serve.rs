@@ -202,8 +202,8 @@ fn push_frames(engine: &Engine, subs: &mut Vec<Sub>) {
         if !due {
             return true;
         }
-        let Ok((png, w, h)) = crate::picture::png_with(run, &s.view, s.cell, &s.charts) else { return false };
-        let header = json!({"subscription": s.id, "world": s.world, "view": s.view.name, "tick": run.tick(), "revision": run.revision(), "width": w, "height": h, "format": "png"}).to_string();
+        let Ok((png, w, h, map)) = crate::picture::png_map(run, &s.view, s.cell, &s.charts) else { return false };
+        let header = json!({"subscription": s.id, "world": s.world, "view": s.view.name, "tick": run.tick(), "revision": run.revision(), "width": w, "height": h, "format": "png", "map": {"w": map.w, "h": map.h, "grid_w": map.grid_w, "grid_h": map.grid_h, "world_w": map.world_w, "world_h": map.world_h}}).to_string();
         let mut frame = (header.len() as u32).to_le_bytes().to_vec();
         frame.extend_from_slice(header.as_bytes());
         frame.extend_from_slice(&png);

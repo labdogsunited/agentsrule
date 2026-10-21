@@ -105,6 +105,19 @@
   #genomebar select { width: auto; max-width: 340px; }
   #genomebar button { padding: 3px 8px; }
   body.genome #genomebar { display: flex; }
+  main.picking { cursor: crosshair; }
+  #pickmark { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 2px solid var(--accent); border-radius: 50%; box-shadow: 0 0 0 1px #000; display: none; pointer-events: none; z-index: 4; }
+  #infopanel { position: absolute; display: none; min-width: 210px; max-width: 320px; max-height: calc(100% - 24px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.45; z-index: 5; pointer-events: none; cursor: default; box-shadow: 0 6px 24px #0008; }
+  #infopanel.pinned { pointer-events: auto; border-color: var(--accent); }
+  #infopanel h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; }
+  #infopanel .sub { color: var(--muted); }
+  #infopanel table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  #infopanel td { padding: 1px 0; }
+  #infopanel td:last-child { text-align: right; }
+  #infopanel .who { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+  #infopanel .who button { padding: 1px 8px; margin-top: 3px; font-size: 11px; }
+  #infopanel .hint { margin-top: 6px; color: var(--muted); font-size: 11px; }
+  #cam button.on { background: var(--accent); color: #1a1408; border-color: var(--accent); }
   .modes { display: flex; gap: 4px; }
   .modes button { padding: 3px 10px; }
   .modes button.on { background: var(--accent); color: #1a1408; border-color: var(--accent); font-weight: 600; }
@@ -198,7 +211,7 @@
     </div>
     <div id="error"></div>
   </aside>
-  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
+  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button></div><div id="pickmark"></div><div id="infopanel"></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit. i: info picker."><span id="zoom">100%</span><button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button><button id="fit">Fit</button></div></main>
   <section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
@@ -239,6 +252,11 @@ function call(method, params = {}) {
 // panning and zooming cost nothing on the server. Fit shows the whole thing; after the first wheel
 // or drag the camera stays put across updates of the same size. The picture and the graph each
 // keep their own camera.
+// The info picker (press `i`): what is under the pointer in the picture, asked of the server
+// (`view.pick`): the cell's contents and the creatures near the point. A click pins it; its creatures
+// open in the Genome tab.
+const info = { on: false, map: null, pin: null, hover: null, at: 0, busy: false };
+let wantEntity = null;
 const newCam = () => ({ s: 1, x: 0, y: 0, fit: true, w: 0, h: 0 });
 const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 let mode = "picture";
@@ -257,6 +275,7 @@ function applyCam(cam = cams[mode]) {
   el.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
   // Exact cells when enlarged; smooth when shrunk, so the legend's text stays readable.
   if (cam === cams.picture) el.classList.toggle("enlarged", cam.s > 1);
+  if (cam === cams.picture) placeMark();
   if (cam === cams[mode]) $("zoom").textContent = `${Math.round(cam.s * 100)}%`;
 }
 stage.addEventListener("wheel", (e) => {
@@ -274,7 +293,7 @@ stage.addEventListener("wheel", (e) => {
 let drag = null;
 stage.addEventListener("pointerdown", (e) => {
   const cam = cams[mode];
-  if (!cam.w || e.button > 1 || e.target.closest("#cam")) return;
+  if (!cam.w || e.button > 1 || e.target.closest("#cam") || e.target.closest("#infopanel")) return;
   const port = mode === "graph" && e.target.closest(".port.out");
   const box = mode === "graph" && e.target.closest(".box");
   if (port && box) {
@@ -330,6 +349,7 @@ stage.addEventListener("pointermove", (e) => {
   applyCam();
 });
 const drop = (e) => {
+  if (drag && !drag.box && !drag.wire && drag.gene == null && !drag.moved && info.on && mode === "picture") pinInfo(e);
   if (drag && drag.gene != null && !drag.moved) selectGene(drag.gene);
   if (drag && drag.box && !drag.moved) select(drag.box.dataset.id);
   if (drag && drag.box && drag.moved) savePosition(drag.box.dataset.id);
@@ -817,6 +837,18 @@ async function loadEntities() {
       sel.append(o);
     }
     if (r.entities.some((e) => String(e.id) === prev)) sel.value = prev;
+    if (wantEntity != null) {
+      // A creature chosen elsewhere (the info picker) may not be in the sample: add it.
+      if (![...sel.options].some((o) => +o.value === wantEntity)) {
+        const o = document.createElement("option");
+        o.value = wantEntity;
+        o.textContent = `#${wantEntity} · picked`;
+        sel.prepend(o);
+      }
+      sel.value = String(wantEntity);
+      genomeSel = null;
+      wantEntity = null;
+    }
     $("genomenote").textContent = r.entities.length ? `${r.total} alive` : "";
     genomeMsg = r.entities.length ? "" : "No creatures are alive in this world.";
   } catch (e) {
@@ -955,6 +987,7 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 
 function setMode(m) {
   mode = m;
+  if (m !== "picture" && info.on) infoOff();
   $("m-picture").classList.toggle("on", m === "picture");
   $("m-graph").classList.toggle("on", m === "graph");
   $("m-genome").classList.toggle("on", m === "genome");
@@ -975,10 +1008,142 @@ $("m-graph").onclick = () => setMode("graph");
 $("m-genome").onclick = () => setMode("genome");
 $("decls").onchange = () => select($("decls").value);
 
+// A point of the picture as a point of the world: the map is the top left of the image, `map.w` by
+// `map.h` pixels for the whole world.
+function pointToWorld(clientX, clientY) {
+  const m = info.map;
+  if (!m || mode !== "picture") return null;
+  const r = stage.getBoundingClientRect(), cam = cams.picture;
+  const px = (clientX - r.left - cam.x) / cam.s, py = (clientY - r.top - cam.y) / cam.s;
+  if (px < 0 || py < 0 || px >= m.w || py >= m.h) return null;
+  return { px, py, x: (px / m.w) * m.world_w, y: (py / m.h) * m.world_h };
+}
+const toScreen = (p) => ({ x: p.px * cams.picture.s + cams.picture.x, y: p.py * cams.picture.s + cams.picture.y });
+
+function placeMark() {
+  const p = info.pin || info.hover, mark = $("pickmark");
+  if (!info.on || !p || mode !== "picture") { mark.style.display = "none"; return; }
+  const at = toScreen(p);
+  mark.style.display = "block";
+  mark.style.left = `${at.x}px`;
+  mark.style.top = `${at.y}px`;
+}
+
+const fmtU = (mu) => { const u = mu / 1000; return u >= 100 ? u.toFixed(0) : u >= 10 ? u.toFixed(1) : u.toFixed(3).replace(/0+$/, "").replace(/\.$/, ""); };
+
+function showInfo(r, p, at) {
+  const panel = $("infopanel");
+  panel.textContent = "";
+  panel.classList.toggle("pinned", !!info.pin);
+  const h = document.createElement("h3");
+  h.textContent = `tick ${r.tick} · (${r.x.toFixed(1)}, ${r.y.toFixed(1)}) · cell ${r.cell.x}, ${r.cell.y}`;
+  panel.append(h);
+  const cell = Object.entries(r.cell.amounts_mu);
+  const t = document.createElement("table");
+  if (!cell.length) { const tr = t.insertRow(); tr.insertCell().textContent = "the cell is empty"; }
+  for (const [name, mu] of cell) { const tr = t.insertRow(); tr.insertCell().textContent = name; tr.insertCell().textContent = `${fmtU(mu)} u`; }
+  panel.append(t);
+  for (const e of r.creatures.slice(0, 5)) {
+    const w = document.createElement("div");
+    w.className = "who";
+    const carried = Object.entries(e.carried_mu).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} ${fmtU(v)}`).join(", ");
+    const l = document.createElement("div");
+    l.textContent = `#${e.id} ${e.lineage} · age ${e.age} · ${e.active_genes} genes`;
+    const c = document.createElement("div");
+    c.className = "sub";
+    c.textContent = `${e.distance.toFixed(1)} away${carried ? ` · carries ${carried}` : ""}`;
+    w.append(l, c);
+    if (info.pin) {
+      const b = document.createElement("button");
+      b.textContent = "Open genome";
+      b.onclick = () => { wantEntity = e.id; info.pin = null; infoOff(); setMode("genome"); };
+      w.append(b);
+    }
+    panel.append(w);
+  }
+  if (r.creatures_near > 5) { const m = document.createElement("div"); m.className = "sub"; m.textContent = `+ ${r.creatures_near - 5} more near`; panel.append(m); }
+  const hint = document.createElement("div");
+  hint.className = "hint";
+  hint.textContent = info.pin ? "click elsewhere to move · Esc or i to close" : "click to pin · i or Esc to close";
+  panel.append(hint);
+  panel.style.display = "block";
+  // Beside the pointer, kept inside the window.
+  const box = stage.getBoundingClientRect(), pw = panel.offsetWidth, ph = panel.offsetHeight;
+  let x = at.x + 18, y = at.y + 18;
+  if (x + pw > box.width - 8) x = at.x - pw - 18;
+  if (y + ph > box.height - 8) y = Math.max(8, box.height - ph - 8);
+  panel.style.left = `${Math.max(8, x)}px`;
+  panel.style.top = `${Math.max(8, y)}px`;
+}
+
+async function askInfo(p, at) {
+  const w = $("world").value, m = info.map;
+  if (!w || !m || info.busy) return;
+  info.busy = true;
+  try {
+    const radius = (m.world_w / m.grid_w) * 3;
+    const r = await call("view.pick", { world: w, x: p.x, y: p.y, radius, limit: 6 });
+    if (info.on && (info.pin || info.hover === p)) showInfo(r, p, at);
+  } catch (e) {
+    $("infopanel").textContent = String(e.message || e);
+    $("infopanel").style.display = "block";
+  } finally {
+    info.busy = false;
+  }
+}
+
+function hoverInfo(e) {
+  if (!info.on || info.pin || drag || performance.now() - info.at < 90) return;
+  const r = stage.getBoundingClientRect(), p = pointToWorld(e.clientX, e.clientY);
+  if (!p) { info.hover = null; $("infopanel").style.display = "none"; placeMark(); return; }
+  info.at = performance.now();
+  info.hover = p;
+  placeMark();
+  askInfo(p, { x: e.clientX - r.left, y: e.clientY - r.top });
+}
+
+function pinInfo(e) {
+  const r = stage.getBoundingClientRect(), p = pointToWorld(e.clientX, e.clientY);
+  if (!p) return;
+  info.pin = p;
+  info.hover = null;
+  placeMark();
+  askInfo(p, { x: e.clientX - r.left, y: e.clientY - r.top });
+}
+
+function infoOff() {
+  info.on = false;
+  info.pin = info.hover = null;
+  stage.classList.remove("picking");
+  $("infobtn").classList.remove("on");
+  $("infopanel").style.display = "none";
+  placeMark();
+}
+
+function toggleInfo() {
+  if (info.on) return infoOff();
+  if (mode !== "picture") setMode("picture");
+  info.on = true;
+  stage.classList.add("picking");
+  $("infobtn").classList.add("on");
+}
+
+stage.addEventListener("pointermove", hoverInfo);
+stage.addEventListener("pointerleave", () => { if (info.on && !info.pin) { info.hover = null; $("infopanel").style.display = "none"; placeMark(); } });
+$("infobtn").onclick = toggleInfo;
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
+  if (e.key === "i" || e.key === "I") { e.preventDefault(); toggleInfo(); }
+  else if (e.key === "Escape" && info.on) { if (info.pin) { info.pin = null; $("infopanel").style.display = "none"; placeMark(); } else infoOff(); }
+});
+// A pinned point follows the running world.
+setInterval(() => { if (info.on && info.pin && mode === "picture") { const r = stage.getBoundingClientRect(), at = toScreen(info.pin); askInfo(info.pin, { x: at.x, y: at.y }); } }, 1000);
+
 function onFrame(buf) {
   const n = new DataView(buf).getUint32(0, true);
   const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, n)));
   if (!sub || header.subscription !== sub) return;
+  info.map = header.map || null;
   const url = URL.createObjectURL(new Blob([new Uint8Array(buf, 4 + n)], { type: "image/png" }));
   const img = $("frame");
   img.onload = () => {

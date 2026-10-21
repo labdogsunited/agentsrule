@@ -943,6 +943,11 @@ impl<'a> Resident<'a> {
         (t[0], t[1])
     }
 
+    /// The amounts of one cell (µ of each substance).
+    pub fn cell_amounts(&self, cell: usize) -> Vec<u32> {
+        self.gpu.read_at(&self.b.camt, cell * self.ns, self.ns)
+    }
+
     /// The entity table, positions and amounts, without the pools: what a listing of creatures needs.
     pub fn entity_table(&self) -> (Vec<u32>, Vec<f32>, Vec<u32>) {
         let (n, ns, g) = (self.n, self.ns, self.gpu);

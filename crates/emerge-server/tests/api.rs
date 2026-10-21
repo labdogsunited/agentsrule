@@ -404,3 +404,37 @@ fn a_gpu_worlds_creatures_and_genomes_read_like_the_cpus() {
     assert!(c.call("genome.graph", json!({"world": gpu})).get("error").is_none());
     assert!(c.call("genome.graph", json!({"world": gpu, "entity": 999_999_999u64})).get("error").is_some());
 }
+
+#[test]
+fn view_pick_tells_what_is_at_a_point_on_both_backends() {
+    let mut c = server();
+    let source = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 96, h: 96)").replace("count: 2_000;", "count: 300;");
+    let make = |c: &mut Client, backend: &str| c.ok("world.create", json!({"source": source, "lineages": ["Drifter", "Builder"], "seed": 5, "backend": backend, "contract": true}))["world"].as_str().unwrap().to_string();
+    let (cpu, gpu) = (make(&mut c, "cpu"), make(&mut c, "gpu"));
+    for w in [&cpu, &gpu] {
+        c.ok("run.step", json!({"world": w, "ticks": 60}));
+    }
+    // At a creature: it is the nearest, at distance 0, and the cell holds what the world says.
+    let e = c.ok("entities.query", json!({"world": cpu, "limit": 3}))["entities"][1].clone();
+    let (x, y) = (e["x"].as_f64().unwrap(), e["y"].as_f64().unwrap());
+    let on_cpu = c.ok("view.pick", json!({"world": cpu, "x": x, "y": y, "radius": 8.0}));
+    assert_eq!(on_cpu["creatures"][0]["id"], e["id"]);
+    assert_eq!(on_cpu["creatures"][0]["distance"], 0.0);
+    assert_eq!(on_cpu["creatures"][0]["lineage"], e["lineage"]);
+    assert!(on_cpu["cell"]["amounts_mu"].as_object().is_some_and(|m| !m.is_empty()), "{on_cpu}");
+    // The same world on the GPU (contract mode) says the same.
+    assert_eq!(on_cpu, {
+        let mut g = c.ok("view.pick", json!({"world": gpu, "x": x, "y": y, "radius": 8.0}));
+        g["x"] = on_cpu["x"].clone();
+        g
+    });
+    // Nearest first, at most `limit`, and the total is reported.
+    let many = c.ok("view.pick", json!({"world": cpu, "x": x, "y": y, "radius": 400.0, "limit": 4}));
+    assert_eq!(many["creatures"].as_array().unwrap().len(), 4);
+    assert!(many["creatures_near"].as_u64().unwrap() > 4);
+    let d: Vec<f64> = many["creatures"].as_array().unwrap().iter().map(|c| c["distance"].as_f64().unwrap()).collect();
+    assert!(d.windows(2).all(|w| w[0] <= w[1]), "{d:?}");
+    // Outside the world, and not numbers, are errors.
+    assert!(c.call("view.pick", json!({"world": cpu, "x": -1.0, "y": 5.0})).get("error").is_some());
+    assert!(c.call("view.pick", json!({"world": cpu, "x": "left", "y": 5.0})).get("error").is_some());
+}
