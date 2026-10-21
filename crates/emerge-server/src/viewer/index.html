@@ -100,6 +100,7 @@
   .gene.k-regulate .t { background: #b48ad6; }
   .gene.k-react .t { background: #e0a050; }
   .gene.k-action .t { background: #5fbfae; }
+  #genomemsg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 0 40px; color: var(--muted); font-size: 14px; pointer-events: none; }
   #genomebar { position: absolute; left: 12px; top: 12px; display: none; gap: 6px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; z-index: 3; cursor: default; color: var(--muted); font-size: 12px; max-width: calc(100% - 200px); }
   #genomebar select { width: auto; max-width: 340px; }
   #genomebar button { padding: 3px 8px; }
@@ -197,7 +198,7 @@
     </div>
     <div id="error"></div>
   </aside>
-  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="genome"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
+  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
   <section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
@@ -792,20 +793,39 @@ let genomeData = null, genomeSel = null, genomeTick = 0;
 const gplaced = new Map();
 const GCOL = { sense: 0, regulate: 1, react: 2, action: 2 };
 
+// Why there is nothing to draw, in words: no world, a GPU world, nobody alive, a creature that died.
+let genomeMsg = "";
+function showGenomeMsg() {
+  const el = $("genomemsg");
+  el.textContent = genomeMsg;
+  el.style.display = mode === "genome" && !genomeData && genomeMsg ? "flex" : "none";
+}
+const genomeWhy = (e) => (/CPU backend/.test(String(e.message || e)) ? "This world runs on the GPU, whose genomes are not decoded back yet. Create a world that runs on the CPU (Runs on: CPU) to see creatures' genomes." : String(e.message || e));
+
 async function loadEntities() {
   const w = $("world").value;
-  if (!w) return;
-  const r = await call("entities.query", { world: w, limit: 60 });
-  const sel = $("entity"), prev = sel.value;
-  sel.textContent = "";
-  for (const e of r.entities) {
-    const o = document.createElement("option");
-    o.value = e.id;
-    o.textContent = `#${e.id} · ${e.lineage} · age ${e.age} · ${e.active_genes} genes`;
-    sel.append(o);
+  if (!w) { genomeMsg = "Create a world first (or pick one)."; genomeData = null; drawGenome(); return; }
+  $("genomenote").textContent = "loading…";
+  try {
+    const r = await call("entities.query", { world: w, limit: 60 });
+    const sel = $("entity"), prev = sel.value;
+    sel.textContent = "";
+    for (const e of r.entities) {
+      const o = document.createElement("option");
+      o.value = e.id;
+      o.textContent = `#${e.id} · ${e.lineage} · age ${e.age} · ${e.active_genes} genes`;
+      sel.append(o);
+    }
+    if (r.entities.some((e) => String(e.id) === prev)) sel.value = prev;
+    $("genomenote").textContent = r.entities.length ? `${r.total} alive` : "";
+    genomeMsg = r.entities.length ? "" : "No creatures are alive in this world.";
+  } catch (e) {
+    $("entity").textContent = "";
+    $("genomenote").textContent = "";
+    genomeMsg = genomeWhy(e);
+    genomeData = null;
+    drawGenome();
   }
-  if (r.entities.some((e) => String(e.id) === prev)) sel.value = prev;
-  $("genomenote").textContent = r.entities.length ? `${r.total} alive` : "no creatures alive";
 }
 
 async function loadGenome(quiet) {
@@ -813,12 +833,13 @@ async function loadGenome(quiet) {
   if (!w || !id) { genomeData = null; drawGenome(); return; }
   try {
     genomeData = await call("genome.graph", { world: w, entity: id });
+    genomeMsg = "";
     $("genomenote").textContent = "";
     drawGenome();
   } catch (e) {
     genomeData = null;
+    genomeMsg = /no living entity/.test(String(e.message)) ? `Creature #${id} has died. Pick another from the list.` : genomeWhy(e);
     drawGenome();
-    $("genomenote").textContent = /no living entity/.test(String(e.message)) ? `#${id} has died: pick another` : String(e.message || e);
     if (quiet) loadEntities().catch(() => {});
   }
 }
@@ -827,7 +848,8 @@ function drawGenome() {
   const g = genomeData, root = $("genome");
   root.textContent = "";
   gplaced.clear();
-  if (!g) { cams.genome.w = 0; return; }
+  if (!g) { cams.genome.w = 0; showGenomeMsg(); return; }
+  showGenomeMsg();
   const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
   svg.id = "gwires";
   root.appendChild(svg);
@@ -943,6 +965,7 @@ function setMode(m) {
   const pic = m === "picture";
   $("frame").style.display = pic && $("frame").src ? "block" : "none";
   $("empty").style.display = pic && !$("frame").src ? "flex" : "none";
+  showGenomeMsg();
   if (m === "graph") loadGraph().then(() => { if (cams.graph.fit) fitCam(cams.graph); applyCam(cams.graph); }).catch(oops);
   else if (m === "genome") loadEntities().then(() => loadGenome()).then(() => { if (cams.genome.fit) fitCam(cams.genome); applyCam(cams.genome); }).catch(oops);
   else applyCam(cams.picture);
