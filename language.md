@@ -450,7 +450,7 @@ rule conway on life {
 
 Senses do not read state fields, so a gene cannot (`any quantity` does not include them). Rules on state fields are not swappable.
 
-**What the runner evaluates (stage 1, `proposals/rule-conditions.md`).** `when`, `else` and `let` run in transfer and reaction rules on the CPU runner, around the effects that already run (`transfer` from a source to `self`, `react`, `diffuse_conserved`). The condition is evaluated in each cell on the start-of-tick snapshot, in exact integers: `self.<substance>`, `cap(<substance>)`, `tick`, amount and integer literals, `+`, `-`, `*` by an integer, comparisons, `and`, `or`, `not`; amounts compare with amounts and integers with integers (`E0205`). Division, floats, neighbour and other-field reads, reductions and `for` are refused with `E1001` and are stage 2. The GPU runtime refuses a world with a conditional rule, at creation and in a swap.
+**What the runner evaluates (stage 1, `proposals/rule-conditions.md`).** `when`, `else` and `let` run in transfer and reaction rules on the CPU runner, around the effects that already run (`transfer` from a source to `self`, `react`, `diffuse_conserved`). The condition is evaluated in each cell on the start-of-tick snapshot, in exact integers: `self.<substance>`, `cap(<substance>)`, `tick`, amount and integer literals, `+`, `-`, `*` by an integer, comparisons, `and`, `or`, `not`; amounts compare with amounts and integers with integers (`E0205`). Division, floats, neighbour and other-field reads, reductions and `for` are refused with `E1001` and are stage 2. The GPU runtime runs the same conditions with the same results in contract mode (2026-10-21); it refuses only a condition that holds more than 16 values at once while it is evaluated, at creation and in a swap, with the reason.
 
 ### 7.3 Statements
 
@@ -1032,6 +1032,7 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | **World rules and genesis** | | | |
 | `transfer` from a source, with `overflow` | yes | yes | yes |
 | `react`, `diffuse_conserved` | yes | yes | yes |
+| `when`, `else`, `let` around those statements (§7; conditions on `self.<substance>`, `cap()`, `tick` in exact integers) | yes | yes | yes, equal to the CPU in contract mode; a condition more than 16 values deep is refused |
 | Other rule statements on the conserved field; transfers not from a source | parsed | `E1001` | — |
 | World genesis `for cell in … { transfer(…) }`; lineage genesis `count`, `position = uniform(…)`, `transfer` | yes | yes | yes (genesis runs on the CPU before packing) |
 | **Genomes and mutation** | | | |

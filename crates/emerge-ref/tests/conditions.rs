@@ -171,7 +171,7 @@ fn what_cannot_be_evaluated_yet_is_refused_with_the_reason() {
 }
 
 #[test]
-fn a_swap_can_add_a_conditional_rule_and_the_gpu_would_refuse_it() {
+fn a_swap_can_add_a_conditional_rule() {
     let mut live = Live::new(&small(), &["Drifter", "Builder"], opts(2)).unwrap();
     for _ in 0..5 {
         live.world.run_tick();
@@ -184,7 +184,8 @@ fn a_swap_can_add_a_conditional_rule_and_the_gpu_would_refuse_it() {
         live.world.run_tick();
     }
     live.world.audit().unwrap();
-    assert!(live.world.gpu_unsupported().unwrap().contains("CPU runner only"));
+    // The GPU runs it too (crates/emerge-gpu/tests/conditions.rs); only a condition deeper than its stack is refused.
+    assert!(live.world.gpu_unsupported().is_none());
     // The rule can be changed and removed again.
     live.hotswap("patch Dish {\n    remove rules.gate;\n}\n", live.revision).unwrap();
     assert!(!live.world.laws.iter().any(|l| l.is_conditional()));

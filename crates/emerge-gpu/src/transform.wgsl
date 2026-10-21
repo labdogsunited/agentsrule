@@ -14,6 +14,9 @@
 @group(0) @binding(11) var<storage, read_write> waste: array<u32>;
 @group(0) @binding(12) var<storage, read_write> stats: array<atomic<u32>>;
 @group(0) @binding(13) var<storage, read_write> flows: array<atomic<u32>>;   // entity-reaction extent by reaction
+@group(0) @binding(14) var<storage, read_write> camt0: array<u32>;   // the cell amounts as the tick began, which conditions read
+
+const RLAW = 3u;   // words per world reaction rule: the reaction, the rate, where its condition starts plus 1 (0 for none)
 
 const RX = 24u;
 fn flow_add(kind: u32, s: u32, x: u32) {
@@ -86,15 +89,17 @@ fn react_entities(@builtin(global_invocation_id) id: vec3<u32>) {
     }
 }
 
-// One world reaction rule (params[P_LAWIDX]) over every cell.
+// One world reaction rule (params[P_LAWIDX]) over every cell where its condition, if any, holds.
 @compute @workgroup_size(64)
 fn react_cells(@builtin(global_invocation_id) id: vec3<u32>) {
     let c = id.x;
     let ns = params[P_NS];
     if (c * ns >= arrayLength(&camt)) { return; }
     let l = params[P_LAWIDX];
-    let r = rlaws[l * 2u] * RX;
-    var rate = u64(rlaws[l * 2u + 1u]);
+    let cond = rlaws[l * RLAW + 2u];
+    if (cond != 0u && !cond_holds(cond - 1u, c)) { return; }
+    let r = rlaws[l * RLAW] * RX;
+    var rate = u64(rlaws[l * RLAW + 1u]);
     let cat = reactions[r + 18u];
     if (cat != 0u) { rate = u64(min(catalysed(r, u32(rate), camt[c * ns + cat - 1u]), 10000u)); }
     var extent = 0xffffffffu;

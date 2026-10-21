@@ -107,3 +107,87 @@ fn fit(v: f32, size: f32, wrap: bool) -> f32 {{
         cos0 = cos[0], cos1 = cos[1], cos2 = cos[2], cos3 = cos[3], cos4 = cos[4], cos5 = cos[5], cos6 = cos[6],
     )
 }
+
+/// `cond_holds(at, c)`: whether the condition program at word `at` of `table` (`pack::cond_program`)
+/// holds in cell `c`. It reads the cells as the tick began (`camt0`), their caps (`ccap`) and the
+/// tick. Values are `i64` held as `u64` in two's complement, with the saturation of `cond.rs`.
+pub fn cond(table: &str) -> String {
+    format!(
+        r#"
+fn c_min() -> u64 {{ return u64(1u) << 63u; }}
+fn c_max() -> u64 {{ return c_min() - u64(1u); }}
+fn c_neg(x: u64) -> bool {{ return (x >> 63u) == u64(1u); }}
+fn c_lt(a: u64, b: u64) -> bool {{ return (a ^ c_min()) < (b ^ c_min()); }}
+fn c_add(a: u64, b: u64) -> u64 {{
+    let r = a + b;
+    if (c_neg((a ^ r) & (b ^ r))) {{ return select(c_max(), c_min(), c_neg(a)); }}
+    return r;
+}}
+fn c_sub(a: u64, b: u64) -> u64 {{
+    let r = a - b;
+    if (c_neg((a ^ b) & (a ^ r))) {{ return select(c_max(), c_min(), c_neg(a)); }}
+    return r;
+}}
+fn c_mul(a: u64, b: u64) -> u64 {{
+    let neg = c_neg(a) != c_neg(b);
+    let ua = select(a, u64(0u) - a, c_neg(a));
+    let ub = select(b, u64(0u) - b, c_neg(b));
+    let lim = select(c_max(), c_min(), neg);
+    if (ua != u64(0u) && ub > lim / ua) {{ return lim; }}
+    let p = ua * ub;
+    return select(p, u64(0u) - p, neg);
+}}
+fn c_bool(b: bool) -> u64 {{ return select(u64(0u), u64(1u), b); }}
+fn cond_holds(at: u32, c: u32) -> bool {{
+    var st: array<u64, {stack}>;
+    var sp = 0u;
+    let ns = params[P_NS];
+    let end = at + 1u + {table}[at];
+    var i = at + 1u;
+    loop {{
+        if (i >= end) {{ break; }}
+        let op = {table}[i] & 0xffu;
+        let arg = {table}[i] >> 8u;
+        i++;
+        if (op == {c_const}) {{
+            st[sp] = (u64({table}[i + 1u]) << 32u) | u64({table}[i]);
+            i += 2u;
+            sp++;
+        }} else if (op == {c_tick}) {{
+            st[sp] = u64(params[P_TICK]);
+            sp++;
+        }} else if (op == {c_own}) {{
+            st[sp] = u64(camt0[c * ns + arg]);
+            sp++;
+        }} else if (op == {c_cap}) {{
+            st[sp] = u64(ccap[c * ns + arg]);
+            sp++;
+        }} else if (op == {c_not}) {{
+            st[sp - 1u] = c_bool(st[sp - 1u] == u64(0u));
+        }} else {{
+            let b = st[sp - 1u];
+            let a = st[sp - 2u];
+            sp--;
+            var r = u64(0u);
+            if (op == {c_add}) {{ r = c_add(a, b); }}
+            else if (op == {c_sub}) {{ r = c_sub(a, b); }}
+            else if (op == {c_mul}) {{ r = c_mul(a, b); }}
+            else if (op == {c_eq}) {{ r = c_bool(a == b); }}
+            else if (op == {c_ne}) {{ r = c_bool(a != b); }}
+            else if (op == {c_lt}) {{ r = c_bool(c_lt(a, b)); }}
+            else if (op == {c_le}) {{ r = c_bool(!c_lt(b, a)); }}
+            else if (op == {c_gt}) {{ r = c_bool(c_lt(b, a)); }}
+            else if (op == {c_ge}) {{ r = c_bool(!c_lt(a, b)); }}
+            else if (op == {c_and}) {{ r = c_bool(a != u64(0u) && b != u64(0u)); }}
+            else {{ r = c_bool(a != u64(0u) || b != u64(0u)); }}
+            st[sp - 1u] = r;
+        }}
+    }}
+    return st[0] != u64(0u);
+}}
+"#,
+        stack = emerge_ref::cond::GPU_STACK,
+        c_const = C_CONST, c_tick = C_TICK, c_own = C_OWN, c_cap = C_CAP, c_add = C_ADD, c_sub = C_SUB, c_mul = C_MUL,
+        c_eq = C_EQ, c_ne = C_NE, c_lt = C_LT, c_le = C_LE, c_gt = C_GT, c_ge = C_GE, c_and = C_AND, c_not = C_NOT,
+    )
+}

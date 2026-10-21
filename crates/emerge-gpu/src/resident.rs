@@ -335,10 +335,10 @@ impl<'a> Resident<'a> {
         };
         let common = format!("{}\n{}", shader::constants(), shader::contract());
         let set_m = module(gpu, &format!("{common}\n{}", include_str!("set.wgsl")), 13, &["main"]);
-        let move_m = module(gpu, &format!("{common}\n{}", include_str!("move.wgsl")), 30, &["bucket_hist", "bucket_scatter", "bucket_sort", "sb_scan", "upkeep_fees", "gen_requests", "sums", "flag_over", "sums_world", "flag_world", "commit_world", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
+        let move_m = module(gpu, &format!("{common}\n{}\n{}", shader::cond("laws"), include_str!("move.wgsl")), 30, &["bucket_hist", "bucket_scatter", "bucket_sort", "sb_scan", "upkeep_fees", "gen_requests", "sums", "flag_over", "sums_world", "flag_world", "commit_world", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
         let world_grid = world_grid(&p, nc);
         let plan_m = module(gpu, include_str!("plan.wgsl"), 4, &["plan_buckets", "plan_requests"]);
-        let tr_m = module(gpu, &format!("{}\n{}", shader::constants(), include_str!("transform.wgsl")), 14, &["react_entities", "react_cells", "vent", "audit_totals", "clear_made"]);
+        let tr_m = module(gpu, &crate::transform::shader_source(), 15, &["react_entities", "react_cells", "vent", "audit_totals", "clear_made"]);
         let rs_src = format!("{common}\n{}\n{}\n{}", include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"));
         let rs_m = module(gpu, &rs_src, 30, &["mark", "finish_scans", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact_ent", "compact_rest", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
         let prep_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("prep.wgsl"), crate::scan::kernels("bkt", "params[P_NBT]", "atomicLoad(&{name}_in[i])"), crate::scan::kernels("gen", "params[P_N]", "{name}_in[i]"));
@@ -470,7 +470,7 @@ impl<'a> Resident<'a> {
         // ---- Transform ----
         {
             let b = &self.b;
-            let g = gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats, &b.flows]);
+            let g = gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats, &b.flows, &b.camt0]);
             let pipe = |name: &str| self.tr_m.pipe(name);
             gpu.dispatch(&[(pipe("react_entities"), &g, wg(n))]);
             for l in 0..self.params[P_NRLAWS] {
@@ -742,7 +742,7 @@ impl<'a> Resident<'a> {
         let wg = ((self.n.max(self.nc)) as u32).div_ceil(64);
         self.gpu.clear(&self.b.flows);
         let b = &self.b;
-        let g = self.gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats, &b.flows]);
+        let g = self.gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats, &b.flows, &b.camt0]);
         self.gpu.dispatch(&[(self.tr_m.pipe("audit_totals"), &g, wg)]);
         self.read_flows().remove(2)
     }
@@ -934,7 +934,7 @@ impl<'a> Resident<'a> {
     pub fn clear_made(&mut self) {
         self.write_param(P_N, self.n as u32);
         let b = &self.b;
-        let g = self.gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats, &b.flows]);
+        let g = self.gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats, &b.flows, &b.camt0]);
         self.gpu.dispatch(&[(self.tr_m.pipe("clear_made"), &g, (self.n.max(1) as u32).div_ceil(64))]);
     }
 

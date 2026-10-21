@@ -86,7 +86,19 @@ impl Ex {
     pub fn and(self, other: Ex) -> Ex {
         Ex::And(Box::new(self), Box::new(other))
     }
+
+    /// The most values a postfix evaluation holds at once (the GPU's stack, `emerge_gpu::pack`).
+    pub fn depth(&self) -> usize {
+        match self {
+            Ex::Const(_) | Ex::Tick | Ex::Own(_) | Ex::Cap(_) => 1,
+            Ex::Not(a) => a.depth(),
+            Ex::Add(a, b) | Ex::Sub(a, b) | Ex::Mul(a, b) | Ex::Cmp(_, a, b) | Ex::And(a, b) | Ex::Or(a, b) => a.depth().max(1 + b.depth()),
+        }
+    }
 }
+
+/// The values a condition may hold at once on the GPU: a deeper one runs on the CPU only.
+pub const GPU_STACK: usize = 16;
 
 /// An error code and its message.
 pub type Fault = (&'static str, String);

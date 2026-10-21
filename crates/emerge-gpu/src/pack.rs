@@ -96,6 +96,30 @@ pub const P_NALIVE: usize = 46;
 pub const P_TRACK: usize = 58;
 pub const RX: usize = 24;
 pub const LAW: usize = 28;
+/// Words per world reaction rule: the reaction, the rate, and its condition (`LAW_COND`).
+pub const RLAW: usize = 3;
+/// The word of a Move law (and of a reaction rule, its last) that holds where its condition's
+/// program starts in the same table, plus 1; 0 for none.
+pub const LAW_COND: usize = 25;
+
+/// Opcodes of a condition program (`cond_program`). The low 8 bits of a word are the opcode, the
+/// rest its substance; a constant's two words (low, high) follow it.
+pub const C_CONST: u32 = 0;
+pub const C_TICK: u32 = 1;
+pub const C_OWN: u32 = 2;
+pub const C_CAP: u32 = 3;
+pub const C_ADD: u32 = 4;
+pub const C_SUB: u32 = 5;
+pub const C_MUL: u32 = 6;
+pub const C_EQ: u32 = 7;
+pub const C_NE: u32 = 8;
+pub const C_LT: u32 = 9;
+pub const C_LE: u32 = 10;
+pub const C_GT: u32 = 11;
+pub const C_GE: u32 = 12;
+pub const C_AND: u32 = 13;
+pub const C_OR: u32 = 14;
+pub const C_NOT: u32 = 15;
 
 /// Output record codes (word 0). 0 is no intent.
 pub const R_MOVE: u32 = 1;
@@ -369,8 +393,10 @@ pub fn pack_move(world: &World, p: &mut Packed) {
     let mut off = 0u32;
     p.laws.clear();
     let mut nlaws = 0;
+    let mut programs = Vec::new();
     for law in &world.laws {
         let mut w = [0u32; LAW];
+        let (law, cond) = law.parts();
         match law {
             Law::Inflow { s, source, amount, overflow } => {
                 w[0] = 0;
@@ -391,12 +417,20 @@ pub fn pack_move(world: &World, p: &mut Packed) {
                 w[8] = 4 * substances.len() as u32;
             }
             Law::React { .. } => continue,
-            Law::When { .. } => panic!("{}", world.gpu_unsupported().expect("a conditional law")),
+            Law::When { .. } => unreachable!("a `when` is never nested"),
+        }
+        if let Some(cond) = cond {
+            programs.push((nlaws as usize * LAW + LAW_COND, cond));
         }
         w[7] = off;
         off += w[8] * nc as u32;
         p.laws.extend_from_slice(&w);
         nlaws += 1;
+    }
+    // The conditions' programs follow the laws.
+    for (at, cond) in programs {
+        p.laws[at] = p.laws.len() as u32 + 1;
+        cond_program(cond, &mut p.laws);
     }
     set(p, P_NLAWS, nlaws);
     set(p, P_R0, r0);
@@ -440,15 +474,68 @@ pub fn pack_transform(world: &World, p: &mut Packed) {
         p.reactions.extend_from_slice(&w);
     }
     p.rlaws.clear();
+    let mut programs = Vec::new();
     for law in &world.laws {
-        if let Law::React { reaction, rate_bp } = law.parts().0 {
-            assert!(!law.is_conditional(), "{}", world.gpu_unsupported().unwrap_or_default());
-            p.rlaws.extend_from_slice(&[*reaction as u32, *rate_bp]);
+        if let (Law::React { reaction, rate_bp }, cond) = law.parts() {
+            if let Some(cond) = cond {
+                programs.push((p.rlaws.len() + RLAW - 1, cond));
+            }
+            p.rlaws.extend_from_slice(&[*reaction as u32, *rate_bp, 0]);
         }
     }
+    let nrlaws = p.rlaws.len() / RLAW;
+    for (at, cond) in programs {
+        p.rlaws[at] = p.rlaws.len() as u32 + 1;
+        cond_program(cond, &mut p.rlaws);
+    }
     p.waste = world.waste.iter().map(|&(s, _)| s as u32).collect();
-    p.params[P_NRLAWS] = (p.rlaws.len() / 2) as u32;
+    p.params[P_NRLAWS] = nrlaws as u32;
     p.params[P_NWASTE] = p.waste.len() as u32;
+}
+
+/// A world rule's condition (`emerge_ref::cond::Ex`) as a postfix program: its length in words,
+/// then the words. `cond_holds` (shader.rs) evaluates it in 64-bit two's complement with the
+/// saturation of the CPU's `i64` arithmetic, on the cells as the tick began.
+pub fn cond_program(cond: &emerge_ref::cond::Ex, out: &mut Vec<u32>) {
+    use emerge_ref::cond::{Cmp, Ex};
+    fn emit(x: &Ex, out: &mut Vec<u32>) {
+        let pair = |a: &Ex, b: &Ex, op: u32, out: &mut Vec<u32>| {
+            emit(a, out);
+            emit(b, out);
+            out.push(op);
+        };
+        match x {
+            Ex::Const(v) => out.extend_from_slice(&[C_CONST, *v as u64 as u32, (*v as u64 >> 32) as u32]),
+            Ex::Tick => out.push(C_TICK),
+            Ex::Own(s) => out.push(C_OWN | (*s as u32) << 8),
+            Ex::Cap(s) => out.push(C_CAP | (*s as u32) << 8),
+            Ex::Add(a, b) => pair(a, b, C_ADD, out),
+            Ex::Sub(a, b) => pair(a, b, C_SUB, out),
+            Ex::Mul(a, b) => pair(a, b, C_MUL, out),
+            Ex::Cmp(op, a, b) => {
+                let op = match op {
+                    Cmp::Eq => C_EQ,
+                    Cmp::Ne => C_NE,
+                    Cmp::Lt => C_LT,
+                    Cmp::Le => C_LE,
+                    Cmp::Gt => C_GT,
+                    Cmp::Ge => C_GE,
+                };
+                pair(a, b, op, out)
+            }
+            Ex::And(a, b) => pair(a, b, C_AND, out),
+            Ex::Or(a, b) => pair(a, b, C_OR, out),
+            Ex::Not(a) => {
+                emit(a, out);
+                out.push(C_NOT);
+            }
+        }
+    }
+    assert!(cond.depth() <= emerge_ref::cond::GPU_STACK, "a condition deeper than the GPU's stack (World::gpu_unsupported refuses it)");
+    let at = out.len();
+    out.push(0);
+    emit(cond, out);
+    out[at] = (out.len() - at - 1) as u32;
 }
 
 /// Restructure's inputs: the age limit, the entity limit, the next ID, `decompose`, the child offset.

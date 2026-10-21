@@ -444,7 +444,7 @@ fn view_pick_tells_what_is_at_a_point_on_both_backends() {
 }
 
 #[test]
-fn a_conditional_world_rule_runs_on_the_cpu_and_the_gpu_refuses_it() {
+fn a_conditional_world_rule_runs_on_the_cpu_and_the_gpu() {
     let mut c = server();
     let source = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 96, h: 96)").replace("count: 2_000;", "count: 300;");
     let gate = "    rule gate on cells {\n        when self.nitrate < 30u {\n            transfer(nitrate, from: rock, to: self, amount: 1u, overflow: void) @transfer_gate;\n        }\n    }\n\n";
@@ -454,14 +454,20 @@ fn a_conditional_world_rule_runs_on_the_cpu_and_the_gpu_refuses_it() {
     assert_eq!(c.ok("run.step", json!({"world": cpu, "ticks": 20}))["tick"], 20);
     let g = c.ok("world.graph", json!({"world": cpu}));
     assert!(g["nodes"].as_array().unwrap().iter().any(|n| n["id"].as_str().is_some_and(|i| i.starts_with("Dish.rules.gate")) && n["kind"] == "code"), "the `when` is a code box");
-    // The GPU refuses it at creation, with the reason, and in a swap of a world it already runs.
-    let refused = c.call("world.create", json!({"source": conditional, "lineages": ["Drifter"], "seed": 2, "backend": "gpu"}));
-    assert!(refused["error"]["message"].as_str().unwrap_or_default().contains("CPU runner only"), "{refused}");
+    // The GPU runs it, created with it or swapped in.
+    let made = c.ok("world.create", json!({"source": conditional, "lineages": ["Drifter"], "seed": 2, "backend": "gpu"}))["world"].as_str().unwrap().to_string();
+    assert_eq!(c.ok("run.step", json!({"world": made, "ticks": 5}))["tick"], 5);
     let gpu = c.ok("world.create", json!({"source": source, "lineages": ["Drifter"], "seed": 2, "backend": "gpu"}))["world"].as_str().unwrap().to_string();
     let patch = "patch Dish {\n    add after rules.spread: rule gate on cells { when self.nitrate < 30u { transfer(nitrate, from: rock, to: self, amount: 1u, overflow: void) @transfer_gate; } }\n}\n";
-    let swap = c.call("world.hotswap", json!({"world": gpu, "base_revision": 0, "patch": patch}));
+    c.ok("world.hotswap", json!({"world": gpu, "base_revision": 0, "patch": patch}));
+    assert_eq!(c.ok("run.step", json!({"world": gpu, "ticks": 5}))["tick"], 5);
+    // A condition deeper than the GPU's stack is refused there, with the reason, and the world runs on.
+    let deep = (0..15).fold("self.carbon".to_string(), |e, _| format!("self.carbon + ({e})"));
+    let patch = format!("patch Dish {{\n    add after rules.gate: rule deep on cells {{ when self.nitrate < {deep} {{ transfer(nitrate, from: rock, to: self, amount: 1u, overflow: void) @transfer_deep; }} }}\n}}\n");
+    let swap = c.call("world.hotswap", json!({"world": gpu, "base_revision": 1, "patch": patch}));
     assert_eq!(swap["error"]["data"]["kind"], "not_swappable", "{swap}");
-    assert_eq!(c.ok("run.step", json!({"world": gpu, "ticks": 5}))["tick"], 5, "the GPU world is unchanged and runs on");
+    assert!(swap["error"]["message"].as_str().unwrap_or_default().contains("values deep"), "{swap}");
+    assert_eq!(c.ok("run.step", json!({"world": gpu, "ticks": 5}))["tick"], 10, "the GPU world is unchanged and runs on");
 }
 
 #[test]

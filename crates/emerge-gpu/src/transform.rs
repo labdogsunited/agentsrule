@@ -10,29 +10,31 @@ pub struct TransformOut {
 }
 
 pub fn shader_source() -> String {
-    format!("{}\n{}", shader::constants(), include_str!("transform.wgsl"))
+    format!("{}\n{}\n{}", shader::constants(), shader::cond("rlaws"), include_str!("transform.wgsl"))
 }
 
 pub fn run_transform(gpu: &Gpu, p: &Packed, rec: &[u32], dying: &[u32]) -> TransformOut {
     let (n, ns) = (p.n, p.ns);
     let nc = p.camt.len() / ns;
     let module = gpu.module(&shader_source());
-    let (bgl, layout) = gpu.storage_layout(14);
+    let (bgl, layout) = gpu.storage_layout(15);
     let params = gpu.storage_with(&p.params);
     let ent = gpu.storage_with(&p.ent);
     let amounts = gpu.storage_with(&p.amounts);
     let camt = gpu.storage_with(&p.camt);
+    // Transform alone: the cells as the tick began are the cells it starts from.
+    let camt0 = gpu.storage_with(&p.camt);
     let ccap = gpu.storage_with(&p.ccap);
     let ecap = gpu.storage_with(&p.ecap);
     let rec = gpu.storage_with(rec);
     let gw = gpu.storage_with(&p.gw);
     let dying = gpu.storage_with(dying);
     let reactions = gpu.storage_with(&p.reactions);
-    let rlaws = gpu.storage_with(&p.rlaws.iter().chain([&0u32, &0]).copied().collect::<Vec<_>>());
+    let rlaws = gpu.storage_with(&p.rlaws.iter().chain([&0u32, &0, &0]).copied().collect::<Vec<_>>());
     let waste = gpu.storage_with(&p.waste.iter().chain([&0u32]).copied().collect::<Vec<_>>());
     let stats = gpu.storage(p.reactions.len() / RX * 8 + 8);
     let flows = gpu.storage(3 * ns * 8 + 8);
-    let group = gpu.group(&bgl, &[&params, &ent, &amounts, &camt, &ccap, &ecap, &rec, &gw, &dying, &reactions, &rlaws, &waste, &stats, &flows]);
+    let group = gpu.group(&bgl, &[&params, &ent, &amounts, &camt, &ccap, &ecap, &rec, &gw, &dying, &reactions, &rlaws, &waste, &stats, &flows, &camt0]);
     let wg = |count: usize| (count.max(1) as u32).div_ceil(64);
     let (re, rc, vent) = (gpu.pipeline_in(&module, "react_entities", &layout), gpu.pipeline_in(&module, "react_cells", &layout), gpu.pipeline_in(&module, "vent", &layout));
     gpu.dispatch(&[(&re, &group, wg(n))]);

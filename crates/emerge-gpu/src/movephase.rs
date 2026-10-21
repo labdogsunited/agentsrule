@@ -19,7 +19,7 @@ pub struct MoveOut {
 }
 
 pub fn shader_source() -> String {
-    format!("{}\n{}\n{}", shader::constants(), shader::contract(), include_str!("move.wgsl"))
+    format!("{}\n{}\n{}\n{}", shader::constants(), shader::contract(), shader::cond("laws"), include_str!("move.wgsl"))
 }
 
 const BINDINGS: u32 = 30;

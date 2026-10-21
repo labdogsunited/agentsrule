@@ -43,6 +43,7 @@ fn flow_add(kind: u32, s: u32, x: u32) {
 
 const RQ = 8u;      // words per request: origin, dest, s, overflow, requested, steal, stage1, stage2
 const LAW = 28u;    // words per law
+const LAW_COND = 25u;   // where the law's condition program starts in `laws`, plus 1; 0 for none
 const P_PAY = 24u;
 const P_UBASE = 25u;
 const P_UGENE = 26u;
@@ -137,6 +138,12 @@ fn get_grant(r: u32, stage: u32) -> u32 {
 
 struct Req { origin: u32, dest: u32, s: u32, ovf: u32, amt: u32, steal: u32, g1: u32, g2: u32 }
 
+// Whether law `lb` acts in cell c: it has no condition, or its condition holds on the cells as the tick began.
+fn law_on(lb: u32, c: u32) -> bool {
+    let p = laws[lb + LAW_COND];
+    return p == 0u || cond_holds(p - 1u, c);
+}
+
 // The request of world slot i, computed from the laws and the cell amounts at the start of the phase (`camt0`). `amt` is 0 for an empty slot.
 fn world_req(i: u32) -> Req {
     let ns = params[P_NS];
@@ -148,6 +155,8 @@ fn world_req(i: u32) -> Req {
         if (i < off || i >= off + total) { continue; }
         let c = (i - off) / w;
         let k = (i - off) % w;
+        // A law whose condition fails in the cell makes no request there.
+        if (!law_on(lb, c)) { break; }
         if (laws[lb] == 0u) {
             // Inflow from a source to the cell.
             let a = laws[lb + 3u];
@@ -532,7 +541,7 @@ fn diff_of(lb: u32, c: u32, si: u32) -> Diff {
     var count = 0u;
     for (var q = 0u; q < 4u; q++) { if (nbr[c * 4u + q] != NONE) { count++; } }
     let s = laws[lb + 9u + si];
-    if (count == 0u) { return Diff(s, 0u, 0u); }
+    if (count == 0u || !law_on(lb, c)) { return Diff(s, 0u, 0u); }
     let offer = u32((u64(camt0[c * params[P_NS] + s]) * u64(laws[lb + 5u])) / u64(10000u));
     return Diff(s, count, offer / count);
 }
@@ -558,7 +567,7 @@ fn sums_world(@builtin(global_invocation_id) id: vec3<u32>) {
     let ns = params[P_NS];
     if (laws[lb] == 0u) {
         // Inflow: the source is no store, so only the destination sums (stage 2) count; its grant is the request.
-        let amt = laws[lb + 3u];
+        let amt = select(0u, laws[lb + 3u], law_on(lb, b.c));
         if (stage == 1u && amt != 0u) { add_sum(b.c * ns + laws[lb + 1u], amt); }
         return;
     }
@@ -588,7 +597,7 @@ fn flag_world(@builtin(global_invocation_id) id: vec3<u32>) {
     let stage = params[P_STAGE];
     let ns = params[P_NS];
     if (laws[lb] == 0u) {
-        let amt = laws[lb + 3u];
+        let amt = select(0u, laws[lb + 3u], law_on(lb, b.c));
         if (stage == 1u && amt != 0u) {
             let s = laws[lb + 1u];
             let k = b.c * ns + s;
@@ -625,7 +634,7 @@ fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_inv
         let lb = b.law * LAW;
         let ns = params[P_NS];
         if (laws[lb] == 0u) {
-            let amt = laws[lb + 3u];
+            let amt = select(0u, laws[lb + 3u], law_on(lb, b.c));
             if (amt != 0u) {
                 let s = laws[lb + 1u];
                 let j = params[P_R0] + laws[lb + 7u] + b.c;

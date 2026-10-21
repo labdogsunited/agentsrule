@@ -237,10 +237,11 @@ pub enum Law {
 }
 
 impl World {
-    /// Why the GPU runtime cannot run this world, if it cannot: a conditional world rule
-    /// (`proposals/rule-conditions.md`, stage 2 adds the kernels).
+    /// Why the GPU runtime cannot run this world, if it cannot: a world rule's condition that needs
+    /// more than the GPU's stack (`cond::GPU_STACK`; `proposals/rule-conditions.md`).
     pub fn gpu_unsupported(&self) -> Option<String> {
-        self.laws.iter().any(Law::is_conditional).then(|| "a world rule with `when` runs on the CPU runner only for now; the GPU runtime has no kernel for conditions yet (proposals/rule-conditions.md, stage 2)".to_string())
+        let deepest = self.laws.iter().filter_map(|l| l.parts().1).map(crate::cond::Ex::depth).max()?;
+        (deepest > crate::cond::GPU_STACK).then(|| format!("a world rule's `when` condition is nested {deepest} values deep; the GPU runtime evaluates at most {} (the CPU runner has no limit; proposals/rule-conditions.md)", crate::cond::GPU_STACK))
     }
 }
 
@@ -253,7 +254,7 @@ impl Law {
         }
     }
 
-    /// Whether a condition guards it (the GPU runtime has no kernel for conditions yet).
+    /// Whether a condition guards it.
     pub fn is_conditional(&self) -> bool {
         matches!(self, Law::When { .. })
     }
