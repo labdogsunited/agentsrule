@@ -125,3 +125,16 @@ fn callers_cannot_choose_where_files_are_written() {
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep me");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn world_graph_draws_the_running_source() {
+    let mut c = server();
+    let w = c.ok("world.create", json!({"source": DISH, "lineages": ["Drifter"], "seed": 1}))["world"].as_str().unwrap().to_string();
+    let g = c.ok("world.graph", json!({"world": w}));
+    assert_eq!(g["world"], "Dish");
+    let nodes = g["nodes"].as_array().unwrap();
+    assert!(nodes.iter().any(|n| n["id"] == "Dish.rules.sunlight@transfer_light" && n["kind"] == "transfer" && n["step"] == "Transfers"));
+    assert!(g["wires"].as_array().unwrap().iter().any(|x| x["from"] == "Dish.sources.sun" && x["to"] == "Dish.rules.sunlight@transfer_light" && x["substance"] == "light"));
+    // An unknown world is an error, not a panic.
+    assert!(c.call("world.graph", json!({"world": "nope"})).get("error").is_some());
+}

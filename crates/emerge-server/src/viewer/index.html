@@ -42,6 +42,28 @@
   #empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
   #cam { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 4px 4px 10px; color: var(--muted); font-variant-numeric: tabular-nums; cursor: default; }
   #cam button { padding: 3px 8px; }
+  .modes { display: flex; gap: 4px; }
+  .modes button { padding: 3px 10px; }
+  .modes button.on { background: var(--accent); color: #1a1408; border-color: var(--accent); font-weight: 600; }
+  #graph { position: absolute; left: 0; top: 0; transform-origin: 0 0; display: none; background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 20px 20px; }
+  #graph svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+  #graph .wire { fill: none; stroke-width: 2; opacity: 0.85; }
+  #graph .wlabel { font: 10px system-ui, sans-serif; fill: var(--muted); }
+  .box { position: absolute; width: 200px; height: 60px; background: #1c2027; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; cursor: pointer; user-select: none; }
+  .box.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .box .t { padding: 2px 8px; font-size: 12px; font-weight: 600; color: #101318; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .box .b { padding: 4px 8px; font: 11px/1.35 ui-monospace, monospace; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
+  .box.k-store .t { background: #6f9bd1; }
+  .box.k-reaction .t { background: #b48ad6; }
+  .box.k-transfer .t { background: #5fbfae; }
+  .box.k-react .t { background: #e0a050; }
+  .box.k-diffuse .t { background: #8cc06a; }
+  .box.k-signal .t { background: #d78aa8; }
+  .box.k-code { border-style: dashed; }
+  .box.k-code .t { background: #9aa1ad; }
+  .col-head { position: absolute; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  #picked { font: 12px/1.4 ui-monospace, monospace; color: var(--ink); white-space: pre-wrap; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 260px; overflow: auto; }
+  #picked small { display: block; color: var(--muted); font: 11px system-ui, sans-serif; margin-bottom: 4px; }
   @media (max-width: 720px) {
     .layout { flex-direction: column; }
     aside { width: auto; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -49,7 +71,7 @@
 </style>
 </head>
 <body>
-<header><h1>Emerge</h1><span id="status">connecting…</span><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
+<header><h1>Emerge</h1><span id="status">connecting…</span><span class="modes"><button id="m-picture" class="on">Picture</button><button id="m-graph">Graph</button></span><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
 <div class="layout">
   <aside>
     <h2>World</h2>
@@ -84,9 +106,13 @@
     </div>
     <h2>Stats</h2>
     <div id="stats">–</div>
+    <h2>Selected</h2>
+    <div id="picked">Click a box in the graph.</div>
+    <label for="decls">Other declarations</label>
+    <select id="decls"><option value="">–</option></select>
     <div id="error"></div>
   </aside>
-  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
+  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -105,27 +131,32 @@ function call(method, params = {}) {
   });
 }
 
-// The camera: the picture is placed by a translate and a scale, so panning and zooming cost nothing
-// on the server. Fit shows the whole picture; after the first wheel or drag the camera stays put
-// across frames of the same size.
-const cam = { s: 1, x: 0, y: 0, fit: true, w: 0, h: 0 };
+// The camera: what is shown (the picture, or the graph) is placed by a translate and a scale, so
+// panning and zooming cost nothing on the server. Fit shows the whole thing; after the first wheel
+// or drag the camera stays put across updates of the same size. The picture and the graph each
+// keep their own camera.
+const newCam = () => ({ s: 1, x: 0, y: 0, fit: true, w: 0, h: 0 });
+const cams = { picture: newCam(), graph: newCam() };
+let mode = "picture";
 const stage = document.querySelector("main");
-function fitCam() {
+function fitCam(cam = cams[mode]) {
   const r = stage.getBoundingClientRect();
   if (!cam.w || !cam.h) return;
   cam.s = Math.min(r.width / cam.w, r.height / cam.h);
+  if (cam === cams.graph) cam.s = Math.min(cam.s, 1.5);
   cam.x = (r.width - cam.w * cam.s) / 2;
   cam.y = (r.height - cam.h * cam.s) / 2;
   cam.fit = true;
 }
-function applyCam() {
-  const img = $("frame");
-  img.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
+function applyCam(cam = cams[mode]) {
+  const el = cam === cams.graph ? $("graph") : $("frame");
+  el.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
   // Exact cells when enlarged; smooth when shrunk, so the legend's text stays readable.
-  img.classList.toggle("enlarged", cam.s > 1);
-  $("zoom").textContent = `${Math.round(cam.s * 100)}%`;
+  if (cam === cams.picture) el.classList.toggle("enlarged", cam.s > 1);
+  if (cam === cams[mode]) $("zoom").textContent = `${Math.round(cam.s * 100)}%`;
 }
 stage.addEventListener("wheel", (e) => {
+  const cam = cams[mode];
   if (!cam.w) return;
   e.preventDefault();
   const r = stage.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
@@ -138,24 +169,190 @@ stage.addEventListener("wheel", (e) => {
 }, { passive: false });
 let drag = null;
 stage.addEventListener("pointerdown", (e) => {
+  const cam = cams[mode];
   if (!cam.w || e.button > 1 || e.target.closest("#cam")) return;
-  drag = { x: e.clientX - cam.x, y: e.clientY - cam.y };
+  const box = mode === "graph" && e.target.closest(".box");
+  if (box) {
+    // A box moves with the pointer; a click without a move selects it.
+    const p = placed.get(box.dataset.id);
+    drag = { box, p, sx: e.clientX, sy: e.clientY, x0: p.x, y0: p.y, moved: false };
+  } else {
+    drag = { x: e.clientX - cam.x, y: e.clientY - cam.y };
+  }
   stage.setPointerCapture(e.pointerId);
   stage.classList.add("dragging");
 });
 stage.addEventListener("pointermove", (e) => {
   if (!drag) return;
+  const cam = cams[mode];
+  if (drag.box) {
+    const dx = (e.clientX - drag.sx) / cam.s, dy = (e.clientY - drag.sy) / cam.s;
+    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+    drag.p.x = drag.x0 + dx;
+    drag.p.y = drag.y0 + dy;
+    drag.box.style.left = `${drag.p.x}px`;
+    drag.box.style.top = `${drag.p.y}px`;
+    drawWires();
+    return;
+  }
   cam.x = e.clientX - drag.x;
   cam.y = e.clientY - drag.y;
   cam.fit = false;
   applyCam();
 });
-const drop = () => { drag = null; stage.classList.remove("dragging"); };
+const drop = () => {
+  if (drag && drag.box && !drag.moved) select(drag.box.dataset.id);
+  drag = null;
+  stage.classList.remove("dragging");
+};
 stage.addEventListener("pointerup", drop);
-stage.addEventListener("pointercancel", drop);
-stage.addEventListener("dblclick", (e) => { if (!e.target.closest("#cam")) { fitCam(); applyCam(); } });
+stage.addEventListener("pointercancel", () => { drag = null; stage.classList.remove("dragging"); });
+stage.addEventListener("dblclick", (e) => { if (!e.target.closest("#cam") && !e.target.closest(".box")) { fitCam(); applyCam(); } });
 $("fit").onclick = () => { fitCam(); applyCam(); };
-window.addEventListener("resize", () => { if (cam.fit) { fitCam(); applyCam(); } });
+window.addEventListener("resize", () => { if (cams[mode].fit) { fitCam(); applyCam(); } });
+
+// ---- The graph (`proposals/node-editor.md`): boxes and wires, a projection of the source text.
+// Columns: sources and reactions on the left, the statements of the rules in the middle in the
+// order of the tick's steps, stores on the right. Boxes can be moved; the positions are kept for the
+// page's lifetime only.
+let graphData = null, graphRev = null, selected = null;
+const placed = new Map();
+const STEPS = ["Field signals", "Transfers", "World reactions"];
+const BOX = { w: 200, h: 60, gap: 28 };
+const hue = (name) => { let h = 0; for (const c of name || "") h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+const wireColor = (name) => (name ? `hsl(${hue(name)} 65% 62%)` : "#8b93a1");
+
+function layoutGraph(g) {
+  const col = (n) => (n.kind === "reaction" || (n.kind === "store" && /\.sources\./.test(n.id)) ? 0 : n.kind === "store" ? 2 : 1);
+  const drawn = g.nodes.filter((n) => ["store", "reaction", "transfer", "react", "diffuse", "signal", "code"].includes(n.kind));
+  const rank = (n) => (n.group ? STEPS.indexOf(n.step) + 1 || 9 : 0);
+  const cols = [[], [], []];
+  for (const n of drawn) cols[col(n)].push(n);
+  cols[1].sort((a, b) => rank(a) - rank(b) || a.line - b.line);
+  cols.forEach((list, c) => list.forEach((n, i) => {
+    const key = `${g.world}/${n.id}`;
+    if (!placed.has(key)) placed.set(key, { x: 40 + c * 330, y: 40 + i * (BOX.h + BOX.gap) });
+    placed.set(n.id, placed.get(key));
+  }));
+  return drawn;
+}
+
+function drawGraph() {
+  const g = graphData, root = $("graph");
+  root.textContent = "";
+  if (!g) return;
+  const drawn = layoutGraph(g);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.id = "wires";
+  root.appendChild(svg);
+  for (const [c, name] of [[0, "Sources and reactions"], [1, "Rule statements, in tick order"], [2, "Stores"]]) {
+    const h = document.createElement("div");
+    h.className = "col-head";
+    h.style.left = `${40 + c * 330}px`;
+    h.style.top = "12px";
+    h.textContent = name;
+    root.appendChild(h);
+  }
+  let maxX = 0, maxY = 0;
+  for (const n of drawn) {
+    const p = placed.get(n.id), el = document.createElement("div");
+    el.className = `box k-${n.kind}`;
+    el.dataset.id = n.id;
+    el.style.left = `${p.x}px`;
+    el.style.top = `${p.y}px`;
+    const t = document.createElement("div"), b = document.createElement("div");
+    t.className = "t";
+    t.textContent = n.group ? `${n.title} · ${n.group.split(".").pop()}` : n.title;
+    b.className = "b";
+    b.textContent = n.text.replace(/\s+/g, " ");
+    el.append(t, b);
+    root.appendChild(el);
+    maxX = Math.max(maxX, p.x + BOX.w + 40);
+    maxY = Math.max(maxY, p.y + BOX.h + 40);
+  }
+  root.style.width = `${maxX}px`;
+  root.style.height = `${maxY}px`;
+  svg.setAttribute("width", maxX);
+  svg.setAttribute("height", maxY);
+  const cam = cams.graph;
+  if (cam.fit || cam.w !== maxX || cam.h !== maxY) { cam.w = maxX; cam.h = maxY; if (cam.fit) fitCam(cam); }
+  drawWires();
+  if (selected) select(selected);
+  if (mode === "graph") applyCam(cam);
+  const other = g.nodes.filter((n) => !["store", "reaction", "transfer", "react", "diffuse", "signal", "code", "rule"].includes(n.kind));
+  $("decls").innerHTML = `<option value="">${other.length} declarations</option>` + other.map((n) => `<option value="${n.id}"></option>`).join("");
+  [...$("decls").options].slice(1).forEach((o, i) => { o.textContent = `${other[i].id.split(".").slice(1, 3).join(" ")}`; });
+}
+
+function drawWires() {
+  const g = graphData, svg = $("wires");
+  if (!g || !svg) return;
+  svg.textContent = "";
+  const ends = new Map();
+  const slot = (id, side) => { const k = id + side, i = ends.get(k) || 0; ends.set(k, i + 1); return i; };
+  const NS = "http://www.w3.org/2000/svg";
+  for (const w of g.wires) {
+    const a = placed.get(w.from), b = placed.get(w.to);
+    if (!a || !b) continue;
+    // A wire runs right to left when its source is to the right of its target (a reaction or a
+    // diffusion reading a store): it leaves the source's left edge and enters the target's right edge.
+    const back = a.x > b.x;
+    const x0 = back ? a.x : a.x + BOX.w, x1 = back ? b.x + BOX.w : b.x;
+    const y0 = a.y + 14 + (slot(w.from, back ? "L" : "R") % 6) * 8, y1 = b.y + 14 + (slot(w.to, back ? "R" : "L") % 6) * 8;
+    const d = Math.max(40, Math.abs(x1 - x0) / 2) * (back ? -1 : 1);
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("class", "wire");
+    path.setAttribute("d", `M${x0},${y0} C${x0 + d},${y0} ${x1 - d},${y1} ${x1},${y1}`);
+    path.setAttribute("stroke", wireColor(w.substance));
+    if (!w.substance) path.setAttribute("stroke-dasharray", "4 4");
+    svg.appendChild(path);
+    // Labels only on the wires into a store from a source or a transfer; the others are told apart by colour.
+    if (w.substance && !back && !/^(diffuse|react)$/.test((g.nodes.find((n) => n.id === w.from) || {}).kind)) {
+      const t = document.createElementNS(NS, "text");
+      t.setAttribute("class", "wlabel");
+      t.setAttribute("x", (x0 + x1) / 2);
+      t.setAttribute("y", (y0 + y1) / 2 - 3);
+      t.setAttribute("text-anchor", "middle");
+      t.textContent = w.substance;
+      svg.appendChild(t);
+    }
+  }
+}
+
+function select(id) {
+  selected = id;
+  for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === id);
+  const n = graphData && graphData.nodes.find((x) => x.id === id);
+  const picked = $("picked");
+  picked.textContent = "";
+  if (!n) { picked.textContent = "Click a box in the graph."; return; }
+  const small = document.createElement("small");
+  small.textContent = `${n.id}${n.step ? ` · runs in ${n.step}` : ""} · line ${n.line}`;
+  picked.append(small, document.createTextNode(n.text));
+}
+
+async function loadGraph() {
+  const w = $("world").value;
+  if (!w) return;
+  graphData = await call("world.graph", { world: w });
+  graphRev = graphData.revision;
+  drawGraph();
+}
+
+function setMode(m) {
+  mode = m;
+  $("m-picture").classList.toggle("on", m === "picture");
+  $("m-graph").classList.toggle("on", m === "graph");
+  $("graph").style.display = m === "graph" ? "block" : "none";
+  const pic = m === "picture";
+  $("frame").style.display = pic && $("frame").src ? "block" : "none";
+  $("empty").style.display = pic && !$("frame").src ? "flex" : "none";
+  if (m === "graph") loadGraph().then(() => { if (cams.graph.fit) fitCam(cams.graph); applyCam(cams.graph); }).catch(oops);
+  else applyCam(cams.picture);
+}
+$("m-picture").onclick = () => setMode("picture");
+$("m-graph").onclick = () => setMode("graph");
+$("decls").onchange = () => select($("decls").value);
 
 function onFrame(buf) {
   const n = new DataView(buf).getUint32(0, true);
@@ -167,12 +364,15 @@ function onFrame(buf) {
     if (shown) URL.revokeObjectURL(shown);
     shown = url;
     // A new picture size (another world or view) fits the window again; the same size keeps the camera.
-    if (cam.fit || cam.w !== img.naturalWidth || cam.h !== img.naturalHeight) { cam.w = img.naturalWidth; cam.h = img.naturalHeight; fitCam(); }
-    applyCam();
+    const cam = cams.picture;
+    if (cam.fit || cam.w !== img.naturalWidth || cam.h !== img.naturalHeight) { cam.w = img.naturalWidth; cam.h = img.naturalHeight; fitCam(cam); }
+    applyCam(cam);
   };
   img.src = url;
-  img.style.display = "block";
-  $("empty").style.display = "none";
+  if (mode === "picture") {
+    img.style.display = "block";
+    $("empty").style.display = "none";
+  }
   $("where").textContent = `${header.world} · tick ${header.tick} · revision ${header.revision}`;
 }
 
@@ -246,7 +446,13 @@ function connect() {
     const worlds = await refreshWorlds();
     if (worlds.length) { await refreshViews(); await subscribe(); await stats(); }
     clearInterval(poll);
-    poll = setInterval(() => { stats().catch(() => {}); refreshWorlds().catch(() => {}); }, 1000);
+    poll = setInterval(() => {
+      stats().catch(() => {});
+      refreshWorlds().then((ws) => {
+        const w = ws.find((x) => x.world === $("world").value);
+        if (mode === "graph" && w && w.revision !== graphRev) loadGraph().catch(() => {});
+      }).catch(() => {});
+    }, 1000);
   };
   ws.onclose = () => {
     clearInterval(poll);
@@ -260,7 +466,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => refreshViews().then(subscribe).then(stats).catch(oops);
+$("world").onchange = () => refreshViews().then(subscribe).then(stats).then(() => (mode === "graph" ? loadGraph() : null)).catch(oops);
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().catch(oops);
 $("play").onclick = () => call("run.resume", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
 $("pause").onclick = () => call("run.pause", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);

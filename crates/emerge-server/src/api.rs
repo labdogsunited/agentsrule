@@ -161,6 +161,23 @@ impl Engine {
                 let e = self.entry(p)?;
                 Ok(json!({"revision": e.run.revision(), "source": e.run.live.source}))
             }
+            "world.graph" => {
+                // The node graph of the running world's source (`proposals/node-editor.md`): boxes
+                // and wires, a projection of the text.
+                let e = self.entry(p)?;
+                let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+                let world = file.items.iter().find_map(|i| match &i.node {
+                    emerge_lang::ast::Item::World(w) => Some(w.name.clone()),
+                    _ => None,
+                });
+                let g = emerge_lang::graph::graph(&file, &world.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?).map_err(|m| fault(-32005, m))?;
+                Ok(json!({
+                    "revision": e.run.revision(),
+                    "world": g.world,
+                    "nodes": g.nodes.iter().map(|n| json!({"id": n.id, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "step": n.step, "group": n.group, "line": n.line})).collect::<Vec<_>>(),
+                    "wires": g.wires.iter().map(|w| json!({"from": w.from, "to": w.to, "substance": w.substance})).collect::<Vec<_>>(),
+                }))
+            }
             "world.hotswap" => {
                 let (patch, reason) = (text(p, "patch")?.to_string(), p["reason"].as_str().unwrap_or("").to_string());
                 let base = number(p, "base_revision", None)?;

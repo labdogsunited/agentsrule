@@ -765,3 +765,11 @@ pub fn lit(l: &Lit) -> String {
         Lit::Range(a, b) => format!("{}..{}", lit(a), lit(b)),
     }
 }
+
+/// A world declaration as source text, as `format` writes it (the lines of a rule or a reaction,
+/// without its comments), for the node graph's boxes.
+pub fn decl_text(d: &WDecl) -> String {
+    let mut out = Out { lines: Vec::new() };
+    wdecl(&mut out, 0, d);
+    out.lines.join("\n")
+}

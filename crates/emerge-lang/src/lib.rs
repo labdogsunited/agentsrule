@@ -9,6 +9,7 @@ pub mod ast;
 pub mod check;
 pub mod expand;
 pub mod fmt;
+pub mod graph;
 pub mod lexer;
 pub mod order;
 pub mod schedule;
