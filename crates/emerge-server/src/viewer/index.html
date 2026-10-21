@@ -80,6 +80,30 @@
   body.codeonly aside, body.codeonly main, body.codeonly .modes, body.codeonly .server, body.codeonly #where { display: none; }
   body.codeonly #code { display: flex; flex: 1; width: auto; border-left: 0; }
   body.codeonly #codehandle, body.codeonly #popout { display: none; }
+  body.genome #sel { order: -1; margin-bottom: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  body.genome #sel h2 { margin-top: 0; }
+  #genome { position: absolute; left: 0; top: 0; transform-origin: 0 0; display: none; background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 20px 20px; }
+  #genome svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+  #genome .wire { fill: none; stroke-width: 2; opacity: 0.8; }
+  #genome .wire.dim { opacity: 0.12; }
+  #genome .wire.hot { stroke-width: 3.5; opacity: 1; }
+  #genome .wlabel { font: 10px system-ui, sans-serif; fill: var(--muted); }
+  .mod { position: absolute; border: 1px dashed #3a414d; border-radius: 10px; }
+  .mod.off { opacity: 0.5; }
+  .mod .mt { position: absolute; left: 12px; top: 7px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  .gene { position: absolute; width: 200px; height: 60px; background: #1c2027; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; user-select: none; }
+  .gene.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .gene.off { opacity: 0.45; }
+  .gene .t { padding: 2px 8px; font-size: 12px; font-weight: 600; color: #101318; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 5px 5px 0 0; }
+  .gene .b { padding: 4px 8px; font: 11px/1.35 system-ui, sans-serif; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .gene.k-sense .t { background: #6f9bd1; }
+  .gene.k-regulate .t { background: #b48ad6; }
+  .gene.k-react .t { background: #e0a050; }
+  .gene.k-action .t { background: #5fbfae; }
+  #genomebar { position: absolute; left: 12px; top: 12px; display: none; gap: 6px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; z-index: 3; cursor: default; color: var(--muted); font-size: 12px; max-width: calc(100% - 200px); }
+  #genomebar select { width: auto; max-width: 340px; }
+  #genomebar button { padding: 3px 8px; }
+  body.genome #genomebar { display: flex; }
   .modes { display: flex; gap: 4px; }
   .modes button { padding: 3px 10px; }
   .modes button.on { background: var(--accent); color: #1a1408; border-color: var(--accent); font-weight: 600; }
@@ -128,7 +152,7 @@
 </style>
 </head>
 <body>
-<header><h1>Emerge</h1><span id="status">connecting…</span><span class="modes"><button id="m-picture" class="on">Picture</button><button id="m-graph">Graph</button><button id="codebtn" title="Show the complete source of the world">Code</button></span><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
+<header><h1>Emerge</h1><span id="status">connecting…</span><span class="modes"><button id="m-picture" class="on">Picture</button><button id="m-graph">Graph</button><button id="m-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button id="codebtn" title="Show the complete source of the world">Code</button></span><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
 <div class="layout">
   <aside>
     <h2>World</h2>
@@ -173,7 +197,7 @@
     </div>
     <div id="error"></div>
   </aside>
-  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
+  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="genome"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
   <section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
@@ -215,20 +239,20 @@ function call(method, params = {}) {
 // or drag the camera stays put across updates of the same size. The picture and the graph each
 // keep their own camera.
 const newCam = () => ({ s: 1, x: 0, y: 0, fit: true, w: 0, h: 0 });
-const cams = { picture: newCam(), graph: newCam() };
+const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 let mode = "picture";
 const stage = document.querySelector("main");
 function fitCam(cam = cams[mode]) {
   const r = stage.getBoundingClientRect();
   if (!cam.w || !cam.h) return;
   cam.s = Math.min(r.width / cam.w, r.height / cam.h);
-  if (cam === cams.graph) cam.s = Math.min(cam.s, 1.5);
+  if (cam !== cams.picture) cam.s = Math.min(cam.s, 1.5);
   cam.x = (r.width - cam.w * cam.s) / 2;
   cam.y = (r.height - cam.h * cam.s) / 2;
   cam.fit = true;
 }
 function applyCam(cam = cams[mode]) {
-  const el = cam === cams.graph ? $("graph") : $("frame");
+  const el = cam === cams.graph ? $("graph") : cam === cams.genome ? $("genome") : $("frame");
   el.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
   // Exact cells when enlarged; smooth when shrunk, so the legend's text stays readable.
   if (cam === cams.picture) el.classList.toggle("enlarged", cam.s > 1);
@@ -262,7 +286,9 @@ stage.addEventListener("pointerdown", (e) => {
     const p = placed.get(box.dataset.id);
     drag = { box, p, sx: e.clientX, sy: e.clientY, x0: p.x, y0: p.y, moved: false };
   } else {
-    drag = { x: e.clientX - cam.x, y: e.clientY - cam.y };
+    // In the genome view a press on a gene that does not move is a click on it.
+    const gene = mode === "genome" && e.target.closest(".gene");
+    drag = { x: e.clientX - cam.x, y: e.clientY - cam.y, gene: gene ? +gene.dataset.index : null, sx: e.clientX, sy: e.clientY, moved: false };
   }
   stage.setPointerCapture(e.pointerId);
   stage.classList.add("dragging");
@@ -296,12 +322,14 @@ stage.addEventListener("pointermove", (e) => {
     drawWires();
     return;
   }
+  if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > 3) drag.moved = true;
   cam.x = e.clientX - drag.x;
   cam.y = e.clientY - drag.y;
   cam.fit = false;
   applyCam();
 });
 const drop = (e) => {
+  if (drag && drag.gene != null && !drag.moved) selectGene(drag.gene);
   if (drag && drag.box && !drag.moved) select(drag.box.dataset.id);
   if (drag && drag.box && drag.moved) savePosition(drag.box.dataset.id);
   if (drag && drag.wire) {
@@ -755,20 +783,173 @@ async function loadGraph() {
   drawGraph();
 }
 
+// ---- The genome view (`proposals/node-editor.md` N5): one living creature's genes as boxes, in the
+// frames of its modules, with the signals between them as wires. Senses are on the left, regulation in
+// the middle, reactions and actions on the right, so a wire runs from what the creature perceives to
+// what it does. Dormant modules and genes are dimmed. Read-only: the lineage's seed genome is
+// changed in the source (the patch language cannot yet edit genes).
+let genomeData = null, genomeSel = null, genomeTick = 0;
+const gplaced = new Map();
+const GCOL = { sense: 0, regulate: 1, react: 2, action: 2 };
+
+async function loadEntities() {
+  const w = $("world").value;
+  if (!w) return;
+  const r = await call("entities.query", { world: w, limit: 60 });
+  const sel = $("entity"), prev = sel.value;
+  sel.textContent = "";
+  for (const e of r.entities) {
+    const o = document.createElement("option");
+    o.value = e.id;
+    o.textContent = `#${e.id} · ${e.lineage} · age ${e.age} · ${e.active_genes} genes`;
+    sel.append(o);
+  }
+  if (r.entities.some((e) => String(e.id) === prev)) sel.value = prev;
+  $("genomenote").textContent = r.entities.length ? `${r.total} alive` : "no creatures alive";
+}
+
+async function loadGenome(quiet) {
+  const w = $("world").value, id = +$("entity").value;
+  if (!w || !id) { genomeData = null; drawGenome(); return; }
+  try {
+    genomeData = await call("genome.graph", { world: w, entity: id });
+    $("genomenote").textContent = "";
+    drawGenome();
+  } catch (e) {
+    genomeData = null;
+    drawGenome();
+    $("genomenote").textContent = /no living entity/.test(String(e.message)) ? `#${id} has died: pick another` : String(e.message || e);
+    if (quiet) loadEntities().catch(() => {});
+  }
+}
+
+function drawGenome() {
+  const g = genomeData, root = $("genome");
+  root.textContent = "";
+  gplaced.clear();
+  if (!g) { cams.genome.w = 0; return; }
+  const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+  svg.id = "gwires";
+  root.appendChild(svg);
+  let y = 24, maxX = 0;
+  g.modules.forEach((on, m) => {
+    const genes = g.genes.filter((x) => x.module === m);
+    if (!genes.length) return;
+    const rows = [0, 0, 0];
+    for (const x of genes) {
+      const c = GCOL[x.kind], k = rows[c]++;
+      gplaced.set(x.index, { x: 44 + c * 250, y: y + 34 + k * 74 });
+    }
+    const h = 34 + Math.max(...rows) * 74 + 4, frame = document.createElement("div");
+    frame.className = `mod${on ? "" : " off"}`;
+    frame.style.cssText = `left:24px;top:${y}px;width:${3 * 250 + 16}px;height:${h}px`;
+    const t = document.createElement("div");
+    t.className = "mt";
+    t.textContent = `module m${m}${on ? "" : " · dormant"}`;
+    frame.append(t);
+    root.appendChild(frame);
+    y += h + 24;
+    maxX = 24 + 3 * 250 + 40;
+  });
+  for (const x of g.genes) {
+    const p = gplaced.get(x.index), el = document.createElement("div"), t = document.createElement("div"), b = document.createElement("div");
+    el.className = `gene k-${x.kind}${x.active ? "" : " off"}`;
+    el.dataset.index = x.index;
+    el.style.left = `${p.x}px`;
+    el.style.top = `${p.y}px`;
+    t.className = "t";
+    t.textContent = x.title + (x.expressed ? "" : " · dormant");
+    b.className = "b";
+    b.textContent = x.text;
+    el.append(t, b);
+    if (x.reads.length) { const q = document.createElement("div"); q.className = "port in"; el.append(q); }
+    if (x.writes.length) { const q = document.createElement("div"); q.className = "port out"; el.append(q); }
+    el.onclick = () => selectGene(x.index);
+    root.appendChild(el);
+  }
+  root.style.width = `${maxX}px`;
+  root.style.height = `${y}px`;
+  svg.setAttribute("width", maxX);
+  svg.setAttribute("height", y);
+  // Signals: from each gene that writes one to each gene that reads it.
+  const ends = new Map(), slot = (i, side) => { const k = `${i}${side}`, n = ends.get(k) || 0; ends.set(k, n + 1); return n; };
+  for (let k = 0; k < g.keep.length; k++) {
+    for (const w of g.genes.filter((x) => x.writes.includes(k))) {
+      for (const r of g.genes.filter((x) => x.reads.includes(k) && x.index !== w.index)) {
+        const a = gplaced.get(w.index), b = gplaced.get(r.index);
+        // Left to right where it can: a wire back to an earlier column leaves the writer's left edge and
+        // enters the reader's right edge; within a column it makes a bracket on the right.
+        const back = a.x > b.x, same = a.x === b.x;
+        const x0 = back ? a.x : a.x + BOX.w, x1 = back ? b.x + BOX.w : same ? b.x + BOX.w : b.x;
+        const y0 = a.y + 14 + (slot(w.index, back ? "L" : "R") % 6) * 8, y1 = b.y + 14 + (slot(r.index, back ? "R" : same ? "R" : "L") % 6) * 8;
+        const d = same ? 70 : Math.max(40, Math.abs(x1 - x0) / 2) * (back ? -1 : 1);
+        const path = document.createElementNS(NS, "path");
+        path.setAttribute("class", "wire");
+        path.setAttribute("d", same ? `M${x0},${y0} C${x0 + d},${y0} ${x1 + d},${y1} ${x1},${y1}` : `M${x0},${y0} C${x0 + d},${y0} ${x1 - d},${y1} ${x1},${y1}`);
+        path.setAttribute("stroke", wireColor(`s${k}`));
+        path.dataset.from = w.index;
+        path.dataset.to = r.index;
+        const title = document.createElementNS(NS, "title");
+        title.textContent = `signal s${k}${g.keep[k] ? ` (keeps ${g.keep[k]})` : ""}`;
+        path.append(title);
+        svg.appendChild(path);
+        if (!back && !same) {
+          const tx = document.createElementNS(NS, "text");
+          tx.setAttribute("class", "wlabel");
+          tx.setAttribute("x", x0 + 8);
+          tx.setAttribute("y", y0 - 3);
+          tx.textContent = `s${k}`;
+          svg.appendChild(tx);
+        }
+      }
+    }
+  }
+  const cam = cams.genome;
+  if (cam.fit || cam.w !== maxX || cam.h !== y) { cam.w = maxX; cam.h = y; if (cam.fit) fitCam(cam); }
+  if (mode === "genome") applyCam(cam);
+  if (genomeSel != null) selectGene(genomeSel);
+}
+
+function selectGene(i) {
+  genomeSel = i;
+  const g = genomeData, x = g && g.genes.find((q) => q.index === i);
+  for (const el of $("genome").querySelectorAll(".gene")) el.classList.toggle("sel", +el.dataset.index === i);
+  for (const p of $("genome").querySelectorAll(".wire")) {
+    const on = x && (+p.dataset.from === i || +p.dataset.to === i);
+    p.classList.toggle("hot", !!on);
+    p.classList.toggle("dim", !!x && !on);
+  }
+  const picked = $("picked");
+  picked.textContent = "";
+  if (!x) { picked.textContent = "Click a gene."; return; }
+  const small = document.createElement("small");
+  small.textContent = `#${g.entity} ${g.lineage} · gene ${x.index} · module m${x.module}${x.active ? "" : x.expressed ? " (dormant module)" : " (dormant gene)"}`;
+  const sig = (l) => (l.length ? l.map((k) => `s${k}`).join(", ") : "none");
+  picked.append(small, document.createTextNode(`${x.title}: ${x.text}\n\nreads ${sig(x.reads)}\nwrites ${sig(x.writes)}`));
+}
+
+$("entity").onchange = () => { genomeSel = null; loadGenome().catch(oops); };
+$("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).catch(oops);
+
 function setMode(m) {
   mode = m;
   $("m-picture").classList.toggle("on", m === "picture");
   $("m-graph").classList.toggle("on", m === "graph");
+  $("m-genome").classList.toggle("on", m === "genome");
   $("graph").style.display = m === "graph" ? "block" : "none";
+  $("genome").style.display = m === "genome" ? "block" : "none";
   document.body.classList.toggle("graph", m === "graph");
+  document.body.classList.toggle("genome", m === "genome");
   const pic = m === "picture";
   $("frame").style.display = pic && $("frame").src ? "block" : "none";
   $("empty").style.display = pic && !$("frame").src ? "flex" : "none";
   if (m === "graph") loadGraph().then(() => { if (cams.graph.fit) fitCam(cams.graph); applyCam(cams.graph); }).catch(oops);
+  else if (m === "genome") loadEntities().then(() => loadGenome()).then(() => { if (cams.genome.fit) fitCam(cams.genome); applyCam(cams.genome); }).catch(oops);
   else applyCam(cams.picture);
 }
 $("m-picture").onclick = () => setMode("picture");
 $("m-graph").onclick = () => setMode("graph");
+$("m-genome").onclick = () => setMode("genome");
 $("decls").onchange = () => select($("decls").value);
 
 function onFrame(buf) {
@@ -878,6 +1059,7 @@ function connect() {
       refreshWorlds().then((ws) => {
         const w = ws.find((x) => x.world === $("world").value);
         if (mode === "graph" && w && w.revision !== graphRev) loadGraph().catch(() => {});
+        if (mode === "genome" && ++genomeTick % 3 === 0) loadGenome(true).catch(() => {});
         const cw = ws.find((x) => x.world === codeWorld());
         if (codeOpen() && cw && (cw.world !== codeWorldName || cw.revision !== codeRev)) loadCode().catch(() => {});
       }).catch(() => {});
@@ -895,7 +1077,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => refreshViews().then(subscribe).then(stats).then(() => (mode === "graph" ? loadGraph() : null)).then(() => loadCode()).catch(oops);
+$("world").onchange = () => refreshViews().then(subscribe).then(stats).then(() => (mode === "graph" ? loadGraph() : mode === "genome" ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).catch(oops);
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().catch(oops);
 $("play").onclick = () => call("run.resume", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
 $("pause").onclick = () => call("run.pause", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);

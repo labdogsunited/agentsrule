@@ -305,6 +305,22 @@ impl Engine {
                 };
                 Ok(json!({"entity": id, "explanation": e.run.explain(id).map_err(bad)?}))
             }
+            "genome.graph" => {
+                // One entity's genome as boxes (genes, in modules) and signals, for the node editor's
+                // genome view; read-only.
+                let e = self.entry(p)?;
+                let id = match &p["entity"] {
+                    Value::Null => e.run.live.world.entities.first().map(|x| x.id).ok_or_else(|| bad("the world is empty"))?,
+                    v => v.as_u64().ok_or_else(|| bad("`entity` must be an entity ID"))?,
+                };
+                let (lineage, age, g) = e.run.genome_graph(id).map_err(bad)?;
+                Ok(json!({
+                    "entity": id, "lineage": lineage, "age": age, "tick": e.run.tick(),
+                    "modules": g.modules,
+                    "keep": g.keep,
+                    "genes": g.genes.iter().map(|x| json!({"index": x.index, "module": x.module, "kind": x.kind, "title": x.title, "text": x.text, "expressed": x.expressed, "active": x.active, "reads": x.reads, "writes": x.writes})).collect::<Vec<_>>(),
+                }))
+            }
             "journal.read" => Ok(json!({"lines": self.entry(p)?.run.journal.lines})),
             "docs.query" => Ok(docs(p["query"].as_str().unwrap_or(""))),
             "docs.example" => Ok(json!({"name": "examples/dish.em", "about": "the reference world: chemistry, a conserved field, world rules, menus and two lineages (Drifter, Builder); a new world is easiest written as a changed copy of it", "source": EXAMPLE, "views": EXAMPLE_VIEWS})),

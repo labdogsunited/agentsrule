@@ -108,47 +108,53 @@ fn source(src: Input, threshold: f32) -> String {
     s
 }
 
-/// A genome in plain language (spec §12.1 `explain`): one line per module saying what its expressed
-/// genes sense and do, then the signal network as `.em` text (`genome`).
-pub fn explain(w: &World, g: &Genome, field: &str) -> String {
+/// What one gene does, in plain words (the phrases of `explain`). `field` names the conserved field,
+/// for `gradient` and `probe`.
+pub fn gene_phrase(w: &World, gene: &Gene, field: &str) -> String {
     let name = |s: usize| w.chem.substances[s].name.clone();
     let when = |src: &Input, threshold: f32| match src {
         Input::Signal(k) => format!(" when s{k} is above {threshold}"),
         Input::Const(_) => String::new(),
     };
+    match gene {
+        Gene::Sense { sense, out, out2 } => {
+            let what = match sense {
+                Sense::Inventory(s) => format!("its own {}", name(*s)),
+                Sense::Cell(s) => format!("the {} in its cell", name(*s)),
+                Sense::Gradient(s) => format!("where {field}.{} rises (ahead and to the left)", name(*s)),
+                Sense::Probe { s, angle_deg, dist } => format!("the {} {dist} ahead at {angle_deg}°", name(*s)),
+                Sense::Crowd { radius } => format!("how many others are within {radius}"),
+                Sense::Neighbour { s, rank } => format!("the {} carried by neighbour {rank}", name(*s)),
+                Sense::Clock { period } => format!("a clock of period {period}"),
+                Sense::Delta(s) => format!("how its {} changed", name(*s)),
+            };
+            let into = out2.map_or(format!("s{out}"), |o| format!("s{out}, s{o}"));
+            format!("senses {what} into {into}")
+        }
+        Gene::Weigh { inputs, out, .. } => format!("sets s{out} from {}", inputs.iter().map(|(_, k)| format!("s{k}")).collect::<Vec<_>>().join(", ")),
+        Gene::Product { a, b, out } => format!("sets s{out} to s{a} × s{b}"),
+        Gene::React { reaction, rate, .. } => format!("runs {} at up to {}", w.chem.formula(&w.chem.reactions[*reaction].inputs, &w.chem.reactions[*reaction].outputs), amount(*rate)),
+        Gene::Move { speed, src, threshold, .. } => format!("moves at {speed}{}", when(src, *threshold)),
+        Gene::Turn { angle_deg, src, threshold, .. } => format!("turns by {angle_deg}°{}", when(src, *threshold)),
+        Gene::Take { s, max, src, threshold, .. } => format!("takes up to {} of {}{}", amount(*max), name(*s), when(src, *threshold)),
+        Gene::Drop { s, max, src, threshold, .. } => format!("drops up to {} of {}{}", amount(*max), name(*s), when(src, *threshold)),
+        Gene::Give { s, max, src, threshold, .. } => format!("gives up to {} of {} to a neighbour{}", amount(*max), name(*s), when(src, *threshold)),
+        Gene::Steal { s, max, src, threshold, .. } => format!("steals up to {} of {} from a neighbour{}", amount(*max), name(*s), when(src, *threshold)),
+        Gene::Guard { s, src, threshold, .. } => format!("guards its {}{}", name(*s), when(src, *threshold)),
+        Gene::Divide { requires, src, threshold, .. } => format!("divides once it holds {} of {}{}", amount(requires.1), name(requires.0), when(src, *threshold)),
+    }
+}
+
+/// A genome in plain language (spec §12.1 `explain`): one line per module saying what its expressed
+/// genes sense and do, then the signal network as `.em` text (`genome`).
+pub fn explain(w: &World, g: &Genome, field: &str) -> String {
     let mut out = String::new();
     for (m, &on) in g.modules.iter().enumerate() {
         let phrases: Vec<String> = g
             .slots
             .iter()
             .filter(|x| x.module == m && x.expressed)
-            .map(|slot| match &slot.gene {
-                Gene::Sense { sense, out, out2 } => {
-                    let what = match sense {
-                        Sense::Inventory(s) => format!("its own {}", name(*s)),
-                        Sense::Cell(s) => format!("the {} in its cell", name(*s)),
-                        Sense::Gradient(s) => format!("where {field}.{} rises (ahead and to the left)", name(*s)),
-                        Sense::Probe { s, angle_deg, dist } => format!("the {} {dist} ahead at {angle_deg}°", name(*s)),
-                        Sense::Crowd { radius } => format!("how many others are within {radius}"),
-                        Sense::Neighbour { s, rank } => format!("the {} carried by neighbour {rank}", name(*s)),
-                        Sense::Clock { period } => format!("a clock of period {period}"),
-                        Sense::Delta(s) => format!("how its {} changed", name(*s)),
-                    };
-                    let into = out2.map_or(format!("s{out}"), |o| format!("s{out}, s{o}"));
-                    format!("senses {what} into {into}")
-                }
-                Gene::Weigh { inputs, out, .. } => format!("sets s{out} from {}", inputs.iter().map(|(_, k)| format!("s{k}")).collect::<Vec<_>>().join(", ")),
-                Gene::Product { a, b, out } => format!("sets s{out} to s{a} × s{b}"),
-                Gene::React { reaction, rate, .. } => format!("runs {} at up to {}", w.chem.formula(&w.chem.reactions[*reaction].inputs, &w.chem.reactions[*reaction].outputs), amount(*rate)),
-                Gene::Move { speed, src, threshold, .. } => format!("moves at {speed}{}", when(src, *threshold)),
-                Gene::Turn { angle_deg, src, threshold, .. } => format!("turns by {angle_deg}°{}", when(src, *threshold)),
-                Gene::Take { s, max, src, threshold, .. } => format!("takes up to {} of {}{}", amount(*max), name(*s), when(src, *threshold)),
-                Gene::Drop { s, max, src, threshold, .. } => format!("drops up to {} of {}{}", amount(*max), name(*s), when(src, *threshold)),
-                Gene::Give { s, max, src, threshold, .. } => format!("gives up to {} of {} to a neighbour{}", amount(*max), name(*s), when(src, *threshold)),
-                Gene::Steal { s, max, src, threshold, .. } => format!("steals up to {} of {} from a neighbour{}", amount(*max), name(*s), when(src, *threshold)),
-                Gene::Guard { s, src, threshold, .. } => format!("guards its {}{}", name(*s), when(src, *threshold)),
-                Gene::Divide { requires, src, threshold, .. } => format!("divides once it holds {} of {}{}", amount(requires.1), name(requires.0), when(src, *threshold)),
-            })
+            .map(|slot| gene_phrase(w, &slot.gene, field))
             .collect();
         if phrases.is_empty() {
             continue;
@@ -156,4 +162,81 @@ pub fn explain(w: &World, g: &Genome, field: &str) -> String {
         out += &format!("module m{m}{}: {}.\n", if on { "" } else { " (dormant)" }, phrases.join("; "));
     }
     out + "\nSignal network:\n" + &genome(w, g, field)
+}
+
+/// One gene as a box in the genome graph (`proposals/node-editor.md` N5).
+#[derive(Clone, Debug)]
+pub struct GeneBox {
+    /// The gene's place in the genome.
+    pub index: usize,
+    pub module: usize,
+    /// `sense`, `regulate`, `react` or `action`: the column it is drawn in.
+    pub kind: &'static str,
+    /// The gene's own name: `gradient`, `weigh`, `move`, …
+    pub title: String,
+    /// What it does, in plain words.
+    pub text: String,
+    pub expressed: bool,
+    /// Expressed, and in an expressed module (spec §5.2).
+    pub active: bool,
+    /// The signals it reads and writes: the wires of the signal network.
+    pub reads: Vec<usize>,
+    pub writes: Vec<usize>,
+}
+
+/// A genome as boxes and signals: every gene (dormant ones too, marked), the modules' expressed bits,
+/// and each signal's `keep`.
+#[derive(Clone, Debug)]
+pub struct GenomeGraph {
+    pub modules: Vec<bool>,
+    pub genes: Vec<GeneBox>,
+    pub keep: Vec<f32>,
+}
+
+pub fn genome_graph(w: &World, g: &Genome, field: &str) -> GenomeGraph {
+    let genes = g
+        .slots
+        .iter()
+        .enumerate()
+        .map(|(index, slot)| {
+            let (kind, title) = match &slot.gene {
+                Gene::Sense { sense, .. } => (
+                    "sense",
+                    match sense {
+                        Sense::Inventory(_) => "inventory",
+                        Sense::Cell(_) => "cell",
+                        Sense::Gradient(_) => "gradient",
+                        Sense::Probe { .. } => "probe",
+                        Sense::Crowd { .. } => "crowd",
+                        Sense::Neighbour { .. } => "neighbour",
+                        Sense::Clock { .. } => "clock",
+                        Sense::Delta(_) => "delta",
+                    },
+                ),
+                Gene::Weigh { .. } => ("regulate", "weigh"),
+                Gene::Product { .. } => ("regulate", "product"),
+                Gene::React { .. } => ("react", "react"),
+                Gene::Move { .. } => ("action", "move"),
+                Gene::Turn { .. } => ("action", "turn"),
+                Gene::Take { .. } => ("action", "take"),
+                Gene::Drop { .. } => ("action", "drop"),
+                Gene::Give { .. } => ("action", "give"),
+                Gene::Steal { .. } => ("action", "steal"),
+                Gene::Guard { .. } => ("action", "guard"),
+                Gene::Divide { .. } => ("action", "divide"),
+            };
+            GeneBox {
+                index,
+                module: slot.module,
+                kind,
+                title: title.to_string(),
+                text: gene_phrase(w, &slot.gene, field),
+                expressed: slot.expressed,
+                active: g.active(index),
+                reads: slot.gene.reads(),
+                writes: slot.gene.writes(),
+            }
+        })
+        .collect();
+    GenomeGraph { modules: g.modules.clone(), genes, keep: g.keep.clone() }
 }

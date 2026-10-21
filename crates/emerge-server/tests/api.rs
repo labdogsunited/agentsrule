@@ -348,3 +348,37 @@ fn declaration_boxes_set_config_settings_costs_and_catalysts() {
     assert_eq!(r["error"]["data"]["kind"], "not_swappable", "{r}");
     assert_eq!(c.ok("world.graph", json!({"world": w}))["revision"].as_u64().unwrap(), rev);
 }
+
+#[test]
+fn genome_graph_gives_an_entitys_genes_and_signals() {
+    let mut c = server();
+    let w = c.ok("world.create", json!({"source": small_dish(), "lineages": ["Drifter", "Builder"], "seed": 6}))["world"].as_str().unwrap().to_string();
+    c.ok("run.step", json!({"world": w, "ticks": 40}));
+    let list = c.ok("entities.query", json!({"world": w, "limit": 5}));
+    let first = list["entities"][0].clone();
+    let id = first["id"].as_u64().unwrap();
+    let g = c.ok("genome.graph", json!({"world": w, "entity": id}));
+    assert_eq!(g["entity"], id);
+    assert_eq!(g["lineage"], first["lineage"]);
+    let genes = g["genes"].as_array().unwrap();
+    assert!(!genes.is_empty());
+    // The active genes are the ones `entities.query` counts, and each expressed gene's words are in `explain`.
+    let active = genes.iter().filter(|x| x["active"] == true).count() as u64;
+    assert_eq!(active, first["active_genes"].as_u64().unwrap());
+    let explain = c.ok("genome.explain", json!({"world": w, "entity": id}))["explanation"].as_str().unwrap().to_string();
+    for gene in genes.iter().filter(|x| x["expressed"] == true) {
+        assert!(explain.contains(gene["text"].as_str().unwrap()), "`{}` is not in the explanation:\n{explain}", gene["text"]);
+    }
+    // The boxes come in the four kinds, a sensing gene writes a signal, and every signal is within `keep`.
+    let kinds: Vec<&str> = genes.iter().map(|x| x["kind"].as_str().unwrap()).collect();
+    assert!(kinds.iter().all(|k| ["sense", "regulate", "react", "action"].contains(k)), "{kinds:?}");
+    assert!(genes.iter().filter(|x| x["kind"] == "sense").all(|x| !x["writes"].as_array().unwrap().is_empty()));
+    let signals = g["keep"].as_array().unwrap().len() as u64;
+    for gene in genes {
+        for k in gene["reads"].as_array().unwrap().iter().chain(gene["writes"].as_array().unwrap()) {
+            assert!(k.as_u64().unwrap() < signals, "signal {k} is past the genome's {signals} signals");
+        }
+    }
+    // An entity that does not exist is an error.
+    assert!(c.call("genome.graph", json!({"world": w, "entity": 999_999_999u64})).get("error").is_some());
+}

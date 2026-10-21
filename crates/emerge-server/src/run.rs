@@ -368,6 +368,18 @@ impl Run {
         Ok(format!("entity {id}, lineage {}, age {}:\n{}", self.spec.lineages[e.lineage], e.age, emerge_ref::print::explain(w, &e.genome, field)))
     }
 
+    /// A living entity's genome as boxes and signals (`proposals/node-editor.md` N5): its lineage and
+    /// age, and the graph. CPU only, like `explain`.
+    pub fn genome_graph(&self, id: u64) -> Result<(String, u64, emerge_ref::print::GenomeGraph), String> {
+        if let Backend::Gpu(_) = self.backend {
+            return Err("genome.graph needs the CPU backend for now (GPU genomes are not decoded back yet)".into());
+        }
+        let w = &self.live.world;
+        let e = w.entities.iter().find(|e| e.id == id).ok_or_else(|| format!("no living entity {id}"))?;
+        let field = self.live.field.as_deref().unwrap_or("cells");
+        Ok((self.spec.lineages[e.lineage].clone(), e.age, emerge_ref::print::genome_graph(w, &e.genome, field)))
+    }
+
     /// Entities, sampled evenly: ID, lineage, age, position, active genes, amounts carried.
     pub fn entities(&self, limit: usize) -> Result<Value, String> {
         if let Backend::Gpu(_) = self.backend {
