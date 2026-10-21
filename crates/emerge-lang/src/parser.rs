@@ -9,13 +9,15 @@ const HARD: &[&str] = &["self", "true", "false", "and", "or", "not"];
 pub struct Parser {
     toks: Vec<Token>,
     pos: usize,
+    /// Inside a VEX-like layer body, where `@name` in an expression is an attribute.
+    attrs: bool,
 }
 
 type R<T> = Result<T, Diag>;
 
 impl Parser {
     pub fn new(toks: Vec<Token>) -> Self {
-        Parser { toks, pos: 0 }
+        Parser { toks, pos: 0, attrs: false }
     }
 
     // ---------- helpers ----------
@@ -632,6 +634,10 @@ impl Parser {
                 self.bump();
                 Ok(Expr::List(self.sep("]", Self::value)?))
             }
+            Tok::Label(a) if self.attrs => {
+                self.bump();
+                Ok(Expr::Path(Path { root: format!("@{a}"), segs: Vec::new() }))
+            }
             Tok::Ident(_) if self.is_punct_at(1, "(") => Ok(Expr::Call(self.call()?)),
             Tok::Ident(_) => Ok(Expr::Path(self.path()?)),
             _ => self.expected("an expression"),
@@ -648,7 +654,8 @@ impl Parser {
                 let name = p.ident()?;
                 p.bump();
                 Arg { name: Some(name), value: p.value()? }
-            } else if first {
+            } else if first || p.attrs {
+                // In a layer body, functions take their values in order, as in VEX (`fit(x, 0, 1, 0, 1)`).
                 Arg { name: None, value: Value::Expr(p.expr()?) }
             } else {
                 return p.err("E0005", "only the first argument may be unnamed");
@@ -832,7 +839,68 @@ impl Parser {
         let name = self.ident()?;
         self.expect("=")?;
         let source = self.call()?;
-        Ok(Layer { name, source, entries: self.many(Self::entry)? })
+        // Entries first (`color: …;`), then VEX-like statements.
+        let items = self.many(|p| {
+            if matches!(p.tok(), Tok::Label(_)) || p.is_word("if") || (VTYPES.iter().any(|t| p.is_word(t)) && !p.is_punct_at(1, ":")) {
+                Ok(Err(p.vstmt()?))
+            } else {
+                Ok(Ok(p.entry()?))
+            }
+        })?;
+        let (mut entries, mut body) = (Vec::new(), Vec::new());
+        for n in items {
+            match n.node {
+                Ok(e) => {
+                    if !body.is_empty() {
+                        return Err(Diag { code: "E0001", line: n.pos.line, col: n.pos.col, message: "a layer's entries come before its statements".into() });
+                    }
+                    entries.push(Node { trivia: n.trivia, pos: n.pos, node: e });
+                }
+                Err(s) => body.push(Node { trivia: n.trivia, pos: n.pos, node: s }),
+            }
+        }
+        Ok(Layer { name, source, entries, body })
+    }
+
+    /// One statement of a layer body; `@name` in its expressions is an attribute.
+    fn vstmt(&mut self) -> R<VStmt> {
+        let was = std::mem::replace(&mut self.attrs, true);
+        let r = self.vstmt_inner();
+        self.attrs = was;
+        r
+    }
+
+    fn vstmt_inner(&mut self) -> R<VStmt> {
+        if self.eat_word("if") {
+            self.expect("(")?;
+            let cond = self.expr()?;
+            self.expect(")")?;
+            let then = self.vblock()?;
+            let otherwise = if self.eat_word("else") { Some(self.vblock()?) } else { None };
+            return Ok(VStmt::If { cond, then, otherwise });
+        }
+        if let Tok::Label(a) = self.tok().clone() {
+            self.bump();
+            self.expect("=")?;
+            let value = self.expr()?;
+            self.expect(";")?;
+            return Ok(VStmt::Set { attr: a, value });
+        }
+        let ty = self.ident()?;
+        let name = self.ident()?;
+        self.expect("=")?;
+        let value = self.expr()?;
+        self.expect(";")?;
+        Ok(VStmt::Local { ty, name, value })
+    }
+
+    /// The branch of an `if`: a block, or one statement.
+    fn vblock(&mut self) -> R<Vec<Node<VStmt>>> {
+        if self.is_punct("{") {
+            self.many(Self::vstmt)
+        } else {
+            Ok(vec![self.node(Self::vstmt)?])
+        }
     }
 
     fn explore_item(&mut self) -> R<ExploreItem> {

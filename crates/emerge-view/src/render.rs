@@ -59,6 +59,8 @@ impl Val {
             Val::Int(i) => i as f64,
             Val::Amount(a) => a as f64 / 1000.0,
             Val::Bool(b) => f64::from(u8::from(b)),
+            // In arithmetic a scaled value is its number; nothing to show (below a log scale) is 0.
+            Val::Scaled(t) => t.unwrap_or(0.0),
             _ => 0.0,
         }
     }
@@ -93,6 +95,8 @@ struct Ctx<'a> {
     state: Option<usize>,
     /// `value` itself, for drawing a legend's swatch of one state.
     value: Option<f64>,
+    /// A layer body's locals.
+    locals: Option<&'a std::collections::HashMap<String, Val>>,
     agent: Option<&'a Agent>,
 }
 
@@ -147,6 +151,12 @@ fn eval(e: &Expr, cx: &Ctx, key: &mut LayerKey) -> Val {
         Expr::Lit(Lit::Float(f)) => Val::Num(f.parse().unwrap_or(0.0)),
         Expr::Lit(Lit::Amount(a)) => Val::Amount(*a),
         Expr::Lit(Lit::Bool(b)) => Val::Bool(*b),
+        // A string is a shape's name (`@shape = "arrow";`); `ramp` reads its palette's name itself.
+        Expr::Lit(Lit::Str(s)) => match s.as_str() {
+            "dot" => Val::Glyph(Shape::Dot),
+            "arrow" => Val::Glyph(Shape::Arrow),
+            _ => Val::Later,
+        },
         Expr::Lit(_) | Expr::List(_) | Expr::Capture(_) => Val::Later,
         Expr::Paren(x) => eval(x, cx, key),
         Expr::Neg(x) => match eval(x, cx, key) {
@@ -184,8 +194,28 @@ fn eval(e: &Expr, cx: &Ctx, key: &mut LayerKey) -> Val {
             }
         }
         Expr::Path(p) => {
-            let name = p.root.as_str();
+            if let Some(v) = cx.locals.and_then(|l| l.get(&p.root)) {
+                return *v;
+            }
+            // `@energy` reads what `energy` reads; `@P` is the position; a cell also has `@ix`, `@iy`.
+            let name = match p.root.strip_prefix('@') {
+                Some("P") => "position",
+                Some(a) => a,
+                None => p.root.as_str(),
+            };
             let f = cx.frame;
+            if cx.agent.is_none() && cx.value.is_none() {
+                match name {
+                    "ix" => return Val::Int((cx.cell % f.grid_w) as i64),
+                    "iy" => return Val::Int((cx.cell / f.grid_w) as i64),
+                    other if p.root.starts_with('@') && other != "value" => {
+                        if let Some(s) = f.substance(other) {
+                            return Val::Amount(f.cell(cx.cell, s) as u64);
+                        }
+                    }
+                    _ => {}
+                }
+            }
             if let Some(a) = cx.agent {
                 match name {
                     "heading" => Val::Vec2(a.heading),
@@ -259,24 +289,114 @@ fn call(c: &Call, piped: Option<Val>, cx: &Ctx, key: &mut LayerKey) -> Val {
             let (lo, hi) = range(named(c, "range"));
             Val::Scaled(scale(subject.num(), log, lo, hi))
         }
-        "palette" => {
-            let name = rest.first().and_then(|e| name_of(e)).unwrap_or("viridis");
-            match subject {
-                Val::Later => Val::Color(UNAVAILABLE),
-                Val::Scaled(None) => {
-                    key.empty = true;
-                    Val::Color(EMPTY)
-                }
-                Val::Scaled(Some(t)) => Val::Color(palette::sample(name, t)),
-                Val::Cat(i) => Val::Color(palette::category(i)),
-                Val::Int(i) if name == "categorical" => Val::Color(palette::category(i.max(0) as u64)),
-                Val::Vec2([x, y]) => Val::Color(palette::sample(name, (f64::from(y).atan2(f64::from(x)) / std::f64::consts::TAU).rem_euclid(1.0))),
-                v => Val::Color(palette::sample(name, v.num())),
-            }
-        }
+        "palette" => call_palette(rest.first().and_then(|e| name_of(e)).unwrap_or("viridis"), subject, key),
         "arrow" => Val::Glyph(Shape::Arrow),
         "dot" => Val::Glyph(Shape::Dot),
+        "ramp" => {
+            // `ramp("magma", t)`: the palette's name is the first argument, a string.
+            let name = match pos.first() {
+                Some(Expr::Lit(Lit::Str(n))) => n.clone(),
+                _ => return Val::Color(UNAVAILABLE),
+            };
+            let t = match pos.get(1) {
+                Some(e) => eval(e, cx, key),
+                None => Val::Later,
+            };
+            call_palette(&name, t, key)
+        }
+        "fit" | "fit_log" | "clamp" | "lerp" | "min" | "max" | "abs" | "log" | "sqrt" => {
+            let args: Vec<Val> = pos.iter().map(|e| eval(e, cx, key)).collect();
+            if args.contains(&Val::Later) {
+                return Val::Later;
+            }
+            let n = |k: usize| args.get(k).map_or(0.0, |v| v.num());
+            match c.name.as_str() {
+                // VEX's fit: clamp to the old range, then map; `fit(x, a, b, 0.0, 1.0)` is `scale(linear)`.
+                "fit" => {
+                    let (a, b, lo, hi) = (n(1), n(2), n(3), n(4));
+                    let t = if b == a { 0.0 } else { (n(0).clamp(a.min(b), a.max(b)) - a) / (b - a) };
+                    Val::Num(t * (hi - lo) + lo)
+                }
+                // `scale(log)`: nothing to show at or below zero.
+                "fit_log" => Val::Scaled(scale(n(0), true, n(1), n(2))),
+                "clamp" => Val::Num(n(0).clamp(n(1).min(n(2)), n(1).max(n(2)))),
+                "lerp" => Val::Num(n(0) + (n(1) - n(0)) * n(2)),
+                "min" => Val::Num(n(0).min(n(1))),
+                "max" => Val::Num(n(0).max(n(1))),
+                "abs" => Val::Num(n(0).abs()),
+                "log" => Val::Num(if n(0) > 0.0 { n(0).ln() } else { 0.0 }),
+                _ => Val::Num(n(0).max(0.0).sqrt()),
+            }
+        }
         _ => Val::Later,
+    }
+}
+
+/// A palette sampled at a value, as `palette` and `ramp` do.
+fn call_palette(name: &str, subject: Val, key: &mut LayerKey) -> Val {
+    match subject {
+        Val::Later => Val::Color(UNAVAILABLE),
+        Val::Scaled(None) => {
+            key.empty = true;
+            Val::Color(EMPTY)
+        }
+        Val::Scaled(Some(t)) => Val::Color(palette::sample(name, t)),
+        Val::Cat(i) => Val::Color(palette::category(i)),
+        Val::Int(i) if name == "categorical" => Val::Color(palette::category(i.max(0) as u64)),
+        Val::Vec2([x, y]) => Val::Color(palette::sample(name, (f64::from(y).atan2(f64::from(x)) / std::f64::consts::TAU).rem_euclid(1.0))),
+        v => Val::Color(palette::sample(name, v.num())),
+    }
+}
+
+/// The legend's lines for a layer body: each write to an attribute, as written.
+fn body_lines(body: &[Node<VStmt>], key: &mut LayerKey) {
+    for s in body {
+        match &s.node {
+            VStmt::Set { attr, value } => key.entries.push(format!("@{attr} = {}", emerge_lang::fmt::value_text(&Value::Expr(value.clone())))),
+            VStmt::Local { ty, name, value } => key.entries.push(format!("{ty} {name} = {}", emerge_lang::fmt::value_text(&Value::Expr(value.clone())))),
+            VStmt::If { cond, then, otherwise } => {
+                key.entries.push(format!("if ({}) …", emerge_lang::fmt::value_text(&Value::Expr(cond.clone()))));
+                body_lines(then, key);
+                if let Some(o) = otherwise {
+                    body_lines(o, key);
+                }
+            }
+        }
+    }
+}
+
+/// Runs a layer body for one element: locals, writes to its visual attributes, `if`.
+fn run_body(body: &[Node<VStmt>], base: &Ctx, at: &mut Attributes, locals: &mut std::collections::HashMap<String, Val>, key: &mut LayerKey) {
+    for s in body {
+        let value = |e: &Expr, locals: &std::collections::HashMap<String, Val>, key: &mut LayerKey| {
+            let cx = Ctx { frame: base.frame, cell: base.cell, substance: base.substance, state: base.state, value: base.value, agent: base.agent, locals: Some(locals) };
+            eval(e, &cx, key)
+        };
+        match &s.node {
+            VStmt::Local { name, value: e, .. } => {
+                let v = value(e, locals, key);
+                locals.insert(name.clone(), v);
+            }
+            VStmt::Set { attr, value: e } => {
+                let v = value(e, locals, key);
+                match (attr.as_str(), v) {
+                    ("Cd", Val::Color(c)) => at.cd = c,
+                    ("Cd", _) => at.cd = UNAVAILABLE,
+                    ("Alpha", v) if v != Val::Later => at.alpha = (match v { Val::Scaled(Some(t)) => t, _ => v.num() }).clamp(0.0, 1.0) as f32,
+                    ("pscale", v) if v != Val::Later => at.pscale = v.num() as f32,
+                    ("shape", Val::Glyph(sh)) => at.shape = sh,
+                    ("N", Val::Vec2(n)) => at.n = n,
+                    _ => {}
+                }
+            }
+            VStmt::If { cond, then, otherwise } => {
+                if value(cond, locals, key) == Val::Bool(true) {
+                    run_body(then, base, at, locals, key);
+                } else if let Some(o) = otherwise {
+                    run_body(o, base, at, locals, key);
+                }
+            }
+        }
     }
 }
 
@@ -315,6 +435,11 @@ pub fn field_layer(layer: &Layer, frame: &Frame) -> (Vec<(Rgb, f32)>, LayerKey) 
     };
     let substance = match positional(&layer.source).first() {
         Some(Expr::Path(_)) if state.is_some() => None,
+        // `context(cells)`: the conserved field's cells, read by substance in the body.
+        Some(Expr::Path(p)) if layer.source.name == "context" && p.segs.is_empty() && p.root == frame.field => {
+            key.source = format!("{} (cells, by substance)", p.root);
+            None
+        }
         Some(Expr::Path(p)) => match p.segs.as_slice() {
             [Seg::Field(s)] => {
                 key.source = format!("{}.{s}, in units per cell", p.root);
@@ -351,25 +476,33 @@ pub fn field_layer(layer: &Layer, frame: &Frame) -> (Vec<(Rgb, f32)>, LayerKey) 
         key.ramp = None;
         if let Some(e) = color {
             for (i, name) in st.names.iter().enumerate() {
-                let cx = Ctx { frame, cell: 0, substance: None, state, value: Some(i as f64), agent: None };
+                let cx = Ctx { frame, cell: 0, substance: None, state, value: Some(i as f64), agent: None, locals: None };
                 if let Val::Color(c) = eval(e, &cx, &mut key) {
                     key.categories.push((name.clone(), c));
                 }
             }
         }
     }
+    body_lines(&layer.body, &mut key);
     let n = frame.grid_w * frame.grid_h;
     let mut out = Vec::with_capacity(n);
+    let mut locals = std::collections::HashMap::new();
     for cell in 0..n {
-        let cx = Ctx { frame, cell, substance, state, value: None, agent: None };
+        let cx = Ctx { frame, cell, substance, state, value: None, agent: None, locals: None };
         let cd = match (color, substance.or(state)) {
             (Some(e), Some(_)) => match eval(e, &cx, &mut key) {
                 Val::Color(c) => c,
                 _ => UNAVAILABLE,
             },
+            _ if !layer.body.is_empty() => EMPTY,
             _ => UNAVAILABLE,
         };
-        out.push((cd, 1.0));
+        let mut at = Attributes { cd, alpha: 1.0, pscale: 1.0, shape: Shape::Dot, n: [1.0, 0.0] };
+        if !layer.body.is_empty() {
+            locals.clear();
+            run_body(&layer.body, &cx, &mut at, &mut locals, &mut key);
+        }
+        out.push((at.cd, at.alpha));
     }
     key.count = n;
     (out, key)
@@ -393,8 +526,13 @@ pub fn agents_layer(layer: &Layer, frame: &Frame) -> (Vec<([f32; 2], Attributes)
     }
     let mut seen = std::collections::BTreeMap::new();
     let mut out = Vec::new();
+    body_lines(&layer.body, &mut key);
+    let mut locals = std::collections::HashMap::new();
+    // A body that colours by `ramp("categorical", @lineage_id)` gets the lineages in its legend.
+    let by_lineage = layer.body.iter().any(|s| matches!(&s.node, VStmt::Set { attr, value: Expr::Call(c) } if attr == "Cd" && c.name == "ramp"
+        && matches!(positional(c).as_slice(), [Expr::Lit(Lit::Str(n)), Expr::Path(p)] if n == "categorical" && p.root == "@lineage_id")));
     for a in &frame.agents {
-        let cx = Ctx { frame, cell: 0, substance: None, state: None, value: None, agent: Some(a) };
+        let cx = Ctx { frame, cell: 0, substance: None, state: None, value: None, agent: Some(a), locals: None };
         if let Some(f) = filter {
             if eval(f, &cx, &mut key) != Val::Bool(true) {
                 continue;
@@ -418,6 +556,13 @@ pub fn agents_layer(layer: &Layer, frame: &Frame) -> (Vec<([f32; 2], Attributes)
         }
         if let Some(Val::Glyph(s)) = entry("glyph").map(|e| eval(e, &cx, &mut key)) {
             at.shape = s;
+        }
+        if !layer.body.is_empty() {
+            locals.clear();
+            run_body(&layer.body, &cx, &mut at, &mut locals, &mut key);
+            if by_lineage {
+                seen.insert(a.lineage, at.cd);
+            }
         }
         out.push((a.pos, at));
     }
@@ -455,31 +600,95 @@ fn render_into(view: &View, frame: &Frame, opt: Options, extra: u32) -> (Pixmap,
     let (sx, sy) = (w as f32 / frame.world_w, h as f32 / frame.world_h);
     for layer in &view.layers {
         let l = &layer.node;
-        match l.source.name.as_str() {
+        let (blend, opacity) = blend_of(l);
+        // The usual layer draws straight onto the picture; any other blend or opacity draws into
+        // its own transparent layer, composited per pixel.
+        let direct = blend == "over" && opacity >= 1.0;
+        let mut own = if direct { None } else { Some(Pixmap::new(w.max(1), h.max(1)).expect("a layer of this size")) };
+        let target = own.as_mut().unwrap_or(&mut pm);
+        let kind = match (l.source.name.as_str(), positional(&l.source).first()) {
+            ("context", Some(Expr::Path(p))) if p.root == "agents" => "agents",
+            ("context", _) => "field",
+            (other, _) => other,
+        };
+        match kind {
             "field" => {
                 let (cells, key) = field_layer(l, frame);
                 for (c, (cd, alpha)) in cells.iter().enumerate() {
                     let (x, y) = ((c % frame.grid_w) as u32 * k, (c / frame.grid_w) as u32 * k);
                     let mut p = paint(*cd, *alpha);
                     p.anti_alias = false; // exact cells
-                    pm.fill_rect(Rect::from_xywh(x as f32, y as f32, k as f32, k as f32).unwrap(), &p, Transform::identity(), None);
+                    target.fill_rect(Rect::from_xywh(x as f32, y as f32, k as f32, k as f32).unwrap(), &p, Transform::identity(), None);
                 }
                 keys.push(key);
             }
             "agents" => {
                 let (agents, key) = agents_layer(l, frame);
                 for (pos, at) in &agents {
-                    draw_agent(&mut pm, [pos[0] * sx, pos[1] * sy], at, sx.min(sy), w as f32, h as f32, frame.wrap);
+                    draw_agent(target, [pos[0] * sx, pos[1] * sy], at, sx.min(sy), w as f32, h as f32, frame.wrap);
                 }
                 keys.push(key);
             }
             _ => {}
+        }
+        if let Some(layer_pm) = own {
+            composite(&mut pm, &layer_pm, blend, opacity);
         }
     }
     if opt.legend {
         legend(&mut pm, w, view, frame, &keys);
     }
     (pm, main_h)
+}
+
+/// A layer's `blend` (default `over`) and `opacity` (default 1).
+fn blend_of(l: &Layer) -> (&str, f32) {
+    let entry = |k: &str| l.entries.iter().find(|e| e.node.key == k).and_then(|e| match &e.node.value {
+        Value::Expr(x) => Some(x),
+        _ => None,
+    });
+    let blend = match entry("blend") {
+        Some(Expr::Path(p)) => p.root.as_str(),
+        _ => "over",
+    };
+    let opacity = match entry("opacity") {
+        Some(Expr::Lit(Lit::Float(f))) => f.parse().unwrap_or(1.0),
+        Some(Expr::Lit(Lit::Int(i))) => *i as f32,
+        _ => 1.0,
+    };
+    (blend, opacity.clamp(0.0, 1.0))
+}
+
+/// One channel of a blend, on values in [0, 1]: `s` the layer's colour premultiplied by its
+/// alpha `a` (already scaled by the opacity), `d` the opaque picture below.
+pub fn blend_channel(mode: &str, s: f32, a: f32, d: f32) -> f32 {
+    match mode {
+        "add" => (d + s).min(1.0),
+        "subtract" => (d - s).max(0.0),
+        "multiply" => s * d + d * (1.0 - a),
+        "screen" => s + d - s * d,
+        _ => s + d * (1.0 - a),
+    }
+}
+
+/// Composites `layer` (premultiplied RGBA) onto the opaque top-left of `pm`.
+fn composite(pm: &mut Pixmap, layer: &Pixmap, mode: &str, opacity: f32) {
+    let (w, h, pw) = (layer.width() as usize, layer.height() as usize, pm.width() as usize);
+    let (src, dst) = (layer.data(), pm.data_mut());
+    for y in 0..h {
+        for x in 0..w {
+            let (i, j) = (4 * (y * w + x), 4 * (y * pw + x));
+            let a = src[i + 3] as f32 / 255.0 * opacity;
+            if a == 0.0 && mode != "multiply" {
+                continue;
+            }
+            for c in 0..3 {
+                let s = src[i + c] as f32 / 255.0 * opacity;
+                let d = dst[j + c] as f32 / 255.0;
+                dst[j + c] = (blend_channel(mode, s, a, d) * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
 }
 
 fn draw_agent(pm: &mut Pixmap, p: [f32; 2], at: &Attributes, px_per_unit: f32, w: f32, h: f32, wrap: bool) {

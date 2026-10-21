@@ -49,9 +49,32 @@ view Producers for Dish {
         color: 0.35 |> palette(grays);
         size: 1.2;
     }
-    layer producers = agents(where: made > 0mu) {
+    layer producers = agents(where: made > 0u) {
         glyph: dot();
         color: units(made) |> scale(log, range: 0.05..20.0) |> palette(inferno);
         size: 2.4;
+    }
+}
+
+// VEX-like bodies and blending (plan item 12, V5): a dark dish where food glows faintly and
+// agents add light by the energy they carry, coloured by lineage.
+view Biolume for Dish {
+    layer ground = context(cells) {
+        float food = fit_log(units(@body), 0.05, 20.0);
+        @Cd = ramp("magma", food * 0.6);
+    }
+    layer halo = context(agents) {
+        blend: add;
+        opacity: 0.35;
+        @Cd = ramp("categorical", @lineage_id);
+        @pscale = 3.5 + 4.0 * clamp(units(@energy) / 20.0, 0.0, 1.0);
+        @shape = "dot";
+    }
+    layer life = context(agents) {
+        blend: screen;
+        @Cd = ramp("categorical", @lineage_id);
+        @pscale = 1.4;
+        @shape = "arrow";
+        @N = @heading;
     }
 }

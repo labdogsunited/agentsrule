@@ -189,7 +189,17 @@ fn item(out: &mut Out, indent: usize, it: &Item) {
         Item::View(v) => out.block(indent, vec![t(format!("view {} for {}", v.name, v.world))], &v.layers, |o, i, l| {
             let mut header = vec![t(format!("layer {} = ", l.name))];
             header.extend(call(&l.source));
-            o.block(i, header, &l.entries, entry);
+            if l.body.is_empty() {
+                o.block(i, header, &l.entries, entry);
+            } else {
+                header.push(t(" {"));
+                o.layout(i, header);
+                o.nodes(i + 1, &l.entries, entry);
+                for (k, n) in l.body.iter().enumerate() {
+                    o.node(i + 1, n, k == 0 && l.entries.is_empty(), vstmt);
+                }
+                o.lines.push(format!("{}}}", INDENT.repeat(i)));
+            }
         }),
         Item::Chart(c) => out.block(indent, vec![t(format!("chart {} for {}", c.name, c.world))], &c.series, |o, i, c| {
             let mut line = call(c);
@@ -379,6 +389,34 @@ fn entry_pieces(e: &Entry) -> Vec<P> {
 
 fn entry(out: &mut Out, i: usize, e: &Entry) {
     out.layout(i, entry_pieces(e));
+}
+
+/// A statement of a layer body. An `if` is always written with braces (one spelling).
+fn vstmt(out: &mut Out, i: usize, s: &VStmt) {
+    match s {
+        VStmt::Local { ty, name, value } => {
+            let mut line = vec![t(format!("{ty} {name} = "))];
+            line.extend(expr(value));
+            line.push(t(";"));
+            out.layout(i, line);
+        }
+        VStmt::Set { attr, value } => {
+            let mut line = vec![t(format!("@{attr} = "))];
+            line.extend(expr(value));
+            line.push(t(";"));
+            out.layout(i, line);
+        }
+        VStmt::If { cond, then, otherwise } => {
+            let mut header = vec![t("if (")];
+            header.extend(expr(cond));
+            header.push(t(")"));
+            out.block(i, header, then, vstmt);
+            if let Some(o) = otherwise {
+                let close = out.lines.pop().unwrap();
+                out.block(i, vec![t(format!("{} else", close.trim_start()))], o, vstmt);
+            }
+        }
+    }
 }
 
 fn stmt(out: &mut Out, i: usize, s: &Stmt) {

@@ -326,7 +326,24 @@ pub struct Layer {
     pub name: String,
     pub source: Call,
     pub entries: Vec<Node<Entry>>,
+    /// VEX-like statements (`vex-language.md` §7), after the entries. An attribute such as
+    /// `@energy` is read as a `Path` whose root is `@energy`.
+    pub body: Vec<Node<VStmt>>,
 }
+
+/// A statement of a VEX-like layer body.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VStmt {
+    /// `float fuel = …;`
+    Local { ty: String, name: String, value: Expr },
+    /// `@Cd = …;`: an attribute of the current element (`attr` without the `@`).
+    Set { attr: String, value: Expr },
+    /// `if (cond) …` with an optional `else`.
+    If { cond: Expr, then: Vec<Node<VStmt>>, otherwise: Option<Vec<Node<VStmt>>> },
+}
+
+/// The types a local of a layer body may have.
+pub const VTYPES: [&str; 6] = ["float", "int", "bool", "vector2", "color", "string"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chart {

@@ -156,3 +156,49 @@ fn a_chart_draws_each_value_where_it_belongs() {
     let empty = emerge_view::render_with(&v, &f, opt, &[emerge_view::chart::Panel::Default]);
     assert_eq!(empty.height(), pm.height());
 }
+
+#[test]
+fn a_body_draws_what_the_same_entries_draw() {
+    let cells: Vec<u32> = (0..35).map(|i| 997 * i).collect();
+    let a = |id, lineage, x| Agent { id, lineage, pos: [x, 5.0], heading: [1.0, 0.5], age: 3, expressed_genes: 4, amounts: vec![2_500], made: 0 };
+    let f = frame(cells, vec![a(1, 0, 3.0), a(2, 1, 11.0)]);
+    let pairs = [
+        ("layer g = field(cells.sugar) {\n        color: value |> scale(linear, range: 2.0..30.0) |> palette(viridis);\n    }",
+         "layer g = context(cells) {\n        @Cd = ramp(\"viridis\", fit(units(@sugar), 2.0, 30.0, 0.0, 1.0));\n    }"),
+        ("layer g = field(cells.sugar) {\n        color: value |> scale(log, range: 1.0..30.0) |> palette(magma);\n    }",
+         "layer g = field(cells.sugar) {\n        @Cd = ramp(\"magma\", fit_log(@value, 1.0, 30.0));\n    }"),
+        ("layer l = agents(where: true) {\n        glyph: arrow(dir: heading);\n        color: lineage_id |> palette(categorical);\n        size: 1.0 + float(expressed_genes) / 4.0;\n    }",
+         "layer l = context(agents) {\n        float s = 1.0 + float(@expressed_genes) / 4.0;\n        @Cd = ramp(\"categorical\", @lineage_id);\n        @pscale = s;\n        @shape = \"arrow\";\n        @N = @heading;\n    }"),
+    ];
+    for (entries, body) in pairs {
+        let (x, y) = (view(&format!("view V for W {{\n    {entries}\n}}\n")), view(&format!("view V for W {{\n    {body}\n}}\n")));
+        // The picture itself; the legend says different things about an entry and a body.
+        let opt = Options { cell_px: 10, legend: false };
+        assert!(render(&x, &f, opt).data() == render(&y, &f, opt).data(), "{body}");
+    }
+}
+
+#[test]
+fn each_blend_mode_follows_its_formula() {
+    let f = frame(vec![10_000; 35], Vec::new());
+    let base = "layer g = field(cells.sugar) {\n        color: value |> scale(linear, range: 0.0..20.0) |> palette(grays);\n    }";
+    let under = palette::sample("grays", 0.5);
+    let over = palette::sample("viridis", 0.8);
+    for mode in ["over", "add", "multiply", "subtract", "screen"] {
+        let top = format!("layer t = field(cells.sugar) {{\n        blend: {mode};\n        opacity: 0.6;\n        color: value |> scale(linear, range: 0.0..12.5) |> palette(viridis);\n    }}");
+        let pm = render(&view(&format!("view V for W {{\n    {base}\n    {top}\n}}\n")), &f, Options { cell_px: 10, legend: false });
+        let got = pixel(&pm, 15, 15);
+        for c in 0..3 {
+            let want = emerge_view::render::blend_channel(mode, over[c] as f32 / 255.0 * 0.6, 0.6, under[c] as f32 / 255.0) * 255.0;
+            assert!((got[c] as f32 - want).abs() <= 1.0, "{mode}, channel {c}: {} against {want}", got[c]);
+        }
+    }
+}
+
+#[test]
+fn a_body_formats_to_itself() {
+    let src = "view V for W {\n    layer l = context(agents) {\n        blend: add;\n        float fuel = clamp(units(@energy) / 20.0, 0.0, 1.0);\n        @Cd = ramp(\"inferno\", fuel);\n        if (@age < 5) @Alpha = 0.5; else { @Alpha = 1.0; }\n    }\n}\n";
+    let once = emerge_lang::format(&emerge_lang::parse(src).unwrap());
+    assert_eq!(once, emerge_lang::format(&emerge_lang::parse(&once).unwrap()));
+    assert!(once.contains("if (@age < 5) {\n            @Alpha = 0.5;\n        } else {"), "{once}");
+}

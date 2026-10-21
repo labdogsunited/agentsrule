@@ -60,3 +60,21 @@ fn good_views_pass() {
         assert_eq!(warnings.len(), 4, "only the dish's own warnings");
     }
 }
+
+#[test]
+fn layer_bodies_are_checked() {
+    let world = include_str!("../../../examples/dish.em");
+    let codes = |layer: &str| {
+        let file = emerge_lang::parse(&format!("{world}\nview V for Dish {{\n    {layer}\n}}\n")).unwrap();
+        emerge_lang::view::check(&file).0.into_iter().map(|p| p.code).collect::<Vec<_>>()
+    };
+    assert!(codes("layer l = context(agents) {\n        blend: screen;\n        float fuel = clamp(units(@energy) / 20.0, 0.0, 1.0);\n        @Cd = ramp(\"inferno\", fuel);\n        @pscale = 0.6 + 0.1 * float(@expressed_genes);\n        if (@age < 5) { @Alpha = 0.5; }\n    }").is_empty());
+    assert!(codes("layer g = context(cells) {\n        @Cd = ramp(\"magma\", fit_log(units(@body), 0.05, 20.0));\n    }").is_empty());
+    assert_eq!(codes("layer l = context(agents) {\n        @energy = 5u;\n    }"), ["E0301"], "a view cannot change the world");
+    assert_eq!(codes("layer l = context(agents) {\n        @Cd = ramp(\"magma\", @nonsense);\n    }"), ["E0114"]);
+    assert_eq!(codes("layer l = context(agents) {\n        @Cd = 0.5;\n    }"), ["E0205"], "`@Cd` is a colour");
+    assert_eq!(codes("layer l = context(agents) {\n        @Cd = glow(0.5);\n    }"), ["E0114"], "an unknown function");
+    assert_eq!(codes("layer l = context(agents) {\n        @shape = \"star\";\n    }"), ["E0205"]);
+    assert_eq!(codes("layer l = context(agents) {\n        blend: burn;\n    }"), ["E0205"]);
+    assert_eq!(codes("layer g = context(cells) {\n        @Cd = ramp(\"magma\", @value);\n    }"), ["E0114"], "the conserved field's cells have no single value");
+}

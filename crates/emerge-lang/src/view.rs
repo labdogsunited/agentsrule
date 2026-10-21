@@ -60,6 +60,7 @@ enum Ty {
     Scaled,
     Color,
     Glyph,
+    Str,
     /// A binding that is valid but not computed yet; already warned about.
     Later,
 }
@@ -76,6 +77,7 @@ impl Ty {
             Ty::Scaled => "a scaled value",
             Ty::Color => "a colour",
             Ty::Glyph => "a glyph",
+            Ty::Str => "a string",
             Ty::Later => "a binding not computed yet",
         }
     }
@@ -86,17 +88,26 @@ impl Ty {
 
 /// What a layer's expressions see.
 enum Scope<'a> {
-    /// A field layer: `value` is the cell's value (in units for a held substance).
-    Field,
+    /// A field layer: `value` is the cell's value (in units for a held substance), if it has one;
+    /// a body also reads `@ix`, `@iy` and the field's substances.
+    Field { substances: &'a [String], value: bool },
     /// An agents layer: entity properties and inventory amounts by substance name.
     Agents { substances: &'a [String] },
 }
+
+/// What a layer body may write (`vex-language.md` §7): visual attributes only.
+const WRITABLE: [(&str, &[Ty]); 5] = [("Cd", &[Ty::Color]), ("Alpha", &[Ty::F32, Ty::Int, Ty::Scaled]), ("pscale", &[Ty::F32, Ty::Int]), ("shape", &[Ty::Str]), ("N", &[Ty::Vec2])];
+
+/// How a layer is composited onto the ones below it.
+pub const BLENDS: [&str; 5] = ["over", "add", "multiply", "subtract", "screen"];
 
 struct Checker {
     errors: Vec<Problem>,
     warnings: Vec<Problem>,
     path: String,
     pos: Pos,
+    /// A layer body's locals and their types.
+    locals: std::collections::HashMap<String, Ty>,
 }
 
 fn lit_number(l: &Lit) -> Option<f64> {
@@ -129,6 +140,7 @@ impl Checker {
             Expr::Lit(Lit::Float(_)) => Ty::F32,
             Expr::Lit(Lit::Amount(_)) => Ty::Amount,
             Expr::Lit(Lit::Bool(_)) => Ty::Bool,
+            Expr::Lit(Lit::Str(_)) => Ty::Str,
             Expr::Lit(_) => {
                 self.error("E0205", "a range or rate is not a value here".into());
                 Ty::F32
@@ -185,8 +197,14 @@ impl Checker {
             self.error("E0114", format!("unknown name `{name}.…` in a view"));
             return Ty::F32;
         }
+        if let Some(attr) = name.strip_prefix('@') {
+            return self.attr_ty(attr, scope);
+        }
+        if let Some(t) = self.locals.get(name) {
+            return *t;
+        }
         match scope {
-            Scope::Field if name == "value" => Ty::F32,
+            Scope::Field { value: true, .. } if name == "value" => Ty::F32,
             Scope::Agents { substances } => {
                 if let Some((_, t)) = AGENT.iter().find(|(n, _)| *n == name) {
                     *t
@@ -200,9 +218,90 @@ impl Checker {
                     Ty::F32
                 }
             }
-            Scope::Field => {
+            Scope::Field { .. } => {
                 self.error("E0114", format!("unknown name `{name}`: a field layer reads `value`"));
                 Ty::F32
+            }
+        }
+    }
+
+    /// An attribute read in a layer body: `@energy`, `@heading`, `@value`, `@ix`.
+    fn attr_ty(&mut self, attr: &str, scope: &Scope) -> Ty {
+        let found = match scope {
+            Scope::Agents { substances } => match attr {
+                "P" => Some(Ty::Vec2),
+                a => AGENT.iter().find(|(n, _)| *n == a).map(|(_, t)| *t).or_else(|| substances.iter().any(|s| s == a).then_some(Ty::Amount)),
+            },
+            Scope::Field { substances, value } => match attr {
+                "value" if *value => Some(Ty::F32),
+                "ix" | "iy" => Some(Ty::Int),
+                a => substances.iter().any(|s| s == a).then_some(Ty::Amount),
+            },
+        };
+        found.unwrap_or_else(|| {
+            let reads = match scope {
+                Scope::Agents { .. } => format!("{}, `@P` and amounts by substance name", AGENT.iter().map(|(n, _)| format!("`@{n}`")).collect::<Vec<_>>().join(", ")),
+                Scope::Field { value, .. } => format!("{}`@ix`, `@iy` and the field's substances", if *value { "`@value`, " } else { "" }),
+            };
+            self.error("E0114", format!("unknown attribute `@{attr}`: this layer reads {reads}"));
+            Ty::F32
+        })
+    }
+
+    /// A layer body's statements: typed locals, writes to visual attributes, `if`.
+    fn vstmts(&mut self, body: &[Node<VStmt>], scope: &Scope) {
+        for s in body {
+            self.pos = s.pos;
+            match &s.node {
+                VStmt::Local { ty, name, value } => {
+                    let t = self.expr(value, scope);
+                    let want: &[Ty] = match ty.as_str() {
+                        "float" => &[Ty::F32, Ty::Int, Ty::Scaled],
+                        "int" => &[Ty::Int],
+                        "bool" => &[Ty::Bool],
+                        "vector2" => &[Ty::Vec2],
+                        "color" => &[Ty::Color],
+                        "string" => &[Ty::Str],
+                        other => {
+                            self.error("E0205", format!("unknown type `{other}`: {}", VTYPES.join(", ")));
+                            continue;
+                        }
+                    };
+                    self.expect(t, want, &format!("`{name}`"));
+                    let as_ty = match ty.as_str() {
+                        "float" => Ty::F32,
+                        "int" => Ty::Int,
+                        "bool" => Ty::Bool,
+                        "vector2" => Ty::Vec2,
+                        "color" => Ty::Color,
+                        _ => Ty::Str,
+                    };
+                    self.locals.insert(name.clone(), as_ty);
+                }
+                VStmt::Set { attr, value } => {
+                    let t = self.expr(value, scope);
+                    match WRITABLE.iter().find(|(a, _)| a == attr) {
+                        Some((a, want)) => {
+                            self.expect(t, want, &format!("`@{a}`"));
+                            if *a == "shape" {
+                                if let Expr::Lit(Lit::Str(sh)) = value {
+                                    if sh != "dot" && sh != "arrow" {
+                                        self.error("E0205", format!("unknown shape \"{sh}\": \"dot\" or \"arrow\""));
+                                    }
+                                }
+                            }
+                        }
+                        None => self.error("E0301", format!("a view cannot change the world: `@{attr}` is not a visual attribute (write {})", WRITABLE.iter().map(|(a, _)| format!("`@{a}`")).collect::<Vec<_>>().join(", "))),
+                    }
+                }
+                VStmt::If { cond, then, otherwise } => {
+                    let t = self.expr(cond, scope);
+                    self.expect(t, &[Ty::Bool], "an `if` condition");
+                    self.vstmts(then, scope);
+                    if let Some(o) = otherwise {
+                        self.vstmts(o, scope);
+                    }
+                }
             }
         }
     }
@@ -287,9 +386,46 @@ impl Checker {
                 Ty::Glyph
             }
             "dot" => Ty::Glyph,
+            "ramp" => {
+                // `ramp("magma", t)`: a palette by name, sampled at `t` (VEX's `chramp`).
+                let args = Self::positional(c);
+                match args.first() {
+                    Some(Expr::Lit(Lit::Str(n))) => {
+                        let t = args.get(1).map(|e| self.expr(e, scope)).unwrap_or(Ty::F32);
+                        match PALETTES.iter().find(|(p, _)| p == n) {
+                            Some((_, PaletteKind::Categorical)) => self.expect(t, &[Ty::Category, Ty::Int], "what a categorical ramp colours"),
+                            Some((_, PaletteKind::Cyclic)) => self.expect(t, &[Ty::F32, Ty::Int, Ty::Scaled, Ty::Vec2], "what a cyclic ramp colours"),
+                            Some(_) => self.expect(t, &[Ty::F32, Ty::Int, Ty::Scaled], "what a ramp colours"),
+                            None => self.error("E0114", format!("unknown palette \"{n}\": {}", PALETTES.iter().map(|(p, _)| *p).collect::<Vec<_>>().join(", "))),
+                        }
+                    }
+                    _ => self.error("E0205", "`ramp` takes a palette's name as a string, then a value: `ramp(\"magma\", t)`".into()),
+                }
+                Ty::Color
+            }
+            "fit" | "fit_log" | "clamp" | "lerp" | "min" | "max" | "abs" | "log" | "sqrt" => {
+                // Numbers in, a number out; `fit_log`'s range must be above 0.
+                let arity = match c.name.as_str() { "fit" => 5, "fit_log" | "clamp" | "lerp" => 3, "min" | "max" => 2, _ => 1 };
+                let args = Self::positional(c);
+                if args.len() != arity || c.args.len() != arity {
+                    self.error("E0205", format!("`{}` takes {arity} values", c.name));
+                }
+                for a in &args {
+                    let t = self.expr(a, scope);
+                    self.expect(t, &[Ty::F32, Ty::Int, Ty::Scaled], &format!("`{}`'s values", c.name));
+                }
+                if c.name == "fit_log" {
+                    if let Some(lo) = args.get(1).and_then(|e| match e { Expr::Lit(l) => lit_number(l), _ => None }) {
+                        if lo <= 0.0 {
+                            self.error("E0204", "`fit_log` needs a range above 0".into());
+                        }
+                    }
+                }
+                Ty::F32
+            }
             other => {
                 self.error("E0114", format!("unknown function `{other}` in a view"));
-                Ty::F32
+                Ty::Later // one error, not a second one for its type
             }
         }
     }
@@ -319,10 +455,37 @@ fn view(v: &View, pos: Pos, worlds: &[&World], errors: &mut Vec<Problem>, warnin
     };
     let subs = substances(world);
     for layer in &v.layers {
-        let mut ck = Checker { errors: Vec::new(), warnings: Vec::new(), path: format!("{}.layers.{}", v.name, layer.node.name), pos: layer.pos };
+        let mut ck = Checker { errors: Vec::new(), warnings: Vec::new(), path: format!("{}.layers.{}", v.name, layer.node.name), pos: layer.pos, locals: Default::default() };
         let l = &layer.node;
-        let (scope, keys): (Scope, &[&str]) = match l.source.name.as_str() {
-            "field" => {
+        // `context(agents)` and `context(FIELD)` are the VEX-like spellings of the two sources.
+        let context = match (l.source.name.as_str(), Checker::subject(&l.source)) {
+            ("context", Some(Expr::Path(p))) if p.segs.is_empty() => Some(p.root.as_str()),
+            _ => None,
+        };
+        let conserved = world.decls.iter().find_map(|d| match &d.node {
+            WDecl::Field { name, holds: Some(h), .. } => Some((name.as_str(), h.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>())),
+            _ => None,
+        });
+        let held: Vec<String> = conserved.as_ref().map(|c| c.1.clone()).unwrap_or_default();
+        let (scope, keys): (Scope, &[&str]) = match (l.source.name.as_str(), context) {
+            ("context", Some("agents")) => (Scope::Agents { substances: &subs }, &["glyph", "color", "size", "blend", "opacity"]),
+            ("context", Some(f)) => {
+                let field = world.decls.iter().find_map(|d| match &d.node {
+                    WDecl::Field { name, holds, .. } if name == f => Some(holds.is_some()),
+                    _ => None,
+                });
+                if field.is_none() {
+                    ck.error("E0114", format!("unknown field `{f}`: `context(agents)` or `context(FIELD)`"));
+                }
+                // The conserved field's cells read their substances; another field reads `@value`.
+                (Scope::Field { substances: &held, value: field == Some(false) }, &["color", "blend", "opacity"])
+            }
+            ("context", None) => {
+                ck.error("E0116", "`context` needs `agents` or a field: `context(agents)`, `context(cells)`".into());
+                errors.append(&mut ck.errors);
+                continue;
+            }
+            ("field", _) => {
                 match Checker::subject(&l.source) {
                     Some(Expr::Path(p)) => {
                         let field = world.decls.iter().find_map(|d| match &d.node {
@@ -340,18 +503,18 @@ fn view(v: &View, pos: Pos, worlds: &[&World], errors: &mut Vec<Problem>, warnin
                     }
                     _ => ck.error("E0116", "`field` needs a field, such as `field(cells.sugar)`".into()),
                 }
-                (Scope::Field, &["color"])
+                (Scope::Field { substances: &held, value: true }, &["color", "blend", "opacity"])
             }
-            "agents" => {
+            ("agents", _) => {
                 let scope = Scope::Agents { substances: &subs };
                 if let Some(Value::Expr(e)) = Checker::arg(&l.source, "where") {
                     let t = ck.expr(e, &scope);
                     ck.expect(t, &[Ty::Bool], "`where`");
                 }
-                (scope, &["glyph", "color", "size"])
+                (scope, &["glyph", "color", "size", "blend", "opacity"])
             }
-            other => {
-                ck.error("E0114", format!("unknown layer source `{other}`: `field` or `agents`"));
+            (other, _) => {
+                ck.error("E0114", format!("unknown layer source `{other}`: `field`, `agents` or `context`"));
                 errors.append(&mut ck.errors);
                 continue;
             }
@@ -364,13 +527,22 @@ fn view(v: &View, pos: Pos, worlds: &[&World], errors: &mut Vec<Problem>, warnin
                 continue;
             }
             let Some(e) = ck.value_expr(&entry.node.value) else { continue };
+            if key == "blend" {
+                match e {
+                    Expr::Path(p) if p.segs.is_empty() && BLENDS.contains(&p.root.as_str()) => {}
+                    _ => ck.error("E0205", format!("`blend` is one of {}", BLENDS.join(", "))),
+                }
+                continue;
+            }
             let t = ck.expr(e, &scope);
             match key {
                 "color" => ck.expect(t, &[Ty::Color], "`color`"),
                 "glyph" => ck.expect(t, &[Ty::Glyph], "`glyph`"),
+                "opacity" => ck.expect(t, &[Ty::F32, Ty::Int], "`opacity`"),
                 _ => ck.expect(t, &[Ty::F32, Ty::Int], "`size`"),
             }
         }
+        ck.vstmts(&l.body, &scope);
         errors.append(&mut ck.errors);
         warnings.append(&mut ck.warnings);
     }
