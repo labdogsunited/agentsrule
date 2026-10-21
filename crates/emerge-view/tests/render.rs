@@ -16,7 +16,7 @@ fn view(src: &str) -> View {
 
 /// A 7 × 5 grid of one substance, `x` µ in each cell, and the given agents.
 fn frame(cells: Vec<u32>, agents: Vec<Agent>) -> Frame {
-    Frame { tick: 3, revision: 1, world_w: 14.0, world_h: 10.0, wrap: true, field: "cells".into(), grid_w: 7, grid_h: 5, substances: vec!["sugar".into()], cells, lineages: vec!["A".into(), "B".into()], agents }
+    Frame { tick: 3, revision: 1, world_w: 14.0, world_h: 10.0, wrap: true, field: "cells".into(), grid_w: 7, grid_h: 5, substances: vec!["sugar".into()], cells, lineages: vec!["A".into(), "B".into()], agents, made: None }
 }
 
 fn pixel(pm: &tiny_skia::Pixmap, x: u32, y: u32) -> [u8; 3] {
@@ -64,7 +64,7 @@ fn a_linear_scale_clamps_and_a_constant_field_is_one_colour() {
 
 #[test]
 fn agents_are_drawn_and_what_is_not_computed_is_grey() {
-    let a = |id, lineage, x| Agent { id, lineage, pos: [x, 5.0], heading: [1.0, 0.0], age: 1, expressed_genes: 4, amounts: vec![0] };
+    let a = |id, lineage, x| Agent { id, lineage, pos: [x, 5.0], heading: [1.0, 0.0], age: 1, expressed_genes: 4, amounts: vec![0], made: 0 };
     let f = frame(vec![0; 35], vec![a(u64::MAX, 0, 3.0), a(7, 1, 11.0)]);
     let by_lineage = view("view V for W {\n    layer life = agents(where: true) {\n        glyph: dot();\n        color: lineage_id |> palette(categorical);\n        size: 1.5;\n    }\n}\n");
     let pm = render(&by_lineage, &f, Options { cell_px: 10, legend: false });
@@ -78,3 +78,20 @@ fn agents_are_drawn_and_what_is_not_computed_is_grey() {
     let pm = render(&species, &f, Options { cell_px: 10, legend: true });
     assert!(pm.width() > 70);
 }
+
+#[test]
+fn made_needs_a_window_and_the_legend_names_it() {
+    let a = |id, x, made| Agent { id, lineage: 0, pos: [x, 5.0], heading: [1.0, 0.0], age: 1, expressed_genes: 4, amounts: vec![0], made };
+    let mut f = frame(vec![0; 35], vec![a(1, 3.0, 0), a(2, 11.0, 250)]);
+    let producers = view("view V for W {\n    layer life = agents(where: made > 0mu) {\n        glyph: dot();\n        color: lineage_id |> palette(categorical);\n        size: 1.5;\n    }\n}\n");
+    // Without a window, `made` is not computed: nobody passes the filter as a producer.
+    let pm = render(&producers, &f, Options { cell_px: 10, legend: false });
+    assert_eq!((pixel(&pm, 15, 25), pixel(&pm, 55, 25)), (EMPTY, EMPTY));
+    f.made = Some(emerge_view::frame::Made { substance: "body".into(), from_tick: 0 });
+    let pm = render(&producers, &f, Options { cell_px: 10, legend: false });
+    assert_eq!(pixel(&pm, 15, 25), EMPTY, "made nothing in the window");
+    assert_eq!(pixel(&pm, 55, 25), palette::category(0), "a producer");
+    let (_, key) = emerge_view::render::agents_layer(&producers.layers[0].node, &f);
+    assert!(key.entries.iter().any(|e| e == "made: body made by its own reactions, ticks 0–3"), "{:?}", key.entries);
+}
+

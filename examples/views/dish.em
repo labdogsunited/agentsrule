@@ -36,3 +36,22 @@ view Headings for Dish {
         size: 2.8;
     }
 }
+
+// Exit test 9's subject: who makes body. Nitrate in the cells (what a producer must take), every
+// agent as a faint dot, and producers (agents whose own reactions made body in the window) bright,
+// by how much they made. `made` needs a window: render with --made body --window 1000.
+view Producers for Dish {
+    layer ground = field(cells.nitrate) {
+        color: value |> scale(log, range: 0.5..60.0) |> palette(blues);
+    }
+    layer everyone = agents(where: true) {
+        glyph: dot();
+        color: 0.35 |> palette(grays);
+        size: 1.2;
+    }
+    layer producers = agents(where: made > 0mu) {
+        glyph: dot();
+        color: units(made) |> scale(log, range: 0.05..20.0) |> palette(inferno);
+        size: 2.4;
+    }
+}

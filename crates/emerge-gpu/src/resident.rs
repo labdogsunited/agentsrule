@@ -838,6 +838,11 @@ impl<'a> Resident<'a> {
         ent.chunks(ENT).map(|w| w[14] as u64 | (w[15] as u64) << 32).collect()
     }
 
+    /// Which substance `made` counts (`World::track`), from the next tick; `None` counts nothing.
+    pub fn set_track(&mut self, track: Option<usize>) {
+        self.write_param(P_TRACK, track.map_or(0, |t| t as u32 + 1));
+    }
+
     /// Starts a window: every entity's `made` is 0.
     pub fn clear_made(&mut self) {
         self.write_param(P_N, self.n as u32);

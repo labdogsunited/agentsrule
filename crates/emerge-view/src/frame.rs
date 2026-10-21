@@ -15,6 +15,15 @@ pub struct Agent {
     pub expressed_genes: usize,
     /// µ of each substance carried, by substance index.
     pub amounts: Vec<u32>,
+    /// µ of `Frame::made`'s substance this entity's own reactions made in its window (0 without one).
+    pub made: u64,
+}
+
+/// The window `made` is counted over: what was counted, from which tick to the frame's tick.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Made {
+    pub substance: String,
+    pub from_tick: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +42,8 @@ pub struct Frame {
     pub cells: Vec<u32>,
     pub lineages: Vec<String>,
     pub agents: Vec<Agent>,
+    /// The window of `Agent::made`, if one was counted; without it a view's `made` is unavailable.
+    pub made: Option<Made>,
 }
 
 impl Frame {
@@ -46,6 +57,7 @@ impl Frame {
     }
 
     /// The frame of a CPU world. `field` names its conserved field; `lineages` its lineages, in order.
+    /// `made` is left unset: whoever started the window says so.
     pub fn of_world(w: &World, field: &str, lineages: &[String], revision: u64) -> Frame {
         let space = w.space.as_ref().expect("a view needs a world with a space");
         let ns = w.chem.substances.len();
@@ -64,8 +76,9 @@ impl Frame {
             agents: w
                 .entities
                 .iter()
-                .map(|e| Agent { id: e.id, lineage: e.lineage, pos: e.pos, heading: e.heading, age: e.age, expressed_genes: e.genome.active_genes(), amounts: e.store.amounts[..ns].to_vec() })
+                .map(|e| Agent { id: e.id, lineage: e.lineage, pos: e.pos, heading: e.heading, age: e.age, expressed_genes: e.genome.active_genes(), amounts: e.store.amounts[..ns].to_vec(), made: e.made })
                 .collect(),
+            made: None,
         }
     }
 }

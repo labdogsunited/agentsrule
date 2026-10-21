@@ -190,6 +190,21 @@ fn eval(e: &Expr, cx: &Ctx, key: &mut LayerKey) -> Val {
                     "lineage_id" => Val::Cat(a.lineage as u64),
                     "age" => Val::Int(a.age as i64),
                     "expressed_genes" => Val::Int(a.expressed_genes as i64),
+                    "made" => match &f.made {
+                        Some(m) => {
+                            // The legend names the window, so a picture of producers says what it counted.
+                            if !key.entries.iter().any(|e| e.starts_with("made:")) {
+                                key.entries.push(format!("made: {} made by its own reactions, ticks {}–{}", m.substance, m.from_tick, f.tick));
+                            }
+                            Val::Amount(a.made)
+                        }
+                        None => {
+                            if !key.unavailable.iter().any(|u| u == "made") {
+                                key.unavailable.push("made".into());
+                            }
+                            Val::Later
+                        }
+                    },
                     other => match f.substance(other) {
                         Some(s) => Val::Amount(a.amounts[s] as u64),
                         None => {

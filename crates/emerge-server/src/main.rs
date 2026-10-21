@@ -5,8 +5,9 @@
 //! (default port 7878); with `--journal-dir`, every world's journal is written there as `<world>.jsonl`.
 //! `emerge-server mcp [--journal-dir DIR]`: the MCP adapter over stdio (for Claude and other MCP clients).
 //! `emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--seed S] [--mutation off]
-//! [--contract] [--gpu] [--views FILE] [--view NAME] [--cell PX] [--out PNG]`: draws a view of the run
-//! at tick T (a journal is replayed, a dish is run from its seed), so any experiment can be drawn.
+//! [--contract] [--gpu] [--made S --window W] [--views FILE] [--view NAME] [--cell PX] [--out PNG]`: draws
+//! a view of the run at tick T (a journal is replayed, a dish is run from its seed), so any experiment
+//! can be drawn; with `--made`, each agent's `made` is the µ of S its reactions made in ticks T−W to T.
 
 use emerge_server::journal::{replay, Journal};
 use std::process::ExitCode;
@@ -59,7 +60,7 @@ fn main() -> ExitCode {
             }
         }
         _ => {
-            eprintln!("usage: emerge-server exit2 DISH [--gpu] [--ticks N] [--journal FILE]\n       emerge-server replay JOURNAL\n       emerge-server serve [--port N] [--journal-dir DIR]\n       emerge-server mcp [--journal-dir DIR]\n       emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--views FILE] [--view NAME] [--out PNG]");
+            eprintln!("usage: emerge-server exit2 DISH [--gpu] [--ticks N] [--journal FILE]\n       emerge-server replay JOURNAL\n       emerge-server serve [--port N] [--journal-dir DIR]\n       emerge-server mcp [--journal-dir DIR]\n       emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--made S --window W] [--views FILE] [--view NAME] [--out PNG]");
             ExitCode::FAILURE
         }
     }
@@ -82,6 +83,17 @@ fn render(args: &[String]) -> Result<String, String> {
     };
     if tick < run.tick() {
         return Err(format!("the journal ends at tick {}; ask for that tick or a later one", run.tick()));
+    }
+    // `made` counts over an explicit window: `--made S --window W` counts S in the last W ticks.
+    match (flag(args, "--made"), flag(args, "--window")) {
+        (Some(s), Some(w)) => {
+            let w: u64 = w.parse().map_err(|_| "--window W")?;
+            let from = tick.checked_sub(w).filter(|&f| f >= run.tick()).ok_or(format!("--window {w} reaches before tick {}", run.tick()))?;
+            run.step(from - run.tick());
+            run.count_made(s)?;
+        }
+        (None, None) => {}
+        _ => return Err("--made S and --window W go together".into()),
     }
     run.step(tick - run.tick());
     // The views: the run's own, then those of `--views`, checked against the run's world.

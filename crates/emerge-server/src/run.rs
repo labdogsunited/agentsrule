@@ -38,6 +38,8 @@ pub struct Run {
     pub last_swap: Option<(f64, f64)>,
     /// The ledger audit after every tick, if on (CPU: ticks checked and ticks off; the GPU counts its own).
     audit: Option<(u64, u64)>,
+    /// The window `made` counts over, once `count_made` started one.
+    made: Option<emerge_view::frame::Made>,
 }
 
 impl Run {
@@ -56,7 +58,7 @@ impl Run {
             (Backend::Cpu, "cpu: emerge-ref".to_string())
         };
         journal.header(&spec, &device);
-        Ok(Run { spec, live, backend, journal, device, last_swap: None, audit: None })
+        Ok(Run { spec, live, backend, journal, device, last_swap: None, audit: None, made: None })
     }
 
     pub fn tick(&self) -> u64 {
@@ -257,9 +259,26 @@ impl Run {
     }
 
     /// What a view reads now (`emerge_view::Frame`), from either backend.
+    /// Starts a window for `made`: from the next tick, each entity counts the µ of `substance` its
+    /// own reactions make (exit test 9's producers). Counting changes nothing in the run.
+    pub fn count_made(&mut self, substance: &str) -> Result<(), String> {
+        let s = self.live.world.chem.substances.iter().position(|x| x.name == substance).ok_or_else(|| format!("no substance `{substance}`"))?;
+        self.live.world.track = Some(s);
+        match &mut self.backend {
+            Backend::Cpu => self.live.world.entities.iter_mut().for_each(|e| e.made = 0),
+            Backend::Gpu(r) => {
+                r.set_track(Some(s));
+                r.clear_made();
+            }
+        }
+        self.made = Some(emerge_view::frame::Made { substance: substance.to_string(), from_tick: self.tick() });
+        Ok(())
+    }
+
     pub fn frame(&self) -> emerge_view::Frame {
         let field = self.live.field.as_deref().unwrap_or("cells");
         let mut f = emerge_view::Frame::of_world(&self.live.world, field, &self.spec.lineages, self.revision());
+        f.made = self.made.clone();
         if let Backend::Gpu(r) = &self.backend {
             use emerge_gpu::pack::ENT;
             let s = r.snapshot();
@@ -277,6 +296,7 @@ impl Run {
                         age: e[10] as u64,
                         expressed_genes: e[5] as usize,
                         amounts: s.amounts[i * ns..(i + 1) * ns].to_vec(),
+                        made: e[14] as u64 | (e[15] as u64) << 32,
                     }
                 })
                 .collect();

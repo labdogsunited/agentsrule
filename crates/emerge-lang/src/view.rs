@@ -41,6 +41,8 @@ const AGENT: &[(&str, Ty)] = &[
     ("lineage_id", Ty::Category),
     ("age", Ty::Int),
     ("expressed_genes", Ty::Int),
+    // µ its own reactions made in the frame's window (exit test 9's producers: `made > 0mu`).
+    ("made", Ty::Amount),
 ];
 const NOT_YET: &[&str] = &["species_id"];
 
