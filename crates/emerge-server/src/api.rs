@@ -48,6 +48,8 @@ struct Entry {
     run: Run,
     /// Ticking in the background (`run.resume`) until paused.
     running: bool,
+    /// Where the node editor's boxes sit, by box id (`world.layout_set`); a sidecar, never part of the source.
+    layout: serde_json::Map<String, Value>,
 }
 
 #[derive(Default)]
@@ -61,6 +63,21 @@ pub struct Engine {
 
 /// The longest one `run.step` call runs, so that a client waiting on it does not time out.
 pub const STEP_BUDGET_S: f64 = 30.0;
+
+/// A graph edit as the API takes it: `{"op": "set_param", "id": …, "param": …, "value": …}`,
+/// `{"op": "wire", "from": …, "to": …}`, `{"op": "delete", "id": …}` or `{"op": "add_rule", "kind": …}`;
+/// and a few words for the journal.
+fn graph_op(v: &Value) -> Result<(emerge_lang::graph::Op, String), Fault> {
+    use emerge_lang::graph::Op;
+    let get = |k: &str| v[k].as_str().map(str::to_string).ok_or_else(|| bad(format!("`op.{k}` must be a string")));
+    Ok(match v["op"].as_str() {
+        Some("set_param") => (Op::SetParam { id: get("id")?, param: get("param")?, value: get("value")? }, format!("set {} of {}", get("param")?, get("id")?)),
+        Some("wire") => (Op::Wire { from: get("from")?, to: get("to")? }, format!("wire {} to {}", get("from")?, get("to")?)),
+        Some("delete") => (Op::Delete { id: get("id")? }, format!("delete {}", get("id")?)),
+        Some("add_rule") => (Op::AddRule { kind: get("kind")? }, format!("add a {} rule", get("kind")?)),
+        _ => return Err(bad("`op.op` must be set_param, wire, delete or add_rule")),
+    })
+}
 
 fn text<'a>(p: &'a Value, key: &str) -> Result<&'a str, Fault> {
     p[key].as_str().ok_or_else(|| bad(format!("`{key}` must be a string")))
@@ -146,7 +163,7 @@ impl Engine {
                 };
                 let run = Run::create(spec, journal).map_err(|e| rejected(&e))?;
                 let out = json!({"world": id, "revision": 0, "tick": 0, "population": run.population(), "backend": run.device});
-                self.runs.insert(id, Entry { run, running: false });
+                self.runs.insert(id, Entry { run, running: false, layout: Default::default() });
                 Ok(out)
             }
             "world.validate" => {
@@ -174,7 +191,8 @@ impl Engine {
                 Ok(json!({
                     "revision": e.run.revision(),
                     "world": g.world,
-                    "nodes": g.nodes.iter().map(|n| json!({"id": n.id, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "step": n.step, "group": n.group, "line": n.line})).collect::<Vec<_>>(),
+                    "positions": e.layout,
+                    "nodes": g.nodes.iter().map(|n| json!({"id": n.id, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "step": n.step, "group": n.group, "line": n.line, "params": n.params})).collect::<Vec<_>>(),
                     "wires": g.wires.iter().map(|w| json!({"from": w.from, "to": w.to, "substance": w.substance})).collect::<Vec<_>>(),
                 }))
             }
@@ -200,6 +218,45 @@ impl Engine {
                     }
                 }
                 e.run.hotswap(&patch, base, &format!("graph edit of {id}")).map_err(|r| rejected(&r))
+            }
+            "world.graph_op" => {
+                // One edit of the graph (`emerge_lang::graph::Op`): the patch is made from the model and
+                // goes through `hotswap`, so it is checked, preflighted and journalled like any swap.
+                let base = number(p, "base_revision", None)?;
+                let (op, what) = graph_op(&p["op"])?;
+                let e = self.entry(p)?;
+                let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+                let world = file.items.iter().find_map(|i| match &i.node {
+                    emerge_lang::ast::Item::World(w) => Some(w.name.clone()),
+                    _ => None,
+                });
+                let world = world.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+                let (patch, selected) = emerge_lang::graph::op_patch(&file, &world, &op, base).map_err(|m| fault(-32602, m))?;
+                let mut r = e.run.hotswap(&patch, base, &format!("graph {what}")).map_err(|r| rejected(&r))?;
+                if let (Some(id), Value::Object(m)) = (selected, &mut r) {
+                    m.insert("selected".into(), json!(id));
+                }
+                Ok(r)
+            }
+            "world.layout_set" => {
+                // Positions of boxes, kept beside the world (and in `<journal dir>/<world>.meta.json`
+                // when the server journals); the caller never names a file.
+                let id = text(p, "world")?.to_string();
+                let positions = p["positions"].as_object().ok_or_else(|| bad("`positions` must be an object of id: [x, y]"))?;
+                let dir = self.journal_dir.clone();
+                let e = self.entry(p)?;
+                for (k, v) in positions {
+                    let ok = v.as_array().is_some_and(|a| a.len() == 2 && a.iter().all(|n| n.as_f64().is_some_and(f64::is_finite)));
+                    if !ok {
+                        return Err(bad(format!("`{k}` must be [x, y]")));
+                    }
+                    e.layout.insert(k.clone(), v.clone());
+                }
+                if let Some(dir) = dir {
+                    let body = serde_json::to_string_pretty(&json!({"world": id, "positions": e.layout})).unwrap_or_default();
+                    std::fs::write(dir.join(format!("{id}.meta.json")), body).map_err(|err| fault(-32603, format!("could not write the layout: {err}")))?;
+                }
+                Ok(json!({"saved": e.layout.len()}))
             }
             "world.hotswap" => {
                 let (patch, reason) = (text(p, "patch")?.to_string(), p["reason"].as_str().unwrap_or("").to_string());

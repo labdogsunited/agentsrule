@@ -75,8 +75,19 @@
   #graph svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
   #graph .wire { fill: none; stroke-width: 2; opacity: 0.85; }
   #graph .wlabel { font: 10px system-ui, sans-serif; fill: var(--muted); }
-  .box { position: absolute; width: 200px; height: 60px; background: #1c2027; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; cursor: pointer; user-select: none; }
+  .box { position: absolute; width: 200px; height: 60px; background: #1c2027; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; user-select: none; }
+  .box .b { border-radius: 0 0 6px 6px; }
   .box.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .port { position: absolute; top: 9px; width: 12px; height: 12px; border-radius: 50%; background: #2b313b; border: 2px solid #8b93a1; cursor: crosshair; z-index: 2; }
+  .port.in { left: -7px; }
+  .port.out { right: -7px; }
+  .port:hover, .port.hot { border-color: var(--accent); background: var(--accent); }
+  #palette { position: absolute; left: 12px; top: 12px; display: none; gap: 6px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; z-index: 3; cursor: default; color: var(--muted); font-size: 12px; }
+  body.graph #palette { display: flex; }
+  #palette button { padding: 3px 8px; }
+  #picked .params { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; margin-bottom: 8px; }
+  #picked .params label { margin: 0; }
+  #picked .params input { padding: 3px 6px; font: 12px ui-monospace, monospace; }
   .box .t { padding: 2px 8px; font-size: 12px; font-weight: 600; color: #101318; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .box .b { padding: 4px 8px; font: 11px/1.35 ui-monospace, monospace; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
   .box.k-store .t { background: #6f9bd1; }
@@ -91,8 +102,8 @@
   #picked { font: 12px/1.4 ui-monospace, monospace; color: var(--ink); white-space: pre-wrap; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 260px; overflow: auto; }
   #picked textarea { width: 100%; min-height: 90px; resize: vertical; background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; font: inherit; }
   #picked textarea.dirty { border-color: var(--accent); }
-  #picked .edit { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
-  #picked .edit button { padding: 4px 10px; }
+  #picked .edit { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+  #picked .edit button { padding: 4px 8px; white-space: nowrap; flex: none; }
   #picked .msg { font: 12px system-ui, sans-serif; margin-top: 6px; white-space: pre-wrap; }
   #picked .msg.bad { color: var(--bad); }
   #picked .msg.ok { color: var(--ok); }
@@ -147,7 +158,7 @@
     </div>
     <div id="error"></div>
   </aside>
-  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
+  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
   <section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
@@ -211,8 +222,14 @@ let drag = null;
 stage.addEventListener("pointerdown", (e) => {
   const cam = cams[mode];
   if (!cam.w || e.button > 1 || e.target.closest("#cam")) return;
+  const port = mode === "graph" && e.target.closest(".port.out");
   const box = mode === "graph" && e.target.closest(".box");
-  if (box) {
+  if (port && box) {
+    // A wire is pulled from an output port and dropped on a box.
+    drag = { wire: box.dataset.id, port };
+    port.classList.add("hot");
+    e.stopPropagation();
+  } else if (box) {
     // A box moves with the pointer; a click without a move selects it.
     const p = placed.get(box.dataset.id);
     drag = { box, p, sx: e.clientX, sy: e.clientY, x0: p.x, y0: p.y, moved: false };
@@ -225,6 +242,22 @@ stage.addEventListener("pointerdown", (e) => {
 stage.addEventListener("pointermove", (e) => {
   if (!drag) return;
   const cam = cams[mode];
+  if (drag.wire) {
+    const r = stage.getBoundingClientRect(), a = placed.get(drag.wire);
+    const gx = (e.clientX - r.left - cam.x) / cam.s, gy = (e.clientY - r.top - cam.y) / cam.s;
+    let t = $("tempwire");
+    if (!t) {
+      t = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      t.id = "tempwire";
+      t.setAttribute("class", "wire");
+      t.setAttribute("stroke", "#e6b45c");
+      t.setAttribute("stroke-dasharray", "5 4");
+      $("wires").appendChild(t);
+    }
+    const x0 = a.x + BOX.w, y0 = a.y + 15, d = Math.max(40, Math.abs(gx - x0) / 2);
+    t.setAttribute("d", `M${x0},${y0} C${x0 + d},${y0} ${gx - d},${gy} ${gx},${gy}`);
+    return;
+  }
   if (drag.box) {
     const dx = (e.clientX - drag.sx) / cam.s, dy = (e.clientY - drag.sy) / cam.s;
     if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
@@ -240,8 +273,17 @@ stage.addEventListener("pointermove", (e) => {
   cam.fit = false;
   applyCam();
 });
-const drop = () => {
+const drop = (e) => {
   if (drag && drag.box && !drag.moved) select(drag.box.dataset.id);
+  if (drag && drag.box && drag.moved) savePosition(drag.box.dataset.id);
+  if (drag && drag.wire) {
+    drag.port.classList.remove("hot");
+    const t = $("tempwire");
+    if (t) t.remove();
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const to = target && target.closest(".box");
+    if (to && to.dataset.id !== drag.wire) graphOp({ op: "wire", from: drag.wire, to: to.dataset.id });
+  }
   drag = null;
   stage.classList.remove("dragging");
 };
@@ -408,7 +450,8 @@ function layoutGraph(g) {
   cols[1].sort((a, b) => rank(a) - rank(b) || a.line - b.line);
   cols.forEach((list, c) => list.forEach((n, i) => {
     const key = `${g.world}/${n.id}`;
-    if (!placed.has(key)) placed.set(key, { x: 40 + c * 330, y: 40 + i * (BOX.h + BOX.gap) });
+    const saved = g.positions && g.positions[n.id];
+    if (!placed.has(key)) placed.set(key, saved ? { x: saved[0], y: saved[1] } : { x: 40 + c * 330, y: 40 + i * (BOX.h + BOX.gap) });
     placed.set(n.id, placed.get(key));
   }));
   return drawn;
@@ -443,6 +486,8 @@ function drawGraph() {
     b.className = "b";
     b.textContent = n.text.replace(/\s+/g, " ");
     el.append(t, b);
+    if (["transfer", "react"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port in"; el.append(p); }
+    if (["store", "reaction", "transfer"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port out"; el.append(p); }
     root.appendChild(el);
     maxX = Math.max(maxX, p.x + BOX.w + 40);
     maxY = Math.max(maxY, p.y + BOX.h + 40);
@@ -497,6 +542,28 @@ function drawWires() {
   }
 }
 
+// One edit of the graph: the server makes the patch and swaps the running world. A refused edit
+// changes nothing and its reason is shown.
+async function graphOp(op) {
+  oops();
+  try {
+    const r = await call("world.graph_op", { world: $("world").value, base_revision: graphData.revision, op });
+    await loadGraph();
+    await loadCode().catch(() => {});
+    if (r.selected) select(r.selected);
+    else if (selected && !graphData.nodes.some((n) => n.id === selected)) select(null);
+    return r;
+  } catch (e) {
+    oops(e);
+  }
+}
+function savePosition(id) {
+  const p = placed.get(id);
+  if (!p || !graphData) return;
+  call("world.layout_set", { world: $("world").value, positions: { [id]: [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10] } }).catch(() => {});
+}
+for (const b of document.querySelectorAll("#palette button")) b.onclick = () => graphOp({ op: "add_rule", kind: b.dataset.kind });
+
 // The selected box. A statement is edited in place: Apply sends the new text, the server makes the
 // patch and swaps the running world (`world.graph_edit`); a refused edit changes nothing and its
 // reason is shown. Other boxes are read-only so far.
@@ -514,6 +581,20 @@ function select(id) {
   small.textContent = `${n.id}${n.step ? ` · runs in ${n.step}` : ""} · line ${n.line}`;
   picked.append(small);
   if (!n.group) { picked.append(document.createTextNode(n.text)); return; }
+  if (n.params && n.params.length) {
+    // The arguments of the call, each one an edit of its own (a `set` patch that keeps comments).
+    const grid = document.createElement("div");
+    grid.className = "params";
+    for (const [name, value] of n.params) {
+      const l = document.createElement("label"), inp = document.createElement("input");
+      l.textContent = name;
+      inp.value = value;
+      inp.spellcheck = false;
+      inp.onchange = () => { if (inp.value !== value) graphOp({ op: "set_param", id: n.id, param: name, value: inp.value }); };
+      grid.append(l, inp);
+    }
+    picked.append(grid);
+  }
   const ta = document.createElement("textarea"), msg = document.createElement("div"), row = document.createElement("div");
   const apply = document.createElement("button"), revert = document.createElement("button");
   ta.value = n.text;
@@ -525,6 +606,10 @@ function select(id) {
   apply.textContent = "Apply";
   apply.className = "primary";
   revert.textContent = "Revert";
+  const del = document.createElement("button");
+  del.textContent = "Delete";
+  del.title = "Remove this statement (its rule too, if it is the only one)";
+  del.onclick = () => { if (confirm(`Delete ${n.title}?`)) graphOp({ op: "delete", id: n.id }); };
   const doApply = async () => {
     msg.className = "msg";
     msg.textContent = "";
@@ -543,7 +628,7 @@ function select(id) {
   apply.onclick = doApply;
   ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doApply(); } };
   revert.onclick = () => select(n.id);
-  row.append(apply, revert);
+  row.append(apply, revert, del);
   picked.append(ta, row, msg);
 }
 

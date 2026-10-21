@@ -196,3 +196,80 @@ fn editing_a_box_swaps_the_running_world_and_the_journal_replays() {
     assert_eq!((replayed.tick(), replayed.revision()), (30, rev));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+fn ids(g: &Value) -> Vec<String> {
+    g["nodes"].as_array().unwrap().iter().map(|n| n["id"].as_str().unwrap().to_string()).collect()
+}
+
+#[test]
+fn graph_operations_are_patches_that_swap_the_running_world() {
+    let dir = std::env::temp_dir().join(format!("emerge-graph-ops-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut c = client(start(Some(dir.clone())));
+    let w = c.ok("world.create", json!({"source": small_dish(), "lineages": ["Drifter"], "seed": 3}))["world"].as_str().unwrap().to_string();
+    c.ok("run.step", json!({"world": w, "ticks": 10}));
+    let rev = |c: &mut Client| c.ok("world.graph", json!({"world": w}))["revision"].as_u64().unwrap();
+    let op = |c: &mut Client, op: Value| {
+        let base = rev(c);
+        c.call("world.graph_op", json!({"world": w, "base_revision": base, "op": op}))
+    };
+    let source = |c: &mut Client| c.ok("world.source", json!({"world": w}))["source"].as_str().unwrap().to_string();
+    let original = source(&mut c);
+
+    // A parameter: changed in place, and changed back, the source is the original byte for byte.
+    let id = "Dish.rules.sunlight@transfer_light";
+    let r = op(&mut c, json!({"op": "set_param", "id": id, "param": "amount", "value": "3u"}));
+    assert!(r.get("error").is_none(), "{r}");
+    let g = c.ok("world.graph", json!({"world": w}));
+    let node = g["nodes"].as_array().unwrap().iter().find(|n| n["id"] == id).unwrap().clone();
+    assert!(node["params"].as_array().unwrap().iter().any(|p| p == &json!(["amount", "3u"])), "{node}");
+    assert_ne!(source(&mut c), original);
+    op(&mut c, json!({"op": "set_param", "id": id, "param": "amount", "value": "40mu"}));
+    assert_eq!(source(&mut c), original, "an edit and its undo give the source back");
+
+    // A new box is a new rule with one statement; it runs.
+    let r = op(&mut c, json!({"op": "add_rule", "kind": "react"}));
+    let new_id = r["result"]["selected"].as_str().unwrap_or_else(|| panic!("{r}")).to_string();
+    assert!(new_id.starts_with("Dish.rules.new_react_1@react_"), "{new_id}");
+    assert_eq!(c.ok("run.step", json!({"world": w, "ticks": 5}))["tick"], 15);
+    // Wire a reaction to it: the react box now runs that reaction.
+    let r = op(&mut c, json!({"op": "wire", "from": "Dish.reactions.rot", "to": new_id}));
+    assert!(r.get("error").is_none(), "{r}");
+    let g = c.ok("world.graph", json!({"world": w}));
+    assert!(g["wires"].as_array().unwrap().iter().any(|x| x["from"] == "Dish.reactions.rot" && x["to"] == new_id.as_str()), "{}", g["wires"]);
+    // A transfer box: add, and wire a source that cannot supply its substance: refused, nothing changes.
+    let r = op(&mut c, json!({"op": "add_rule", "kind": "transfer"}));
+    let tid = r["result"]["selected"].as_str().unwrap().to_string();
+    let before = rev(&mut c);
+    let bad = op(&mut c, json!({"op": "wire", "from": "Dish.sources.spark", "to": tid}));
+    assert!(bad.get("error").is_some(), "{bad}");
+    assert_eq!(rev(&mut c), before);
+    // Two stores cannot be wired to each other.
+    let nonsense = op(&mut c, json!({"op": "wire", "from": "Dish.fields.cells", "to": "Dish.sources.rock"}));
+    assert!(nonsense.get("error").is_some());
+
+    // Delete: a statement of a rule with others, and a rule's only statement (the rule goes too).
+    op(&mut c, json!({"op": "delete", "id": "Dish.rules.weather@transfer_body"}));
+    op(&mut c, json!({"op": "delete", "id": "Dish.rules.rotting@react_rot"}));
+    let g = c.ok("world.graph", json!({"world": w}));
+    let have = ids(&g);
+    assert!(!have.iter().any(|i| i == "Dish.rules.weather@transfer_body" || i.starts_with("Dish.rules.rotting")), "{have:?}");
+    assert!(have.iter().any(|i| i == "Dish.rules.weather@transfer_carbon"));
+    assert_eq!(c.ok("run.step", json!({"world": w, "ticks": 5}))["tick"], 20);
+
+    // Positions are kept beside the world, in a file the server names.
+    c.ok("world.layout_set", json!({"world": w, "positions": {id: [120.5, 40.0]}}));
+    let g = c.ok("world.graph", json!({"world": w}));
+    assert_eq!(g["positions"][id], json!([120.5, 40.0]));
+    assert!(c.call("world.layout_set", json!({"world": w, "positions": {id: "left"}})).get("error").is_some());
+    let meta = std::fs::read_to_string(dir.join(format!("{w}.meta.json"))).unwrap();
+    assert!(meta.contains("120.5"), "{meta}");
+
+    // Every edit is in the journal with its reason, and the journal replays.
+    let journal = std::fs::read_to_string(dir.join(format!("{w}.jsonl"))).unwrap();
+    for reason in ["graph set amount of", "graph add a react rule", "graph wire Dish.reactions.rot", "graph delete Dish.rules.rotting@react_rot"] {
+        assert!(journal.contains(reason), "journal lacks `{reason}`");
+    }
+    emerge_server::journal::replay(&journal).expect("the journal replays");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

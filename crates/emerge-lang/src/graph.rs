@@ -9,7 +9,7 @@
 //! `emerge fmt` writes it, so a box can be replaced by a patch that carries its edited text.
 
 use crate::ast::*;
-use crate::fmt::{decl_text, stmt_text};
+use crate::fmt::{decl_text, stmt_text, value_text};
 use crate::schedule::{lower, Slot};
 
 /// What a box is.
@@ -67,6 +67,8 @@ pub struct GNode {
     pub group: Option<String>,
     /// The line where it starts in the source.
     pub line: usize,
+    /// The named arguments of a call statement, as source text (`amount`, `40mu`).
+    pub params: Vec<(String, String)>,
 }
 
 /// A wire from one box to another, carrying a substance (or nothing, for a reaction's formula).
@@ -178,7 +180,7 @@ pub fn graph(file: &File, world: &str) -> Result<Graph, String> {
             _ => Kind::Decl,
         };
         let rule_id = id(&d.node);
-        nodes.push(GNode { id: rule_id.clone(), kind, title: name_of(&d.node), text: decl_text(&d.node), step: None, group: None, line: d.pos.line });
+        nodes.push(GNode { id: rule_id.clone(), kind, title: name_of(&d.node), text: decl_text(&d.node), step: None, group: None, line: d.pos.line, params: Vec::new() });
 
         let WDecl::Rule { name, on, body } = &d.node else { continue };
         let lowered = schedule.rules.iter().find(|r| &r.name == name);
@@ -207,6 +209,10 @@ pub fn graph(file: &File, world: &str) -> Result<Graph, String> {
                 step: slot.and_then(step_of),
                 group: Some(rule_id.clone()),
                 line: st.pos.line,
+                params: match &st.node {
+                    Stmt::Call { call, .. } => call.args.iter().filter_map(|a| a.name.as_ref().map(|n| (n.clone(), value_text(&a.value)))).collect(),
+                    _ => Vec::new(),
+                },
             });
             let Stmt::Call { call, .. } = &st.node else { continue };
             match kind {
@@ -272,4 +278,185 @@ pub fn edit_patch(g: &Graph, id: &str, text: &str, base: u64) -> Result<String, 
         format!("replace {} {{ {} }}", rel(rule_id), stmts.join(" "))
     };
     Ok(format!("patch {} base {base} {{ {body} }}", g.world))
+}
+
+/// An edit of the graph (`proposals/node-editor.md` §6, N3). Each one becomes one patch.
+#[derive(Clone, Debug)]
+pub enum Op {
+    /// Change (or add) a named argument of a statement: `amount`, `rate`, `overflow`, …; `value` is
+    /// source text for the argument.
+    SetParam { id: String, param: String, value: String },
+    /// Connect two boxes: a store to a transfer sets its `from`, a transfer to a store its `to`, a
+    /// reaction to a `react` the reaction it runs.
+    Wire { from: String, to: String },
+    /// Remove a statement (its rule too, if it was the rule's only one).
+    Delete { id: String },
+    /// A new rule with one statement of `kind` (`transfer`, `react` or `diffuse`) with defaults
+    /// the world allows; every rule holds one kind of effect, so a new box is a new rule.
+    AddRule { kind: String },
+}
+
+/// A value as the AST holds it, parsed from source text.
+fn parse_value(text: &str) -> Result<Value, String> {
+    let src = format!("world T {{ rule r on f {{ f(v: {text}); }} }}");
+    let file = crate::parse(&src).map_err(|d| format!("{}: {}", d.code, d.message))?;
+    for item in &file.items {
+        if let Item::World(w) = &item.node {
+            for d in &w.decls {
+                if let WDecl::Rule { body, .. } = &d.node {
+                    if let Some(Stmt::Call { call, .. }) = body.first().map(|s| &s.node) {
+                        return call.args.first().map(|a| a.value.clone()).ok_or_else(|| "no value".to_string());
+                    }
+                }
+            }
+        }
+    }
+    Err("not a value".to_string())
+}
+
+fn name_value(name: &str) -> Value {
+    Value::Expr(Expr::Path(Path { root: name.to_string(), segs: Vec::new() }))
+}
+
+/// Sets the argument `name` (the subject if `None`) of `call`, adding it if it is not there.
+fn put_arg(call: &mut Call, name: Option<&str>, v: Value) {
+    match call.args.iter_mut().find(|a| a.name.as_deref() == name) {
+        Some(a) => a.value = v,
+        None => call.args.push(Arg { name: name.map(str::to_string), value: v }),
+    }
+}
+
+/// The name a store box stands for: the last segment of its id.
+fn short(id: &str) -> &str {
+    id.rsplit('.').next().unwrap_or(id)
+}
+
+/// The patch for `op` on `world` of the parsed `file`, written against revision `base`, and the id
+/// of the box the edit leaves selected, if there is one.
+pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<(String, Option<String>), String> {
+    let g = graph(file, world)?;
+    let w = file
+        .items
+        .iter()
+        .find_map(|i| match &i.node {
+            Item::World(w) if w.name == world => Some(w),
+            _ => None,
+        })
+        .ok_or_else(|| format!("no world `{world}`"))?;
+    let node = |id: &str| g.nodes.iter().find(|n| n.id == id).ok_or_else(|| format!("no box `{id}`"));
+    let prefix = format!("{world}.");
+    let rel = |s: &str| s.strip_prefix(&prefix).unwrap_or(s).to_string();
+    // The statement a box stands for: its rule's name and field, and the statement.
+    let statement = |id: &str| -> Result<(String, String, Stmt), String> {
+        let n = node(id)?;
+        let rule_id = n.group.as_ref().ok_or_else(|| format!("`{id}` is not a statement"))?;
+        for d in &w.decls {
+            let WDecl::Rule { name, on, body } = &d.node else { continue };
+            if format!("{world}.rules.{name}") != *rule_id {
+                continue;
+            }
+            for (i, st) in body.iter().enumerate() {
+                let sid = match &st.node {
+                    Stmt::Call { label: Some(l), .. } => format!("{world}.rules.{name}@{l}"),
+                    _ => format!("{world}.rules.{name}#{i}"),
+                };
+                if sid == id {
+                    return Ok((name.clone(), on.clone(), st.node.clone()));
+                }
+            }
+        }
+        Err(format!("no statement `{id}`"))
+    };
+    let replace_with = |id: &str, stmt: &Stmt| edit_patch(&g, id, &stmt_text(stmt), base).map(|p| (p, Some(id.to_string())));
+    // Change one named argument. A labelled statement that has the argument is changed in place with
+    // `set`, which keeps its comments; otherwise the statement is replaced by its new text.
+    let set_arg = |id: &str, param: &str, text: &str| -> Result<(String, Option<String>), String> {
+        let (_, _, mut stmt) = statement(id)?;
+        let value = parse_value(text)?;
+        let Stmt::Call { call, .. } = &mut stmt else { return Err(format!("`{id}` has no arguments to set")) };
+        if id.contains('@') && call.args.iter().any(|a| a.name.as_deref() == Some(param)) {
+            return Ok((format!("patch {world} base {base} {{ set {}.{param} = {text}; }}", rel(id)), Some(id.to_string())));
+        }
+        put_arg(call, Some(param), value);
+        replace_with(id, &stmt)
+    };
+
+    match op {
+        Op::SetParam { id, param, value } => set_arg(id, param, value),
+        Op::Wire { from, to } => {
+            let (a, b) = (node(from)?, node(to)?);
+            let target = match (a.kind, b.kind) {
+                (Kind::Store, Kind::Transfer) | (Kind::Reaction, Kind::React) => to,
+                (Kind::Transfer, Kind::Store) => from,
+                _ => return Err(format!("`{}` and `{}` cannot be wired: a store goes to a transfer, a transfer to a store, a reaction to a react", a.title, b.title)),
+            };
+            let (_, on, _) = statement(target)?;
+            match (a.kind, b.kind) {
+                (Kind::Store, Kind::Transfer) => set_arg(target, "from", short(from)),
+                (Kind::Transfer, Kind::Store) => {
+                    let store = short(to);
+                    set_arg(target, "to", if store == on { "self" } else { store })
+                }
+                _ => {
+                    // The reaction a `react` runs is its subject, which has no name to `set`.
+                    let (_, _, mut stmt) = statement(target)?;
+                    let Stmt::Call { call, .. } = &mut stmt else { return Err("not a call".into()) };
+                    put_arg(call, None, name_value(short(from)));
+                    replace_with(target, &stmt)
+                }
+            }
+        }
+        Op::Delete { id } => {
+            let n = node(id)?;
+            let rule_id = n.group.clone().ok_or_else(|| format!("`{id}` is not a statement; only statements can be deleted so far"))?;
+            let siblings = g.nodes.iter().filter(|x| x.group.as_ref() == Some(&rule_id)).count();
+            let patch = if siblings == 1 {
+                format!("remove {};", rel(&rule_id))
+            } else if id.contains('@') {
+                format!("remove {};", rel(id))
+            } else {
+                let rest: Vec<String> = g.nodes.iter().filter(|x| x.group.as_ref() == Some(&rule_id) && x.id != *id).map(|x| x.text.clone()).collect();
+                format!("replace {} {{ {} }}", rel(&rule_id), rest.join(" "))
+            };
+            Ok((format!("patch {world} base {base} {{ {patch} }}"), None))
+        }
+        Op::AddRule { kind } => {
+            let mut names: Vec<String> = Vec::new();
+            let (mut field, mut source, mut reaction, mut last_rule) = (None, None, None, None);
+            for d in &w.decls {
+                match &d.node {
+                    WDecl::Field { name, holds: Some(_), .. } if field.is_none() => field = Some(name.clone()),
+                    WDecl::Source { name, emits } if source.is_none() && !emits.is_empty() => source = Some((name.clone(), emits[0].clone())),
+                    WDecl::Reaction { name, .. } if reaction.is_none() => reaction = Some(name.clone()),
+                    WDecl::Rule { name, .. } => last_rule = Some(name.clone()),
+                    _ => {}
+                }
+                if let Some((n, _)) = crate::check::declared(&d.node) {
+                    names.push(n.to_string());
+                }
+            }
+            let field = field.ok_or("the world has no field that holds substances")?;
+            let last_rule = last_rule.ok_or("the world has no rule to place the new one after")?;
+            let n = (1..).find(|n| !names.contains(&format!("new_{kind}_{n}"))).unwrap();
+            let name = format!("new_{kind}_{n}");
+            let stmt = match kind.as_str() {
+                "transfer" => {
+                    let (s, p) = source.ok_or("the world has no source that emits something")?;
+                    format!("transfer({p}, from: {s}, to: self, amount: 1u) @transfer_{p}_{n};")
+                }
+                "react" => {
+                    let r = reaction.ok_or("the world has no reaction")?;
+                    format!("react({r}, rate: 100bp) @react_{r}_{n};")
+                }
+                "diffuse" => {
+                    let (_, p) = source.ok_or("the world has no source that emits something")?;
+                    format!("diffuse_conserved([{p}], rate: 100bp) @diffuse_conserved_{n};")
+                }
+                other => return Err(format!("unknown kind `{other}`: transfer, react or diffuse")),
+            };
+            let label = stmt.rsplit('@').next().unwrap_or("").trim_end_matches(';').to_string();
+            let patch = format!("patch {world} base {base} {{ add after rules.{last_rule}: rule {name} on {field} {{ {stmt} }} }}");
+            Ok((patch, Some(format!("{world}.rules.{name}@{label}"))))
+        }
+    }
 }
