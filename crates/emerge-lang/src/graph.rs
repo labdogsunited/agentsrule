@@ -9,7 +9,7 @@
 //! `emerge fmt` writes it, so a box can be replaced by a patch that carries its edited text.
 
 use crate::ast::*;
-use crate::fmt::{decl_text, stmt_text, value_text};
+use crate::fmt::{decl_text, lit, stmt_text, value_text};
 use crate::schedule::{lower, Slot};
 
 /// What a box is.
@@ -84,6 +84,25 @@ pub struct Graph {
     pub world: String,
     pub nodes: Vec<GNode>,
     pub wires: Vec<Wire>,
+}
+
+/// What a declaration box lets you set: the entries of a config block, a setting, a constant, an
+/// action's cost (`take.cost`), a reaction's catalyst. Each is one `set` patch (`op_patch`).
+fn decl_params(d: &WDecl) -> Vec<(String, String)> {
+    match d {
+        WDecl::Config { entries, .. } => entries.iter().map(|e| (e.node.key.clone(), value_text(&e.node.value))).collect(),
+        WDecl::Setting(e) => vec![(e.key.clone(), value_text(&e.value))],
+        WDecl::Const { value, .. } => vec![("value".to_string(), value_text(&Value::Expr(value.clone())))],
+        WDecl::Menu { items, .. } => items
+            .iter()
+            .filter_map(|m| match &m.node {
+                MenuItem::Action { name, cost, .. } => Some((format!("{name}.cost"), lit(cost))),
+                _ => None,
+            })
+            .collect(),
+        WDecl::Reaction { catalyze, .. } => vec![("catalyze".to_string(), catalyze.as_ref().map(|c| value_text(&Value::Expr(Expr::Call(c.clone())))).unwrap_or_default())],
+        _ => Vec::new(),
+    }
 }
 
 fn plural(d: &WDecl) -> &'static str {
@@ -180,7 +199,7 @@ pub fn graph(file: &File, world: &str) -> Result<Graph, String> {
             _ => Kind::Decl,
         };
         let rule_id = id(&d.node);
-        nodes.push(GNode { id: rule_id.clone(), kind, title: name_of(&d.node), text: decl_text(&d.node), step: None, group: None, line: d.pos.line, params: Vec::new() });
+        nodes.push(GNode { id: rule_id.clone(), kind, title: name_of(&d.node), text: decl_text(&d.node), step: None, group: None, line: d.pos.line, params: decl_params(&d.node) });
 
         let WDecl::Rule { name, on, body } = &d.node else { continue };
         let lowered = schedule.rules.iter().find(|r| &r.name == name);
@@ -382,6 +401,26 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<(String,
     };
 
     match op {
+        Op::SetParam { id, param, value } if node(id)?.group.is_none() => {
+            // A declaration: a config entry, a setting, a constant, an action's cost, a catalyst.
+            let n = node(id)?;
+            if !n.params.iter().any(|(k, _)| k == param) {
+                return Err(format!("`{}` has no `{param}` to set", n.title));
+            }
+            if value.trim().is_empty() {
+                return Err(format!("`{param}` needs a value"));
+            }
+            parse_value(value)?;
+            let path = match id.strip_prefix(&prefix).and_then(|r| r.split_once('.')) {
+                Some(("config", name)) => format!("{name}.{param}"),
+                Some(("settings", name)) => name.to_string(),
+                Some(("consts", name)) => format!("consts.{name}"),
+                Some(("menus", kind)) => format!("{kind}.{param}"),
+                Some(("reactions", name)) => format!("reactions.{name}.{param}"),
+                _ => return Err(format!("`{id}` cannot be set")),
+            };
+            Ok((format!("patch {world} base {base} {{ set {path} = {value}; }}"), Some(id.clone())))
+        }
         Op::SetParam { id, param, value } => set_arg(id, param, value),
         Op::Wire { from, to } => {
             let (a, b) = (node(from)?, node(to)?);

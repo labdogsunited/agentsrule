@@ -557,7 +557,8 @@ async function graphOp(op) {
     else if (selected && !graphData.nodes.some((n) => n.id === selected)) select(null);
     return r;
   } catch (e) {
-    oops(e);
+    const m = /^not swappable: (.+?);/.exec(String(e.message || e));
+    oops(m ? `The engine cannot swap this into a running world (${m[1]} changed). The world is unchanged; create a new world from the changed source to try it.` : e);
   }
 }
 function savePosition(id) {
@@ -570,6 +571,21 @@ for (const b of document.querySelectorAll("#palette button")) b.onclick = () => 
 // The selected box. A statement is edited in place: Apply sends the new text, the server makes the
 // patch and swaps the running world (`world.graph_edit`); a refused edit changes nothing and its
 // reason is shown. Other boxes are read-only so far.
+// The settable arguments of a box, each an edit of its own (a `set` patch that keeps comments).
+function paramsGrid(n) {
+  const grid = document.createElement("div");
+  grid.className = "params";
+  for (const [name, value] of n.params) {
+    const l = document.createElement("label"), inp = document.createElement("input");
+    l.textContent = name;
+    inp.value = value;
+    inp.spellcheck = false;
+    inp.onchange = () => { if (inp.value !== value) graphOp({ op: "set_param", id: n.id, param: name, value: inp.value }); };
+    grid.append(l, inp);
+  }
+  return grid;
+}
+
 let dirty = false;
 function select(id) {
   selected = id;
@@ -583,26 +599,12 @@ function select(id) {
   const small = document.createElement("small");
   small.textContent = `${n.id}${n.step ? ` · runs in ${n.step}` : ""} · line ${n.line}`;
   picked.append(small);
-  if (!n.group) { picked.append(document.createTextNode(n.text)); return; }
-  if (n.params && n.params.length) {
-    // The arguments of the call, each one an edit of its own (a `set` patch that keeps comments).
-    const grid = document.createElement("div");
-    grid.className = "params";
-    for (const [name, value] of n.params) {
-      const l = document.createElement("label"), inp = document.createElement("input");
-      l.textContent = name;
-      inp.value = value;
-      inp.spellcheck = false;
-      inp.onchange = () => { if (inp.value !== value) graphOp({ op: "set_param", id: n.id, param: name, value: inp.value }); };
-      grid.append(l, inp);
-    }
-    picked.append(grid);
+  if (!n.group) {
+    if (n.params && n.params.length) picked.append(paramsGrid(n));
+    picked.append(document.createTextNode(n.text));
+    return;
   }
-  if (/@code_/.test(n.id)) {
-    const hint = document.createElement("small");
-    hint.textContent = "A code box: type a statement and press Apply. The engine runs transfer, react and diffuse_conserved in world rules; anything else is refused with the reason.";
-    picked.append(hint);
-  }
+  if (n.params && n.params.length) picked.append(paramsGrid(n));
   const ta = document.createElement("textarea"), msg = document.createElement("div"), row = document.createElement("div");
   const apply = document.createElement("button"), revert = document.createElement("button");
   ta.value = n.text;

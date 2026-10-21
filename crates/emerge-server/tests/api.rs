@@ -313,3 +313,38 @@ fn a_code_box_runs_exactly_as_the_same_statement_written_in_a_rule() {
         assert_eq!(engine.run(&a).unwrap().revision(), rev);
     }
 }
+
+#[test]
+fn declaration_boxes_set_config_settings_costs_and_catalysts() {
+    let mut c = server();
+    let w = c.ok("world.create", json!({"source": small_dish(), "lineages": ["Drifter"], "seed": 4}))["world"].as_str().unwrap().to_string();
+    c.ok("run.step", json!({"world": w, "ticks": 5}));
+    let set = |c: &mut Client, id: &str, param: &str, value: &str| {
+        let base = c.ok("world.graph", json!({"world": w}))["revision"].as_u64().unwrap();
+        c.call("world.graph_op", json!({"world": w, "base_revision": base, "op": {"op": "set_param", "id": id, "param": param, "value": value}}))
+    };
+    let params = |c: &mut Client, id: &str| -> Vec<Value> {
+        let g = c.ok("world.graph", json!({"world": w}));
+        g["nodes"].as_array().unwrap().iter().find(|n| n["id"] == id).unwrap()["params"].as_array().unwrap().clone()
+    };
+    // A config entry, a setting, an action's cost.
+    for (id, param, value) in [("Dish.config.upkeep", "base", "25mu"), ("Dish.settings.max_age", "max_age", "30_000"), ("Dish.menus.actions", "take.cost", "8mu")] {
+        let r = set(&mut c, id, param, value);
+        assert!(r.get("error").is_none(), "{id}.{param}: {r}");
+        assert!(params(&mut c, id).iter().any(|p| p[0] == param && p[1].as_str().unwrap().replace('_', "") == value.replace('_', "")), "{id}: {:?}", params(&mut c, id));
+    }
+    assert_eq!(c.ok("run.step", json!({"world": w, "ticks": 5}))["tick"], 10);
+    // What the checker forbids is refused: a free life (`base: 0mu`, E0702), and nothing changes.
+    let rev = c.ok("world.graph", json!({"world": w}))["revision"].as_u64().unwrap();
+    let bad = set(&mut c, "Dish.config.upkeep", "base", "0mu");
+    assert!(bad.get("error").is_some(), "{bad}");
+    // A parameter the box does not have, and an empty value.
+    assert!(set(&mut c, "Dish.config.upkeep", "nonsense", "1u").get("error").is_some());
+    assert!(set(&mut c, "Dish.reactions.photosynthesis", "catalyze", "").get("error").is_some());
+    assert_eq!(c.ok("world.graph", json!({"world": w}))["revision"].as_u64().unwrap(), rev);
+    // A catalyst on a reaction changes the chemistry, which the engine does not swap into a running
+    // world yet (decision 11, stage (b)): refused as not swappable, and the world is unchanged.
+    let r = set(&mut c, "Dish.reactions.photosynthesis", "catalyze", "nitrate(half: 100mu, boost: 4.0)");
+    assert_eq!(r["error"]["data"]["kind"], "not_swappable", "{r}");
+    assert_eq!(c.ok("world.graph", json!({"world": w}))["revision"].as_u64().unwrap(), rev);
+}
