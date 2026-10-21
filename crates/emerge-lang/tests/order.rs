@@ -87,3 +87,13 @@ fn decompose_is_listed_under_disposal() {
     let d = r.find("decompose: rot").unwrap_or_else(|| panic!("{r}"));
     assert!(r.find("Disposal").unwrap() < d && d < r.find("Division").unwrap());
 }
+
+#[test]
+fn a_life_like_rule_is_placed_in_field_signals() {
+    // Spec §7.4: a state rule is a signal rule, so it runs in Set under "Field signals".
+    let life = include_str!("../../../examples/life.em");
+    let r = report(life, "Life");
+    assert!(!r.contains("not placed"), "{r}");
+    let (signals, conway) = (r.find("Field signals").unwrap(), r.find("rule conway").unwrap());
+    assert!(signals < conway && conway < r.find("Upkeep").unwrap(), "{r}");
+}

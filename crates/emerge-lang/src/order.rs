@@ -62,6 +62,8 @@ fn slot_of(body: &Block) -> Result<Slot, String> {
             Leaf::Assign => Slot::Signal,
             Leaf::Call(n) if n == "transfer" || n == "diffuse_conserved" => Slot::Transfer,
             Leaf::Call("react") => Slot::React,
+            // A state rule reads the previous states and commits together, like a signal rule (spec §7.4).
+            Leaf::Call("life_like") => Slot::Signal,
             Leaf::Call(n) => return Err(format!("`{n}` has no phase")),
         };
         if slot != Slot::None && slot != this {
