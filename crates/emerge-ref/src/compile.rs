@@ -534,7 +534,7 @@ impl<'a> Compiler<'a> {
         // A state field is drawn over the conserved field's cells, so it has the same grid (for now).
         if let Some(space) = &self.world.space {
             if let Some(f) = self.world.states.iter().find(|f| (f.w, f.h) != (space.grid_w, space.grid_h)) {
-                return err("E0205", self.path(&format!("fields.{}", f.name)), format!("a state field has the conserved field's grid ({} × {}) for now", space.grid_w, space.grid_h));
+                return err("E0205", self.path(&format!("fields.{}", f.name)), format!("a state field has the grid of the cells ({} × {}), the conserved field's or the first state field's, for now", space.grid_w, space.grid_h));
             }
         }
 
