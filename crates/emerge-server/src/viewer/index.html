@@ -35,10 +35,13 @@
   .checks input { width: auto; }
   #stats { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; white-space: pre-line; }
   #error { color: var(--bad); font-size: 13px; white-space: pre-wrap; margin-top: 10px; }
-  main { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 12px; }
-  #frame { max-width: 100%; max-height: 100%; display: none; }
+  main { flex: 1; position: relative; overflow: hidden; touch-action: none; cursor: grab; }
+  main.dragging { cursor: grabbing; }
+  #frame { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; display: none; user-select: none; -webkit-user-drag: none; }
   #frame.enlarged { image-rendering: pixelated; }
-  #empty { color: var(--muted); }
+  #empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  #cam { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 4px 4px 10px; color: var(--muted); font-variant-numeric: tabular-nums; cursor: default; }
+  #cam button { padding: 3px 8px; }
   @media (max-width: 720px) {
     .layout { flex-direction: column; }
     aside { width: auto; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -83,7 +86,7 @@
     <div id="stats">–</div>
     <div id="error"></div>
   </aside>
-  <main><img id="frame" alt="the current frame"><span id="empty">Create a world, or pick one.</span></main>
+  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -102,6 +105,58 @@ function call(method, params = {}) {
   });
 }
 
+// The camera: the picture is placed by a translate and a scale, so panning and zooming cost nothing
+// on the server. Fit shows the whole picture; after the first wheel or drag the camera stays put
+// across frames of the same size.
+const cam = { s: 1, x: 0, y: 0, fit: true, w: 0, h: 0 };
+const stage = document.querySelector("main");
+function fitCam() {
+  const r = stage.getBoundingClientRect();
+  if (!cam.w || !cam.h) return;
+  cam.s = Math.min(r.width / cam.w, r.height / cam.h);
+  cam.x = (r.width - cam.w * cam.s) / 2;
+  cam.y = (r.height - cam.h * cam.s) / 2;
+  cam.fit = true;
+}
+function applyCam() {
+  const img = $("frame");
+  img.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
+  // Exact cells when enlarged; smooth when shrunk, so the legend's text stays readable.
+  img.classList.toggle("enlarged", cam.s > 1);
+  $("zoom").textContent = `${Math.round(cam.s * 100)}%`;
+}
+stage.addEventListener("wheel", (e) => {
+  if (!cam.w) return;
+  e.preventDefault();
+  const r = stage.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  const s = Math.min(64, Math.max(0.05, cam.s * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015))));
+  cam.x = px - (px - cam.x) * (s / cam.s);
+  cam.y = py - (py - cam.y) * (s / cam.s);
+  cam.s = s;
+  cam.fit = false;
+  applyCam();
+}, { passive: false });
+let drag = null;
+stage.addEventListener("pointerdown", (e) => {
+  if (!cam.w || e.button > 1 || e.target.closest("#cam")) return;
+  drag = { x: e.clientX - cam.x, y: e.clientY - cam.y };
+  stage.setPointerCapture(e.pointerId);
+  stage.classList.add("dragging");
+});
+stage.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  cam.x = e.clientX - drag.x;
+  cam.y = e.clientY - drag.y;
+  cam.fit = false;
+  applyCam();
+});
+const drop = () => { drag = null; stage.classList.remove("dragging"); };
+stage.addEventListener("pointerup", drop);
+stage.addEventListener("pointercancel", drop);
+stage.addEventListener("dblclick", (e) => { if (!e.target.closest("#cam")) { fitCam(); applyCam(); } });
+$("fit").onclick = () => { fitCam(); applyCam(); };
+window.addEventListener("resize", () => { if (cam.fit) { fitCam(); applyCam(); } });
+
 function onFrame(buf) {
   const n = new DataView(buf).getUint32(0, true);
   const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, n)));
@@ -111,8 +166,9 @@ function onFrame(buf) {
   img.onload = () => {
     if (shown) URL.revokeObjectURL(shown);
     shown = url;
-    // Exact cells when enlarged; smooth when shrunk, so the legend's text stays readable.
-    img.classList.toggle("enlarged", img.clientWidth > img.naturalWidth);
+    // A new picture size (another world or view) fits the window again; the same size keeps the camera.
+    if (cam.fit || cam.w !== img.naturalWidth || cam.h !== img.naturalHeight) { cam.w = img.naturalWidth; cam.h = img.naturalHeight; fitCam(); }
+    applyCam();
   };
   img.src = url;
   img.style.display = "block";
