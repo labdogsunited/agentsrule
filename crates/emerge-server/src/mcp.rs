@@ -13,20 +13,26 @@ const LEGACY: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"
 const VERSION_KEY: &str = "io.modelcontextprotocol/protocolVersion";
 
 const INSTRUCTIONS: &str = "Emerge runs evolving creatures in worlds written in the `.em` language. \
-To make a world, read `docs.example` (the reference world) and `docs.query` (the language), write a source, \
-check it with `world.validate`, then `world.create` it; keep the returned `world` ID for the other tools. \
-`run.step` advances it; `stats.query`, `view.snapshot`, `entities.query` and `genome.explain` observe it. \
-`world.hotswap` changes it while it runs: send a patch (`patch Dish { set rules.NAME@LABEL.amount = 30mu; }`) \
+To make a world, read `docs_example` (the reference world) and `docs_query` (the language), write a source, \
+check it with `world_validate`, then `world_create` it; keep the returned `world` ID for the other tools. \
+`run_step` advances it; `stats_query`, `view_snapshot`, `entities_query` and `genome_explain` observe it. \
+`world_hotswap` changes it while it runs: send a patch (`patch Dish { set rules.NAME@LABEL.amount = 30mu; }`) \
 with the world's current `base_revision`; a rejected swap changes nothing and says why.";
 
 fn schema(props: Value, required: &[&str]) -> Value {
     json!({"type": "object", "properties": props, "required": required})
 }
 
-/// The tools: one per API method, with the method's name.
+/// A tool's name for the API method it calls: the dot becomes an underscore (`world.create` is
+/// `world_create`), because some MCP clients accept only letters, digits, `_` and `-` in names.
+pub fn tool_name(method: &str) -> String {
+    method.replace('.', "_")
+}
+
+/// The tools: one per API method except `run.pause` and `run.resume`, named by `tool_name`.
 pub fn tools() -> Vec<Value> {
-    let world = json!({"type": "string", "description": "the world ID returned by world.create"});
-    let t = |name: &str, description: &str, input: Value| json!({"name": name, "description": description, "inputSchema": input});
+    let world = json!({"type": "string", "description": "the world ID returned by world_create"});
+    let t = |method: &str, description: &str, input: Value| json!({"name": tool_name(method), "description": description, "inputSchema": input});
     vec![
         t("docs.example", "The reference world `examples/dish.em` in full: a starting point for writing a world.", json!({"type": "object", "additionalProperties": false})),
         t("docs.query", "Sections of the `.em` language reference that mention `query`; with no query, the list of sections.", schema(json!({"query": {"type": "string"}}), &[])),
@@ -118,8 +124,12 @@ impl Server {
             "tools/call" => {
                 let name = p["name"].as_str().unwrap_or("");
                 if !tools().iter().any(|t| t["name"] == name) {
-                    return Some(error(&id, -32602, &format!("Unknown tool: {name}"), None));
+                    // Tools had the dotted method names before 2026-10-21; say what they are called now.
+                    let hint = if name.contains('.') && tools().iter().any(|t| t["name"] == tool_name(name)) { format!(" (tool names use `_` now: `{}`)", tool_name(name)) } else { String::new() };
+                    return Some(error(&id, -32602, &format!("Unknown tool: {name}{hint}"), None));
                 }
+                let method = name.replacen('_', ".", 1);
+                let name = method.as_str();
                 let args = if p["arguments"].is_null() { json!({}) } else { p["arguments"].clone() };
                 // An engine fault is a tool execution error: the model can read it and try again.
                 let result = match self.engine.call(name, &args) {

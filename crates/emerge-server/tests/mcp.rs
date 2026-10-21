@@ -61,34 +61,41 @@ fn exit_test_11_through_mcp_only() {
     assert_eq!((init["result"]["protocolVersion"].clone(), init["result"]["capabilities"]["tools"].is_object()), (json!("2025-06-18"), true));
     m.send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
     let tools = m.request("tools/list", json!({}))["result"]["tools"].as_array().unwrap().clone();
-    for want in ["docs.example", "world.validate", "world.create", "run.step", "stats.query", "view.snapshot", "world.hotswap", "genome.explain"] {
+    for want in ["docs_example", "world_validate", "world_create", "run_step", "stats_query", "view_snapshot", "world_hotswap", "genome_explain"] {
         assert!(tools.iter().any(|t| t["name"] == want && t["inputSchema"]["type"] == "object"), "no tool {want}");
     }
     // "A small dish under strong light, with builders only": the AI's part, as fixed edits of the example.
-    let example = m.tool("docs.example", json!({}))["source"].as_str().unwrap().to_string();
+    let example = m.tool("docs_example", json!({}))["source"].as_str().unwrap().to_string();
     let source = example
         .replace("Grid(w: 256, h: 256)", "Grid(w: 64, h: 64)")
         .replace("amount: 40mu, overflow: void) @transfer_light", "amount: 80mu, overflow: void) @transfer_light")
         .replace("count: 2_000;", "count: 200;");
-    let bad = m.request("tools/call", json!({"name": "world.validate", "arguments": {"source": source.replace("potential 9", "potential 30")}}));
+    let bad = m.request("tools/call", json!({"name": "world_validate", "arguments": {"source": source.replace("potential 9", "potential 30")}}));
     assert_eq!(bad["result"]["structuredContent"]["valid"], false, "an uphill reaction is caught before running");
-    assert_eq!(m.tool("world.validate", json!({"source": source, "lineages": ["Builder"]}))["valid"], true);
-    let w = m.tool("world.create", json!({"source": source, "lineages": ["Builder"], "seed": 3}))["world"].clone();
-    assert_eq!(m.tool("run.step", json!({"world": w, "ticks": 80}))["tick"], 80);
-    let stats = m.tool("stats.query", json!({"world": w}));
+    assert_eq!(m.tool("world_validate", json!({"source": source, "lineages": ["Builder"]}))["valid"], true);
+    let w = m.tool("world_create", json!({"source": source, "lineages": ["Builder"], "seed": 3}))["world"].clone();
+    assert_eq!(m.tool("run_step", json!({"world": w, "ticks": 80}))["tick"], 80);
+    let stats = m.tool("stats_query", json!({"world": w}));
     assert!(stats["population"].as_u64().unwrap() > 0 && stats["births"].as_u64().unwrap() > 0, "{stats}");
-    let snap = m.tool("view.snapshot", json!({"world": w, "substance": "body", "agents": 5}));
+    let snap = m.tool("view_snapshot", json!({"world": w, "substance": "body", "agents": 5}));
     assert_eq!(snap["field"]["values"].as_array().unwrap().len(), 64 * 64);
     // A rule hot-swapped; a stale retry of it is a tool error the model can read.
-    let swap = m.tool("world.hotswap", json!({"world": w, "base_revision": 0, "patch": "patch Dish {\n    set rules.rotting@react_rot.rate = 200bp;\n}\n", "reason": "faster recycling"}));
+    let swap = m.tool("world_hotswap", json!({"world": w, "base_revision": 0, "patch": "patch Dish {\n    set rules.rotting@react_rot.rate = 200bp;\n}\n", "reason": "faster recycling"}));
     assert_eq!(swap["revision"], 1);
-    let stale = m.request("tools/call", json!({"name": "world.hotswap", "arguments": {"world": w, "base_revision": 0, "patch": "patch Dish {\n    set upkeep.base = 25mu;\n}\n"}}));
+    let stale = m.request("tools/call", json!({"name": "world_hotswap", "arguments": {"world": w, "base_revision": 0, "patch": "patch Dish {\n    set upkeep.base = 25mu;\n}\n"}}));
     assert_eq!(stale["result"]["isError"], true);
     assert!(stale["result"]["content"][0]["text"].as_str().unwrap().contains("stale"));
-    m.tool("run.step", json!({"world": w, "ticks": 10}));
-    let text = m.tool("genome.explain", json!({"world": w}))["explanation"].as_str().unwrap().to_string();
+    m.tool("run_step", json!({"world": w, "ticks": 10}));
+    let text = m.tool("genome_explain", json!({"world": w}))["explanation"].as_str().unwrap().to_string();
     assert!(text.contains("runs energy + carbon + nitrate -> heat + body") && text.contains("divides once it holds"), "{text}");
     assert_eq!(m.request("tools/call", json!({"name": "no.such", "arguments": {}}))["error"]["code"], -32602);
+    // Names a strict client accepts; a dotted name from before 2026-10-21 is told the new one.
+    for t in &tools {
+        let name = t["name"].as_str().unwrap();
+        assert!(!name.is_empty() && name.len() <= 64 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'), "tool name {name}");
+    }
+    let old = m.request("tools/call", json!({"name": "stats.query", "arguments": {"world": w}}));
+    assert!(old["error"]["message"].as_str().unwrap().contains("`stats_query`"), "{old}");
     m.finish();
 }
 
@@ -100,7 +107,7 @@ fn a_modern_client_discovers_and_calls() {
     assert_eq!(d["result"]["resultType"], "complete");
     let list = m.request("tools/list", json!({}));
     assert_eq!(list["result"]["resultType"], "complete");
-    assert!(m.tool("docs.query", json!({"query": "patch"}))["sections"].as_array().is_some());
+    assert!(m.tool("docs_query", json!({"query": "patch"}))["sections"].as_array().is_some());
     m.meta.as_mut().unwrap()["io.modelcontextprotocol/protocolVersion"] = json!("1900-01-01");
     let old = m.request("tools/list", json!({}));
     assert_eq!(old["error"]["code"], -32022);
