@@ -11,6 +11,7 @@ pub mod expand;
 pub mod fmt;
 pub mod lexer;
 pub mod order;
+pub mod schedule;
 pub mod parser;
 pub mod patch;
 pub mod resolve;

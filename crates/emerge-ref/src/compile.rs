@@ -21,6 +21,7 @@ use std::collections::HashMap;
 
 use std::cell::Cell;
 
+use emerge_lang::schedule::{Schedule, Slot as Step};
 use emerge_lang::ast::{self, BinOp, Expr, GeneBody, LDecl, Lit, MenuItem, Pos, Seg, Stmt, Value, WDecl};
 
 use crate::chem::{Chemistry, Mu, ReactionId, Side, Side2, SubstanceId};
@@ -118,17 +119,11 @@ fn build_at(file: &ast::File, lineages: &[&str], options: Options, at: &Cell<Pos
     };
     let ast::Item::World(w) = &item.node else { unreachable!() };
     at.set(item.pos);
-    // The creature capability is needed when any lineage of the project is for this world (whichever
-    // `lineages` selects, so validity does not depend on run options), or the world declares a menu,
-    // `upkeep`, `remains` or `decompose` (`proposals/checked-schedule-ir.md` §3).
-    let creatures = file.items.iter().any(|i| matches!(&i.node, ast::Item::Lineage(l) if l.world == w.name))
-        || w.decls.iter().any(|d| match &d.node {
-            WDecl::Menu { .. } => true,
-            WDecl::Config { name, .. } => name == "upkeep",
-            WDecl::Setting(e) => e.key == "remains" || e.key == "decompose",
-            _ => false,
-        });
-    let mut c = Compiler::new(w, at, creatures)?;
+    // What a tick of this world does, worked out once: the creature capability, each rule statement's
+    // step, and what `Disposal` uses (`proposals/checked-schedule-ir.md` §2). `emerge order` prints
+    // the same schedule.
+    let schedule = emerge_lang::schedule::lower(file, &w.name).map_err(|m| Error { code: "E0114", pos: Pos::default(), path: w.name.clone(), message: m })?;
+    let mut c = Compiler::new(w, at, schedule)?;
     c.world.seed = options.seed;
     c.world.mutation = options.mutation;
     c.mutation = options.mutation;
@@ -192,6 +187,9 @@ struct GeneDef {
 
 struct Compiler<'a> {
     w: &'a ast::World,
+    /// The world's checked schedule: whether it has creatures, the step of each rule statement, and
+    /// what disposal uses.
+    schedule: Schedule,
     /// The innermost node being compiled, for errors' positions.
     at: &'a Cell<Pos>,
     /// Where the world starts, for errors about what it lacks.
@@ -226,7 +224,8 @@ fn err<T>(code: &'static str, path: impl Into<String>, message: impl Into<String
 }
 
 impl<'a> Compiler<'a> {
-    fn new(w: &'a ast::World, at: &'a Cell<Pos>, creatures: bool) -> Result<Self, Error> {
+    fn new(w: &'a ast::World, at: &'a Cell<Pos>, schedule: Schedule) -> Result<Self, Error> {
+        let creatures = schedule.creatures;
         let p = |what: &str| format!("{}.{what}", w.name);
         let world_pos = at.get();
 
@@ -287,15 +286,11 @@ impl<'a> Compiler<'a> {
                 sinks.push(Sink { name: name.clone(), accepts });
             }
         }
-        let setting = |key: &str| w.decls.iter().find_map(|d| match &d.node {
-            WDecl::Setting(e) if e.key == key => Some(&e.value),
-            _ => None,
-        });
         // `upkeep` and `remains` are required together, and only for a world with creatures.
         let creature = if creatures {
             Some({
-            let remains = match setting("remains") {
-                Some(v) => lookup(&sink_ids, name_of(expr(v)?, &p("remains"))?, &p("remains"), "sink")?,
+            let remains = match schedule.disposal.as_ref().and_then(|d| d.remains.as_deref()) {
+                Some(name) => lookup(&sink_ids, name, &p("remains"), "sink")?,
                 None => {
                     at.set(world_pos);
                     return err("E0116", p("remains"), "a world with creatures must declare `remains`");
@@ -348,6 +343,7 @@ impl<'a> Compiler<'a> {
 
         let mut c = Compiler {
             w,
+            schedule,
             at,
             world_pos,
             world,
@@ -424,7 +420,10 @@ impl<'a> Compiler<'a> {
                     match e.key.as_str() {
                         "space" => space = Some(call(v, &path)?),
                         "remains" => {}
-                        "decompose" => self.world.decompose = Some(lookup(&self.reactions, name_of(v, &path)?, &path, "reaction")?),
+                        "decompose" => {
+                            let name = self.schedule.disposal.as_ref().and_then(|d| d.decompose.as_deref()).expect("lowered from this setting");
+                            self.world.decompose = Some(lookup(&self.reactions, name, &path, "reaction")?);
+                        }
                         "max_age" => self.world.max_age = int(v, &path)? as u64,
                         "child_offset" => child_offset = float(v, &path)?,
                         "mind_steps" => self.world.mind_steps = int(v, &path)? as u32,
@@ -823,13 +822,15 @@ impl<'a> Compiler<'a> {
         if self.grid.as_deref() != Some(on) {
             return err("E0114", path, format!("unknown field `{on}`"));
         }
-        for stmt in body {
+        for (i, stmt) in body.iter().enumerate() {
             self.at.set(stmt.pos);
+            // The step is the schedule's: the runner builds a law only for what the schedule puts there.
+            let step = self.schedule.rules.iter().find(|r| r.name == name).and_then(|r| r.stmts.get(i)).and_then(|st| st.slot.clone().ok()).unwrap_or(Step::None);
             let Stmt::Call { call: c, .. } = &stmt.node else {
                 return err("E1001", path, "emerge-ref runs only `transfer`, `react` and `diffuse_conserved` statements in rules");
             };
-            let law = match c.name.as_str() {
-                "transfer" => {
+            let law = match (step, c.name.as_str()) {
+                (Step::Transfer, "transfer") => {
                     only_args(c, &["from", "to", "amount", "overflow"], &path)?;
                     let s = self.held(self.substance(name_of(subject(c, &path)?, &path)?, &path)?, &path)?;
                     let from = name_of(arg(c, "from", &path)?, &path)?;
@@ -846,7 +847,7 @@ impl<'a> Compiler<'a> {
                     };
                     Law::Inflow { s, source, amount: amount(arg(c, "amount", &path)?, &path)?, overflow }
                 }
-                "react" => {
+                (Step::React, "react") => {
                     only_args(c, &["rate"], &path)?;
                     let r = lookup(&self.reactions, name_of(subject(c, &path)?, &path)?, &path, "reaction")?;
                     let rx = &self.world.chem.reactions[r];
@@ -855,7 +856,7 @@ impl<'a> Compiler<'a> {
                     }
                     Law::React { reaction: r, rate_bp: fraction(arg(c, "rate", &path)?, &path)? }
                 }
-                "diffuse_conserved" => {
+                (Step::Transfer, "diffuse_conserved") => {
                     only_args(c, &["rate"], &path)?;
                     let Expr::List(items) = subject(c, &path)? else { return err("E0205", path, "expected a list of substances") };
                     let substances = items
@@ -864,7 +865,7 @@ impl<'a> Compiler<'a> {
                         .collect::<Result<_, _>>()?;
                     Law::Diffuse { substances, rate_bp: fraction(arg(c, "rate", &path)?, &path)? }
                 }
-                other => return err("E1001", path, format!("`{other}` is not supported by emerge-ref yet")),
+                (_, other) => return err("E1001", path, format!("`{other}` is not supported by emerge-ref yet")),
             };
             self.world.laws.push(law);
         }

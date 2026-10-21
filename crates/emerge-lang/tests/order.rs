@@ -95,5 +95,25 @@ fn a_life_like_rule_is_placed_in_field_signals() {
     let r = report(life, "Life");
     assert!(!r.contains("not placed"), "{r}");
     let (signals, conway) = (r.find("Field signals").unwrap(), r.find("rule conway").unwrap());
-    assert!(signals < conway && conway < r.find("Upkeep").unwrap(), "{r}");
+    assert!(signals < conway && conway < r.find("Transfers").unwrap(), "{r}");
+}
+
+#[test]
+fn a_world_without_creatures_has_no_creature_steps() {
+    // checked-schedule-ir.md §3: no upkeep, disposal or entity passes are scheduled for a state automaton.
+    let r = report(include_str!("../../../examples/life.em"), "Life");
+    for gone in ["Senses", "Upkeep", "Movement", "Disposal", "Division", "Compaction"] {
+        assert!(!r.contains(gone), "{gone} is scheduled for a world without creatures:\n{r}");
+    }
+    let dish = report(DISH, "Dish");
+    for kept in ["Senses", "Upkeep", "Movement", "Disposal", "Division", "Compaction"] {
+        assert!(dish.contains(kept), "{kept}");
+    }
+}
+
+#[test]
+fn every_step_says_what_it_reads_and_how_it_settles() {
+    let r = report(DISH, "Dish");
+    assert_eq!(r.lines().filter(|l| l.starts_with("       reads ")).count(), emerge_lang::order::step_names().len(), "{r}");
+    assert!(r.contains("settles: two-stage arbitration"), "{r}");
 }
