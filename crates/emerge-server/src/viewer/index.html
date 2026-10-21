@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emerge viewer</title>
+<style>
+  :root { --bg: #0d0f12; --panel: #15181d; --ink: #e8e6e3; --muted: #9aa0a6; --ok: #7bc47f; --bad: #e57373; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, sans-serif; }
+  header { padding: 12px 16px; background: var(--panel); display: flex; gap: 16px; align-items: baseline; }
+  h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  #status { color: var(--muted); }
+  #status.ok { color: var(--ok); }
+  #status.bad { color: var(--bad); }
+  main { padding: 16px; }
+</style>
+</head>
+<body>
+<header><h1>Emerge</h1><span id="status">connecting…</span></header>
+<main id="main"></main>
+<script>
+// The token is in the address's fragment, which the browser never sends to the server.
+const token = new URLSearchParams(location.hash.slice(1)).get("k") || "";
+const status = document.getElementById("status");
+const say = (text, kind) => { status.textContent = text; status.className = kind || ""; };
+if (!token) {
+  say("no token: open the address the server printed", "bad");
+} else {
+  const ws = new WebSocket(`ws://${location.host}/`, [`emerge.k.${token}`]);
+  ws.onopen = () => say("connected", "ok");
+  ws.onclose = () => say("disconnected", "bad");
+  ws.onerror = () => say("refused: the token or the address is wrong", "bad");
+  window.emerge = ws;
+}
+</script>
+</body>
+</html>
