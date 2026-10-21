@@ -12,7 +12,7 @@ None. Spec v0.7.8 settled what implementing mutation and contact found (Appendix
 - The contract mode (`--contract gpu`, `crates/emerge-ref/src/contract.rs`) is an opt-in set of definitions for float operations that a GPU can reproduce bit for bit (fused multiply-add everywhere, a flush rule below 2⁻¹⁰⁰, polynomial `sin`/`cos`, a heading renormalised without `sqrt`, a normal draw as twelve uniforms, `floor(x + 0.5)` for rounding, the clock phase as an integer fraction, an integer difference in the gradient and `delta`). It changes results slightly; it is off by default.
 - Catalysts (spec §4.5) compute their factor in `f64`, with a division, which a GPU need not round the same way. Contract mode uses an integer form instead (`contract::catalyst_scale`: `c / (c + half)` and `boost − 1` each to 2⁻¹⁶), which differs from the `f64` result by at most about `(boost + 1) × 2⁻¹⁶` of the cap. The spec should say it.
 
-**Changed in both modes (2026-10-20):** a catalysed world-reaction rate is capped at `10_000bp`. Above that, the reaction took more than the cell held and an amount underflowed. No archived dish catalyses a world reaction (`archive/catalyst-dish.em` catalyses `respiration`, an entity reaction), so archived runs are unchanged. The spec should say it.
+**Changed in both modes (2026-10-20; approved by the user 2026-10-21, with the contract-mode catalyst form):** a catalysed world-reaction rate is capped at `10_000bp`. Above that, the reaction took more than the cell held and an amount underflowed. No archived dish catalyses a world reaction (`archive/catalyst-dish.em` catalyses `respiration`, an entity reaction), so archived runs are unchanged. The spec should say it.
 
 ## Not yet covered by the runner
 
