@@ -534,3 +534,19 @@ fn every_graph_edit_can_be_undone_and_done_again() {
     emerge_server::journal::replay(&journal).expect("the journal replays");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn every_example_world_is_valid_and_starts() {
+    let mut c = server();
+    let list = c.ok("docs.examples", json!({}));
+    let examples = list["examples"].as_array().unwrap();
+    assert!(examples.len() >= 3);
+    for x in examples {
+        let lineages = x["lineages"].clone();
+        let v = c.ok("world.validate", json!({"source": x["source"], "lineages": lineages}));
+        assert_eq!(v["valid"], true, "{}: {v}", x["id"]);
+        let w = c.ok("world.create", json!({"source": x["source"], "lineages": lineages, "seed": 1}));
+        let id = w["world"].as_str().unwrap();
+        assert_eq!(c.ok("run.step", json!({"world": id, "ticks": 10}))["tick"], 10, "{}", x["id"]);
+    }
+}

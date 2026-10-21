@@ -174,10 +174,9 @@
     <label for="world">Running worlds</label>
     <select id="world"></select>
     <h2>New world</h2>
-    <div class="checks">
-      <label><input type="checkbox" id="l-drifter" checked> Drifter</label>
-      <label><input type="checkbox" id="l-builder" checked> Builder</label>
-    </div>
+    <label for="example">Start from</label>
+    <select id="example"></select>
+    <div class="checks" id="lins"></div>
     <div class="row">
       <div><label for="seed">Seed</label><input id="seed" type="number" value="1" min="0"></div>
       <div><label for="size">Grid</label><select id="size"><option value="96">96 × 96</option><option value="256">256 × 256</option></select></div>
@@ -1240,13 +1239,50 @@ async function stats() {
   $("stats").textContent = `tick ${s.tick}\npopulation ${s.population}\n${by}\nbirths ${s.births}  deaths ${s.deaths}`;
 }
 
+// The worlds to start from (`docs.examples`): the reference dish, Game of Life, the test-9 dish. The
+// lineage boxes and the grid size follow the one chosen.
+let examples = [];
+function chosenExample() {
+  return examples.find((x) => x.id === $("example").value) || examples[0];
+}
+function renderExample() {
+  const x = chosenExample();
+  if (!x) return;
+  $("lins").textContent = "";
+  for (const name of x.lineages) {
+    const l = document.createElement("label"), i = document.createElement("input");
+    i.type = "checkbox";
+    i.checked = true;
+    i.dataset.name = name;
+    l.append(i, document.createTextNode(` ${name}`));
+    $("lins").append(l);
+  }
+  $("size").parentElement.style.display = x.resizable ? "" : "none";
+  $("example").title = x.about;
+}
+async function loadExamples() {
+  examples = (await call("docs.examples")).examples;
+  $("example").textContent = "";
+  for (const x of examples) {
+    const o = document.createElement("option");
+    o.value = x.id;
+    o.textContent = x.name;
+    $("example").append(o);
+  }
+  renderExample();
+}
+$("example").onchange = renderExample;
+
 async function create() {
   oops();
-  const lineages = [["l-drifter", "Drifter"], ["l-builder", "Builder"]].filter(([id]) => $(id).checked).map(([, n]) => n);
-  if (!lineages.length) return oops("pick at least one lineage");
+  const x = chosenExample();
+  if (!x) return oops("the examples have not loaded");
+  const lineages = [...$("lins").querySelectorAll("input")].filter((i) => i.checked).map((i) => i.dataset.name);
+  if (x.lineages.length && !lineages.length) return oops("pick at least one lineage");
+  example = { source: x.source, views: x.views };
   const size = $("size").value;
-  let source = example.source;
-  if (size !== "256") source = source.replace("Grid(w: 256, h: 256)", `Grid(w: ${size}, h: ${size})`).replace(/count: 2_000;/g, "count: 300;");
+  let source = x.source;
+  if (x.resizable && size !== "256") source = source.replace("Grid(w: 256, h: 256)", `Grid(w: ${size}, h: ${size})`).replace(/count: 2_000;/g, "count: 300;");
   const { world } = await call("world.create", { source, lineages, seed: +$("seed").value || 1, backend: $("backend").value });
   await refreshWorlds(world);
   await refreshViews();
@@ -1269,6 +1305,7 @@ function connect() {
     leaving = null;
     say("connected", "ok");
     example = await call("docs.example");
+    await loadExamples();
     const worlds = await refreshWorlds();
     if (codeonly) await loadCode();
     else if (worlds.length) { await refreshViews(); await subscribe(); await stats(); if (codeOpen()) await loadCode(); }

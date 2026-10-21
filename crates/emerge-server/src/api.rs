@@ -11,6 +11,8 @@ use std::collections::BTreeMap;
 const LANGUAGE: &str = include_str!("../../../language.md");
 const EXAMPLE: &str = include_str!("../../../examples/dish.em");
 const EXAMPLE_VIEWS: &str = include_str!("../../../examples/views/dish.em");
+const LIFE: &str = include_str!("../../../examples/life.em");
+const TEST9: &str = include_str!("../../../archive/test9-dish.em");
 
 /// A JSON-RPC error: code, message, and data for a rejected swap.
 #[derive(Debug, Clone, PartialEq)]
@@ -376,6 +378,11 @@ impl Engine {
             }
             "journal.read" => Ok(json!({"lines": self.entry(p)?.run.journal.lines})),
             "docs.query" => Ok(docs(p["query"].as_str().unwrap_or(""))),
+            "docs.examples" => Ok(json!({"examples": [
+                {"id": "dish", "name": "Reference dish", "about": "chemistry, a conserved field, world rules, menus and two lineages (Drifter, Builder)", "source": EXAMPLE, "views": EXAMPLE_VIEWS, "lineages": ["Drifter", "Builder"], "resizable": true},
+                {"id": "life", "name": "Game of Life (glider gun)", "about": "a state field with `life_like`: no creatures, no chemistry; runs on the CPU", "source": LIFE, "views": "", "lineages": [], "resizable": false},
+                {"id": "test9", "name": "Test-9 dish", "about": "the dish of test 9: Drifter must find body synthesis (a body reaction plus take(nitrate))", "source": TEST9, "views": EXAMPLE_VIEWS, "lineages": ["Drifter", "Builder"], "resizable": true},
+            ]})),
             "docs.example" => Ok(json!({"name": "examples/dish.em", "about": "the reference world: chemistry, a conserved field, world rules, menus and two lineages (Drifter, Builder); a new world is easiest written as a changed copy of it", "source": EXAMPLE, "views": EXAMPLE_VIEWS})),
             _ => Err(fault(-32601, format!("no method `{method}`"))),
         }
