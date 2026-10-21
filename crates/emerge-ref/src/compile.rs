@@ -462,8 +462,25 @@ impl<'a> Compiler<'a> {
         };
         for d in &w.decls {
             self.at.set(d.pos);
-            let WDecl::Field { name, kind, holds, .. } = &d.node else { continue };
+            let WDecl::Field { name, kind, holds, states, .. } = &d.node else { continue };
             let path = self.path(&format!("fields.{name}"));
+            if let Some(names) = states {
+                if kind.name != "Grid" {
+                    return err("E1001", path, format!("`{}` is not supported by emerge-ref yet", kind.name));
+                }
+                if names.len() < 2 || names.len() > 256 {
+                    return err("E0205", path, "a state field has 2 to 256 states");
+                }
+                if let Some(dup) = names.iter().enumerate().find(|(i, n)| names[..*i].contains(n)) {
+                    return err("E0111", path, format!("state `{}` is named twice", dup.1));
+                }
+                let (gw, gh) = (int(arg(kind, "w", &path)?, &path)?, int(arg(kind, "h", &path)?, &path)?);
+                if gw < 1 || gh < 1 {
+                    return err("E0205", path, "a grid has at least one cell each way");
+                }
+                self.world.states.push(crate::world::StateField::new(name, names.clone(), gw as usize, gh as usize, wrap));
+                continue;
+            }
             let Some(holds) = holds else {
                 self.left_out(path.clone(), format!("signal field `{name}` is not run"));
                 self.signal_fields.push(name.clone());
@@ -484,6 +501,12 @@ impl<'a> Compiler<'a> {
             let space = Space { w: sw, h: sh, wrap, grid_w: gw as usize, grid_h: gh as usize, child_offset, radius };
             self.world.grid(space, caps);
             self.grid = Some(name.clone());
+        }
+        // A state field is drawn over the conserved field's cells, so it has the same grid (for now).
+        if let Some(space) = &self.world.space {
+            if let Some(f) = self.world.states.iter().find(|f| (f.w, f.h) != (space.grid_w, space.grid_h)) {
+                return err("E0205", self.path(&format!("fields.{}", f.name)), format!("a state field has the conserved field's grid ({} × {}) for now", space.grid_w, space.grid_h));
+            }
         }
 
         // World rules, in declaration order, then world genesis.
@@ -761,6 +784,9 @@ impl<'a> Compiler<'a> {
 
     fn rule(&mut self, name: &str, on: &str, body: &ast::Block) -> Result<(), Error> {
         let path = self.path(&format!("rules.{name}"));
+        if let Some(f) = self.world.states.iter().position(|f| f.name == on) {
+            return self.state_rule(f, body, &path);
+        }
         if self.signal_fields.iter().any(|f| f == on) {
             self.left_out(path, format!("rule `{name}` on signal field `{on}` is not run"));
             return Ok(());
@@ -816,10 +842,88 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
+    /// A rule on a state field: one `life_like(born: […], survives: […])` on a two-state field.
+    fn state_rule(&mut self, f: usize, body: &ast::Block, path: &str) -> Result<(), Error> {
+        let field = &self.world.states[f];
+        if field.life_like.is_some() {
+            return err("E0305", path, format!("`{}` is already written by another rule", field.name));
+        }
+        let [stmt] = &body[..] else { return err("E0301", path, "a rule on a state field holds one `life_like(...)`") };
+        self.at.set(stmt.pos);
+        let Stmt::Call { call: c, .. } = &stmt.node else { return err("E0301", path, "a rule on a state field holds one `life_like(...)`") };
+        if c.name != "life_like" {
+            return err("E0301", path, format!("`{}` is not a rule on a state field; use `life_like(born: [...], survives: [...])`", c.name));
+        }
+        if field.names.len() != 2 {
+            return err("E0205", path, "`life_like` needs a field of two states (dead, then alive)");
+        }
+        only_args(c, &["born", "survives"], path)?;
+        let mask = |key: &str| -> Result<u16, Error> {
+            let Expr::List(items) = arg(c, key, path)? else { return err("E0205", path, format!("`{key}` is a list of neighbour counts")) };
+            let mut m = 0u16;
+            for v in items {
+                let n = int(expr(v)?, path)?;
+                if !(0..=8).contains(&n) {
+                    return err("E0203", path, format!("`{key}`: a cell has 0 to 8 neighbours, not {n}"));
+                }
+                m |= 1 << n;
+            }
+            Ok(m)
+        };
+        let rule = (mask("born")?, mask("survives")?);
+        self.world.states[f].life_like = Some(rule);
+        Ok(())
+    }
+
+    /// `pattern(FIELD, x:, y:, rle:, to:)` and `scatter(FIELD, density:, to:)` in world genesis.
+    fn state_genesis(&mut self, k: usize, c: &ast::Call, path: &str) -> Result<(), Error> {
+        let fname = name_of(subject(c, path)?, path)?;
+        let Some(f) = self.world.states.iter().position(|f| f.name == fname) else { return err("E0114", path, format!("`{fname}` is not a state field")) };
+        let to = name_of(arg(c, "to", path)?, path)?;
+        let Some(state) = self.world.states[f].names.iter().position(|n| n == to) else { return err("E0114", path, format!("`{to}` is not a state of `{fname}`")) };
+        let state = state as u8;
+        let (w, h) = (self.world.states[f].w, self.world.states[f].h);
+        if c.name == "pattern" {
+            only_args(c, &["x", "y", "rle", "to"], path)?;
+            let (x0, y0) = (int(arg(c, "x", path)?, path)?, int(arg(c, "y", path)?, path)?);
+            let Expr::Lit(Lit::Str(rle)) = arg(c, "rle", path)? else { return err("E0205", path, "`rle` is a string") };
+            let cells = match crate::world::rle_cells(rle) {
+                Ok(c) => c,
+                Err(m) => return err("E0205", path, m),
+            };
+            for (x, y) in cells {
+                let (x, y) = (x0 + x as i64, y0 + y as i64);
+                if !(0..w as i64).contains(&x) || !(0..h as i64).contains(&y) {
+                    return err("E0803", path, format!("the pattern's cell ({x}, {y}) is outside the {w} × {h} grid"));
+                }
+                self.world.states[f].cells[y as usize * w + x as usize] = state;
+            }
+        } else {
+            only_args(c, &["density", "to"], path)?;
+            let density = float(arg(c, "density", path)?, path)?;
+            if !(0.0..=1.0).contains(&density) {
+                return err("E0203", path, "`density` is between 0.0 and 1.0");
+            }
+            for cell in 0..w * h {
+                let draws = crate::philox::Stream { seed: self.world.seed, tick: 0, stream: cell as u32, domain: crate::philox::DOMAIN_STATE_CELL, aux: k as u32, pass: crate::philox::GENESIS };
+                if ((draws.draw(0) >> 8) as f32) * (1.0 / 16_777_216.0) < density {
+                    self.world.states[f].cells[cell] = state;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn world_genesis(&mut self, body: &ast::Block) -> Result<(), Error> {
         let path = self.path("genesis");
-        for stmt in body {
+        for (k, stmt) in body.iter().enumerate() {
             self.at.set(stmt.pos);
+            if let Stmt::Call { call: c, .. } = &stmt.node {
+                if c.name == "pattern" || c.name == "scatter" {
+                    self.state_genesis(k, c, &path)?;
+                    continue;
+                }
+            }
             let Stmt::For { var, field, body } = &stmt.node else {
                 return err("E1001", path, "emerge-ref supports `for cell in <field> { transfer(...) }` only");
             };
@@ -1441,6 +1545,7 @@ fn lit_text(l: &Lit) -> String {
         Lit::Amount(m) => format!("{m}mu"),
         Lit::Rate(b) => format!("{b}bp"),
         Lit::Bool(b) => b.to_string(),
+        Lit::Str(s) => format!("\"{s}\""),
         Lit::Range(a, b) => format!("{}..{}", lit_text(a), lit_text(b)),
     }
 }

@@ -52,7 +52,7 @@ impl Recording {
             self.last_tick = Some(run.tick());
             self.left -= 1;
         }
-        let died = run.population() == 0 && self.last_tick == Some(run.tick());
+        let died = !run.alive() && self.last_tick == Some(run.tick());
         if self.left > 0 && !died {
             return Ok(true);
         }

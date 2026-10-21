@@ -358,6 +358,7 @@ fn parts(w: &World) -> Vec<(&'static str, String)> {
         ("upkeep routes", format!("{:?}", w.upkeep)),
         ("waste, remains, decompose", format!("{:?}{:?}{:?}", w.waste, w.remains, w.decompose)),
         ("sources and sinks", format!("{:?}{:?}", w.sources, w.sinks)),
+        ("state fields and their rules", format!("{:?}", w.states)),
     ]
 }
 

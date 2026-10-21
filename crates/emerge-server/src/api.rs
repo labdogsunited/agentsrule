@@ -180,14 +180,14 @@ impl Engine {
                     }
                 }
                 let mut out = json!({"ticks_run": done, "tick": e.run.tick(), "population": e.run.population()});
-                if done < ticks && e.run.population() > 0 {
+                if done < ticks && e.run.alive() {
                     out["note"] = json!(format!("stopped after {STEP_BUDGET_S} s; call again to run on"));
                 }
                 Ok(out)
             }
             "run.resume" | "run.pause" => {
                 let e = self.entry(p)?;
-                e.running = method == "run.resume" && e.run.population() > 0;
+                e.running = method == "run.resume" && e.run.alive();
                 Ok(json!({"running": e.running, "tick": e.run.tick()}))
             }
             "stats.query" => Ok(self.entry(p)?.run.stats()),

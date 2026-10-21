@@ -60,6 +60,8 @@ pub enum Lit {
     Rate(u64),
     Bool(bool),
     Range(Box<Lit>, Box<Lit>),
+    /// `"…"`: printable characters other than `"` and `\\`, on one line, with no escapes.
+    Str(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -186,7 +188,8 @@ pub enum WDecl {
     Substance { name: String, comp: Vec<Term>, potential: i64 },
     /// `holds: None` is a signal field, whose writes combine by `combine` if several
     /// rules write it (`field scent : Grid(...) signal combine max;`).
-    Field { name: String, kind: Call, holds: Option<Vec<(String, Lit)>>, combine: Option<String> },
+    /// A field holds substances (`holds`), one `f32` (`signal`), or one of named states (`states`).
+    Field { name: String, kind: Call, holds: Option<Vec<(String, Lit)>>, combine: Option<String>, states: Option<Vec<String>> },
     Source { name: String, emits: Vec<String> },
     Sink { name: String, accepts: SinkAccepts },
     Waste { substance: String, sink: String },

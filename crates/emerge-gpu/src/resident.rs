@@ -206,6 +206,8 @@ fn module(gpu: &Gpu, src: &str, bindings: u32, entries: &[&str]) -> Module {
 
 impl<'a> Resident<'a> {
     pub fn new(gpu: &'a Gpu, world: &mut World) -> Resident<'a> {
+        // An automaton drawn as an empty board would mislead (`proposals/field-rules.md`).
+        assert!(world.states.is_empty(), "state fields run on the CPU only; the GPU runtime does not run them");
         world.begin_tick();
         let mut p = pack(world);
         pack_move(world, &mut p);

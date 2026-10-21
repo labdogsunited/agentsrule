@@ -156,6 +156,23 @@ impl Lexer<'_> {
         if c.is_ascii_digit() {
             return self.number_or_range(false);
         }
+        // A string: one line, no escapes (one spelling per string), so no `"` or `\` inside.
+        if c == b'"' {
+            self.bump();
+            let start = self.i;
+            while let Some(c) = self.peek() {
+                match c {
+                    b'"' => {
+                        let text = String::from_utf8_lossy(&self.s[start..self.i]).into_owned();
+                        self.bump();
+                        return Ok(Tok::Lit(Lit::Str(text)));
+                    }
+                    b'\n' | b'\\' => break,
+                    _ => self.bump(),
+                }
+            }
+            return Err(self.diag_token("E0108", "a string ends with `\"` on the line it starts, and holds no `\\`"));
+        }
         // A negative bound starts a range: `-180.0..180.0`.
         if c == b'-' && self.at(1).is_some_and(|d| d.is_ascii_digit()) {
             let save = (self.i, self.line, self.col);

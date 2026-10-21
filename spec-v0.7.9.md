@@ -540,7 +540,7 @@ World rules are the application's laws. Each rule holds **one kind of effect**, 
 
 | Kind | Statements | Phase | Execution |
 | :-- | :-- | :-- | :-- |
-| **Signal rule** | signal assignments | Set | Every cell reads the snapshot and writes a new value. If several rules write one field, their writes combine as the field declares (`signal combine max`; one writer needs no declaration, `language.md` §6.3), and a cell no rule writes keeps its value. Then the amounts of `emit` intents are added (§7.1), and all values are committed together |
+| **Signal rule** | signal assignments; on a state field, `life_like` (added 2026-10-21, CPU only, `language.md` §7.2) | Set | Every cell reads the snapshot and writes a new value. If several rules write one field, their writes combine as the field declares (`signal combine max`; one writer needs no declaration, `language.md` §6.3), and a cell no rule writes keeps its value. Then the amounts of `emit` intents are added (§7.1), and all values are committed together |
 | **Transfer rule** | `transfer`, `diffuse_conserved` | Move | Every statement of every transfer rule, in every cell, is a request in the same arbitration as entity transfers (§7.2 step 3). Diffusion offers `floor(amount × rate / 10_000)` of each listed substance per cell, split equally between its four von Neumann neighbours, with the remainder staying put. Overflow follows §7.2 |
 | **Reaction rule** | `react` | Transform | In each cell, in declaration order of rules and then of statements, limited by inputs and output headroom (§7.3) |
 
@@ -707,7 +707,7 @@ Exactness is per driver: the NVIDIA driver fuses every `a×b + c` as `mul_add` d
 - All randomness uses Philox-4x32-10. Each draw is named by `(seed, tick, stream, pass, index)`, and maps to one Philox call exactly:
   - **key** = `(seed & 0xFFFF_FFFF, seed >> 32)`;
   - **counter** = `(index / 4, tick, stream, (pass << 24) | (domain << 16) | aux)`, and the draw is word `index mod 4` of the output;
-  - **stream** is an entity ID (domain `0`) or a cell index `y × w + x` (domain `1`). For anything a world rule does to a cell, the domain is `2` and `aux` is the rule's declaration index; in arbitration, `aux` is the substance's declaration index; otherwise `aux` is `0`;
+  - **stream** is an entity ID (domain `0`) or a cell index `y × w + x` (domain `1`). For anything a world rule does to a cell, the domain is `2` and `aux` is the rule's declaration index; for a cell of a state field in genesis (`scatter`), the domain is `3`, `aux` is the statement's index in the genesis block and the draw is index `0` (a cell is set if `(draw >> 8) × 2^−24 < density`); in arbitration, `aux` is the substance's declaration index; otherwise `aux` is `0`;
   - **passes** are numbered: `arbitrate_origin = 1`, `arbitrate_dest = 2`, `mutate = 3`, `rewrite = 4`, `genesis = 5`. A new pass gets the next number.
   - **genesis** draws, for each entity a lineage's `genesis` block creates, use the new entity's ID as the stream: draw `0` for `x`, `1` for `y`, and `2` for the heading angle (`angle = u × 2π`, heading `(cos, sin)`). A draw becomes a uniform `u` in `[0, 1)` as `(draw >> 8) × 2^−24`, and a range `a..b` as `a + u × (b − a)`.
 

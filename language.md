@@ -36,6 +36,7 @@ Conventions:
 | Range | `bound .. bound`, inclusive; a bound is an optionally negative integer, float or amount | `0..512`, `-30.0..30.0`, `0u..10u` |
 | Label | `@` identifier | `@eat_light` |
 | Capture | `$` identifier (patterns only) | `$a`, `$c` |
+| String | `"` … `"` on one line, with no escapes, so no `"` or `\` inside (`E0108`); used where a call asks for text | `"bo$2bo$3o!"` |
 | Arrows | `->` (flows out) and `<-` (flows in) | `-> steer`, `<- steer` |
 
 Arrows are single tokens, read by longest match: `a<-1.0` is `a <- 1.0`, so a comparison with a negative number needs a space (`a < -1.0`). The formatter always writes one.
@@ -79,7 +80,7 @@ self true false and or not
 
 ```
 world lineage extends ruleset view chart explore patch const
-element substance potential reaction field holds signal combine source sink waste
+element substance potential reaction field holds signal states combine source sink waste
 senses sense actions action cost per requires
 rule on let when else for in genesis
 profile mutation seed genome module regulation regulate gene keep inputs weight
@@ -245,9 +246,10 @@ One element per `element` declaration. Every substance MUST declare a potential 
 ```
 field cells : Grid(w: 256, h: 256) holds [light: 2_000u, sugar: 2_000u, carbon: 2_000u];
 field scent : Grid(w: 256, h: 256) signal;
+field life : Grid(w: 256, h: 256) states [dead, alive];
 ```
 
-A substance field lists each substance with its cap. A signal field holds one `f32` per cell, read and written as `self.value`. A field cannot hold both.
+A substance field lists each substance with its cap. A signal field holds one `f32` per cell, read and written as `self.value`. A **state field** holds one of its named states per cell (2 to 256, the first by default); it is not conserved, and has the conserved field's grid for now (`E0205`). A field is one of the three kinds.
 
 A signal field written by more than one rule MUST declare how their writes combine, `field scent : Grid(w: 256, h: 256) signal combine max;`, with `sum`, `max` or `min` (`E0305`). With one writer, no declaration is needed. A cell no rule writes in a tick keeps its value (`core.md` §3).
 
@@ -369,6 +371,11 @@ genesis {
 
 `for ... in field` is the only loop in the language and is allowed only in genesis.
 
+A state field starts in its first state everywhere. Two genesis statements set cells of one:
+
+- `pattern(life, x: 10, y: 10, rle: "bo$2bo$3o!", to: alive) @glider;` sets the cells of a run-length-encoded pattern (`b` off, `o` on, `$` next row, `!` end, a count before a tag repeats it) to a state, with the pattern's top-left cell at `x`, `y` (row 0 at the top). A cell outside the grid is `E0803`; anything else in the string is `E0205`.
+- `scatter(life, density: 0.3, to: alive) @soup;` sets each cell to a state with probability `density` (0.0 to 1.0), one Philox draw per cell (spec §10.2).
+
 ---
 
 ## 7. World rules
@@ -432,6 +439,16 @@ rule life on board {
     self.value = select(when: n == 3.0 or (self.value > 0.5 and n == 2.0), then: 1.0, else: 0.0);
 }
 ```
+
+A rule on a **state field** is a signal rule too (same phase, same snapshot, one writer, `E0305`). The one it holds so far is `life_like`, an outer-totalistic rule on a two-state field (dead, then alive): a dead cell with a number of live Moore neighbours in `born` becomes alive, a live cell with a number in `survives` stays alive, and every other cell becomes dead. Counts are 0 to 8 (`E0203`); a field with other than two states is `E0205`; anything else in the rule is `E0301`. Edges wrap if the space does; otherwise cells outside count as dead. Integer only, so exact everywhere. The general form above (`moore`, `select`) is not implemented; `life_like` is the first rule that runs.
+
+```
+rule conway on life {
+    life_like(born: [3], survives: [2, 3]) @life;
+}
+```
+
+Senses do not read state fields, so a gene cannot (`any quantity` does not include them). Rules on state fields are not swappable.
 
 ### 7.3 Statements
 
@@ -762,7 +779,7 @@ element     := 'element' IDENT ';'
 substance   := 'substance' IDENT '=' comp 'potential' '-'? INT ';'
 comp        := cterm ('+' cterm)*
 cterm       := INT? IDENT
-field       := 'field' IDENT ':' call ( 'holds' '[' sep(IDENT ':' AMOUNT) ']' | 'signal' ( 'combine' IDENT )? ) ';'
+field       := 'field' IDENT ':' call ( 'holds' '[' sep(IDENT ':' AMOUNT) ']' | 'signal' ( 'combine' IDENT )? | 'states' '[' sep(IDENT) ']' ) ';'
 source      := 'source' IDENT ':' '[' sep(IDENT) ']' ';'
 sink        := 'sink' IDENT ':' ( 'any' | '[' sep(IDENT) ']' ) ';'
 waste       := 'waste' IDENT '->' IDENT ';'
@@ -962,7 +979,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | Code | Meaning |
 | :-- | :-- |
 | `E0001`–`E0007` | syntax: a missing or unexpected token, chained comparisons, a comment at the end of a block |
-| `E0101`–`E0107` | literals: amounts that are not whole µ, malformed numbers and units |
+| `E0101`–`E0108` | literals: amounts that are not whole µ, malformed numbers and units, a string that does not end on its line or holds a `\` (`E0108`) |
 | `E0110`–`E0113` | names: keywords, duplicates within a world (`E0111`), signal names that are world names (`E0112`), reserved generated forms (`E0113`) |
 | `E0114` | an unknown name: field, source, sink, substance, reaction, lineage |
 | `E0115` | an unknown setting or block |
@@ -998,6 +1015,7 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | One conserved field `Grid(…) holds […]` | yes | yes | yes |
 | A second conserved field, other field kinds | parsed | `E1001` | no |
 | Signal fields, and rules on them (`fade`, `blur`) | yes | left out | left out |
+| State fields, `life_like` rules, `pattern` and `scatter` in genesis (§6.3, §7.2, §6.8) | yes | yes | refused (the GPU runtime does not run them) |
 | Elements, substances, `second_law`, sources, sinks, `waste`, `remains`, `decompose` | yes | yes | yes, at most 32 substances |
 | Reactions, `reaction_space` | yes | yes | yes, at most 4 inputs and 4 outputs per reaction |
 | Catalysts, `catalyze` (§6.5) | yes | yes, for entity and world reactions | yes |

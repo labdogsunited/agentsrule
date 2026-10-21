@@ -89,6 +89,10 @@ struct Ctx<'a> {
     cell: usize,
     /// The substance shown by a field layer.
     substance: Option<usize>,
+    /// The state field shown by a field layer (an index into `Frame::states`).
+    state: Option<usize>,
+    /// `value` itself, for drawing a legend's swatch of one state.
+    value: Option<f64>,
     agent: Option<&'a Agent>,
 }
 
@@ -216,8 +220,10 @@ fn eval(e: &Expr, cx: &Ctx, key: &mut LayerKey) -> Val {
                     },
                 }
             } else {
-                match (name, cx.substance) {
-                    ("value", Some(s)) => Val::Num(f.cell(cx.cell, s) as f64 / 1000.0),
+                match (name, cx.value, cx.state, cx.substance) {
+                    ("value", Some(v), _, _) => Val::Num(v),
+                    ("value", None, Some(k), _) => Val::Num(f.states[k].cells[cx.cell] as f64),
+                    ("value", None, None, Some(s)) => Val::Num(f.cell(cx.cell, s) as f64 / 1000.0),
                     _ => Val::Later,
                 }
             }
@@ -303,7 +309,12 @@ fn paint(c: Rgb, alpha: f32) -> Paint<'static> {
 /// The colours of every cell for a field layer, and what its legend says.
 pub fn field_layer(layer: &Layer, frame: &Frame) -> (Vec<(Rgb, f32)>, LayerKey) {
     let mut key = LayerKey { name: layer.name.clone(), ..LayerKey::default() };
+    let state = match positional(&layer.source).first() {
+        Some(Expr::Path(p)) if p.segs.is_empty() => frame.states.iter().position(|s| s.name == p.root),
+        _ => None,
+    };
     let substance = match positional(&layer.source).first() {
+        Some(Expr::Path(_)) if state.is_some() => None,
         Some(Expr::Path(p)) => match p.segs.as_slice() {
             [Seg::Field(s)] => {
                 key.source = format!("{}.{s}, in units per cell", p.root);
@@ -333,11 +344,25 @@ pub fn field_layer(layer: &Layer, frame: &Frame) -> (Vec<(Rgb, f32)>, LayerKey) 
             key.ramp = Some((pname, 0.0, 1.0, false));
         }
     }
+    if let Some(k) = state {
+        // A state field: `value` is the state's index, and the legend shows each state's colour.
+        let st = &frame.states[k];
+        key.source = format!("{}, a state field (value: {})", st.name, st.names.iter().enumerate().map(|(i, n)| format!("{n} {i}")).collect::<Vec<_>>().join(", "));
+        key.ramp = None;
+        if let Some(e) = color {
+            for (i, name) in st.names.iter().enumerate() {
+                let cx = Ctx { frame, cell: 0, substance: None, state, value: Some(i as f64), agent: None };
+                if let Val::Color(c) = eval(e, &cx, &mut key) {
+                    key.categories.push((name.clone(), c));
+                }
+            }
+        }
+    }
     let n = frame.grid_w * frame.grid_h;
     let mut out = Vec::with_capacity(n);
     for cell in 0..n {
-        let cx = Ctx { frame, cell, substance, agent: None };
-        let cd = match (color, substance) {
+        let cx = Ctx { frame, cell, substance, state, value: None, agent: None };
+        let cd = match (color, substance.or(state)) {
             (Some(e), Some(_)) => match eval(e, &cx, &mut key) {
                 Val::Color(c) => c,
                 _ => UNAVAILABLE,
@@ -369,7 +394,7 @@ pub fn agents_layer(layer: &Layer, frame: &Frame) -> (Vec<([f32; 2], Attributes)
     let mut seen = std::collections::BTreeMap::new();
     let mut out = Vec::new();
     for a in &frame.agents {
-        let cx = Ctx { frame, cell: 0, substance: None, agent: Some(a) };
+        let cx = Ctx { frame, cell: 0, substance: None, state: None, value: None, agent: Some(a) };
         if let Some(f) = filter {
             if eval(f, &cx, &mut key) != Val::Bool(true) {
                 continue;

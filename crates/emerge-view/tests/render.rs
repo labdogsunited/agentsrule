@@ -16,7 +16,7 @@ fn view(src: &str) -> View {
 
 /// A 7 × 5 grid of one substance, `x` µ in each cell, and the given agents.
 fn frame(cells: Vec<u32>, agents: Vec<Agent>) -> Frame {
-    Frame { tick: 3, revision: 1, world_w: 14.0, world_h: 10.0, wrap: true, field: "cells".into(), grid_w: 7, grid_h: 5, substances: vec!["sugar".into()], cells, lineages: vec!["A".into(), "B".into()], agents, made: None }
+    Frame { tick: 3, revision: 1, world_w: 14.0, world_h: 10.0, wrap: true, field: "cells".into(), grid_w: 7, grid_h: 5, substances: vec!["sugar".into()], cells, lineages: vec!["A".into(), "B".into()], agents, made: None, states: Vec::new() }
 }
 
 fn pixel(pm: &tiny_skia::Pixmap, x: u32, y: u32) -> [u8; 3] {
@@ -95,3 +95,19 @@ fn made_needs_a_window_and_the_legend_names_it() {
     assert!(key.entries.iter().any(|e| e == "made: body made by its own reactions, ticks 0–3"), "{:?}", key.entries);
 }
 
+
+#[test]
+fn a_state_field_is_drawn_cell_by_cell_with_its_states_in_the_legend() {
+    let mut f = frame(vec![0; 35], Vec::new());
+    let cells: Vec<u8> = (0..35).map(|i| u8::from(i % 3 == 0)).collect();
+    f.states = vec![emerge_view::frame::States { name: "life".into(), names: vec!["dead".into(), "alive".into()], cells: cells.clone() }];
+    let v = view("view V for W {\n    layer board = field(life) {\n        color: value |> scale(linear, range: 0.0..1.0) |> palette(grays);\n    }\n}\n");
+    let pm = render(&v, &f, Options { cell_px: 10, legend: false });
+    let (dead, alive) = (palette::sample("grays", 0.0), palette::sample("grays", 1.0));
+    for (i, &c) in cells.iter().enumerate() {
+        let (x, y) = ((i % 7) as u32 * 10 + 5, (i / 7) as u32 * 10 + 5);
+        assert_eq!(pixel(&pm, x, y), if c == 1 { alive } else { dead }, "cell {i}");
+    }
+    let (_, key) = emerge_view::render::field_layer(&v.layers[0].node, &f);
+    assert_eq!(key.categories, vec![("dead".to_string(), dead), ("alive".to_string(), alive)]);
+}

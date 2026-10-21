@@ -51,6 +51,9 @@ impl Run {
         let mut live = Live::new(&spec.source, &names, Options { seed: spec.seed, allow_partial: true, mutation: spec.mutation })?;
         spec.source = live.source.clone();
         live.world.contract = spec.contract;
+        if spec.gpu && !live.world.states.is_empty() {
+            return Err(Rejected::Invalid { code: "E1001".into(), path: "fields".into(), message: "state fields run on the CPU only; the GPU runtime would leave them out".into() });
+        }
         let (backend, device) = if spec.gpu {
             let gpu: &'static Gpu = Box::leak(Box::new(Gpu::new()));
             (Backend::Gpu(Box::new(Resident::new(gpu, &mut live.world))), format!("gpu: {}", gpu.name))
@@ -79,10 +82,16 @@ impl Run {
         }
     }
 
+    /// Whether the world can still change: it has entities, or a state field (an automaton has
+    /// no entities; `proposals/field-rules.md`).
+    pub fn alive(&self) -> bool {
+        self.population() > 0 || !self.live.world.states.is_empty()
+    }
+
     /// Runs `n` ticks, or fewer if the world dies out. Returns the ticks run.
     pub fn step(&mut self, n: u64) -> u64 {
         let mut done = 0;
-        while done < n && self.population() > 0 {
+        while done < n && self.alive() {
             match &mut self.backend {
                 Backend::Cpu => {
                     self.live.world.run_tick();

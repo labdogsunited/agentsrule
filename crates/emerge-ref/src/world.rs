@@ -433,6 +433,9 @@ pub struct World {
     pub sources: Vec<String>,
     pub sinks: Vec<Sink>,
     pub laws: Vec<Law>,
+    /// State fields (`field NAME : Grid(…) states […]`): one discrete state per cell, outside the
+    /// ledger, updated at the start of Set from the previous states (`proposals/field-rules.md`).
+    pub states: Vec<StateField>,
     pub upkeep: Upkeep,
     pub waste: Vec<(SubstanceId, SinkId)>,
     pub remains: SinkId,
@@ -524,6 +527,7 @@ impl World {
             sources: Vec::new(),
             sinks,
             laws: Vec::new(),
+            states: Vec::new(),
             upkeep,
             waste: Vec::new(),
             remains,
@@ -707,6 +711,11 @@ impl World {
     /// Runs one tick without auditing, for long runs that audit every `K` ticks.
     pub fn run_tick(&mut self) {
         self.begin_tick();
+        // State rules are signal rules (spec §7.4): every cell reads the previous states, and the
+        // next states are committed together. Nothing else in the tick reads a state field.
+        for f in &mut self.states {
+            f.step();
+        }
         let n = self.entities.len();
         // ---- 1 Set ----
         // Senses read the snapshot, minds run, action genes become intents (spec §7.1).
@@ -1553,3 +1562,75 @@ fn add_elements(ledger: &mut [u64], chem: &Chemistry, s: SubstanceId, amount: Mu
         ledger[e] += amount as u64 * n as u64;
     }
 }
+
+/// A state field: `w × h` cells (row-major, row 0 at the top), each one of `names`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StateField {
+    pub name: String,
+    pub names: Vec<String>,
+    pub w: usize,
+    pub h: usize,
+    pub wrap: bool,
+    pub cells: Vec<u8>,
+    /// `life_like(born, survives)` on a two-state field, as bit masks over the number of live Moore
+    /// neighbours (0 to 8): a dead cell is born if its bit is set in the first, a live one survives
+    /// if its bit is set in the second.
+    pub life_like: Option<(u16, u16)>,
+}
+
+impl StateField {
+    pub fn new(name: &str, names: Vec<String>, w: usize, h: usize, wrap: bool) -> StateField {
+        StateField { name: name.to_string(), names, w, h, wrap, cells: vec![0; w * h], life_like: None }
+    }
+
+    /// One update: every cell from the previous states, all committed together.
+    pub fn step(&mut self) {
+        let Some((born, survives)) = self.life_like else { return };
+        let (w, h) = (self.w as i64, self.h as i64);
+        let old = &self.cells;
+        let alive = |x: i64, y: i64| -> u32 {
+            let (x, y) = if self.wrap { (x.rem_euclid(w), y.rem_euclid(h)) } else { (x, y) };
+            u32::from((0..w).contains(&x) && (0..h).contains(&y) && old[(y * w + x) as usize] == 1)
+        };
+        let next: Vec<u8> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                let n = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)].iter().map(|(dx, dy)| alive(x + dx, y + dy)).sum::<u32>();
+                let mask = if old[(y * w + x) as usize] == 1 { survives } else { born };
+                u8::from(mask >> n & 1 == 1)
+            })
+            .collect();
+        self.cells = next;
+    }
+}
+
+/// The cells of a run-length-encoded pattern (`b` off, `o` on, `$` next row, `!` end, a count
+/// before a tag repeats it), as `(x, y)` of the `o` cells from the top-left. `Err` names what is wrong.
+pub fn rle_cells(rle: &str) -> Result<Vec<(usize, usize)>, String> {
+    let (mut x, mut y, mut count, mut out) = (0usize, 0usize, 0usize, Vec::new());
+    for c in rle.chars() {
+        match c {
+            '0'..='9' => count = count * 10 + c.to_digit(10).unwrap() as usize,
+            'b' | 'o' | '$' => {
+                let k = count.max(1);
+                match c {
+                    'b' => x += k,
+                    'o' => {
+                        out.extend((x..x + k).map(|i| (i, y)));
+                        x += k;
+                    }
+                    _ => {
+                        y += k;
+                        x = 0;
+                    }
+                }
+                count = 0;
+            }
+            '!' => return Ok(out),
+            ' ' => {}
+            other => return Err(format!("`{other}` is not part of a run-length pattern (b, o, $, !, digits)")),
+        }
+    }
+    Err("a run-length pattern ends with `!`".into())
+}
+

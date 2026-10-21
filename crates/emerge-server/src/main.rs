@@ -92,7 +92,7 @@ fn render(args: &[String]) -> Result<String, String> {
         None => {
             let dish = &args[0];
             let source = std::fs::read_to_string(dish).map_err(|e| format!("{dish}: {e}"))?;
-            let lineages = flag(args, "--lineages").ok_or("--lineages A[,B]")?.split(',').map(String::from).collect();
+            let lineages = flag(args, "--lineages").ok_or("--lineages A[,B]")?.split(',').filter(|l| !l.is_empty()).map(String::from).collect();
             let seed = flag(args, "--seed").map_or(Ok(1), |s| s.parse().map_err(|_| "--seed N"))?;
             let spec = Spec { source, lineages, seed, mutation: flag(args, "--mutation") != Some("off"), contract: args.iter().any(|a| a == "--contract"), gpu: args.iter().any(|a| a == "--gpu") };
             Run::create(spec, Journal::memory()).map_err(|e| e.to_string())?

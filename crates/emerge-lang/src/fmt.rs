@@ -250,15 +250,19 @@ fn wdecl(out: &mut Out, i: usize, d: &WDecl) {
             i,
             line(vec![t(format!("substance {name} = {} potential {}", terms(comp), int(*potential)))]),
         ),
-        WDecl::Field { name, kind, holds, combine } => {
+        WDecl::Field { name, kind, holds, combine, states } => {
             let mut pieces = vec![t(format!("field {name} : "))];
             pieces.extend(call(kind));
-            match holds {
-                Some(h) => {
+            match (holds, states) {
+                (Some(h), _) => {
                     pieces.push(t(" holds "));
                     pieces.push(P::G("[", "]", h.iter().map(|(s, a)| vec![t(format!("{s}: {}", lit(a)))]).collect()));
                 }
-                None => pieces.push(t(match combine {
+                (None, Some(st)) => {
+                    pieces.push(t(" states "));
+                    pieces.push(names(st));
+                }
+                (None, None) => pieces.push(t(match combine {
                     Some(c) => format!(" signal combine {c}"),
                     None => " signal".into(),
                 })),
@@ -719,6 +723,7 @@ pub fn lit(l: &Lit) -> String {
         Lit::Amount(mu) => format!("{}mu", group(&mu.to_string())),
         Lit::Rate(bp) => format!("{}bp", group(&bp.to_string())),
         Lit::Bool(b) => b.to_string(),
+        Lit::Str(s) => format!("\"{s}\""),
         Lit::Range(a, b) => format!("{}..{}", lit(a), lit(b)),
     }
 }

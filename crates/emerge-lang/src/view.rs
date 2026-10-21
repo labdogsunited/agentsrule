@@ -329,12 +329,13 @@ fn view(v: &View, pos: Pos, worlds: &[&World], errors: &mut Vec<Problem>, warnin
                             WDecl::Field { name, holds, .. } if *name == p.root => Some(holds),
                             _ => None,
                         });
+                        let kind = if world.decls.iter().any(|d| matches!(&d.node, WDecl::Field { name, states: Some(_), .. } if *name == p.root)) { "state" } else { "signal" };
                         match (field, p.segs.as_slice()) {
                             (None, _) => ck.error("E0114", format!("unknown field `{}`", p.root)),
                             (Some(Some(holds)), [Seg::Field(s)]) if !holds.iter().any(|(h, _)| h == s) => ck.error("E0114", format!("field `{}` holds no `{s}`", p.root)),
                             (Some(Some(_)), [Seg::Field(_)]) | (Some(None), []) => {}
                             (Some(Some(_)), _) => ck.error("E0116", format!("say which substance of `{}` to show: `field({}.NAME)`", p.root, p.root)),
-                            (Some(None), _) => ck.error("E0114", format!("`{}` is a signal field: show it as `field({})`", p.root, p.root)),
+                            (Some(None), _) => ck.error("E0114", format!("`{}` is a {kind} field: show it as `field({})`", p.root, p.root)),
                         }
                     }
                     _ => ck.error("E0116", "`field` needs a field, such as `field(cells.sugar)`".into()),

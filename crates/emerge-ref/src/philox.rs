@@ -17,6 +17,8 @@ pub const GENESIS: u32 = 5;
 pub const DOMAIN_ENTITY: u32 = 0;
 pub const DOMAIN_CELL: u32 = 1;
 pub const DOMAIN_RULE_CELL: u32 = 2;
+/// A cell of a state field (`proposals/field-rules.md` step 1); `aux` is the genesis statement.
+pub const DOMAIN_STATE_CELL: u32 = 3;
 
 pub fn philox4x32_10(mut ctr: [u32; 4], mut key: [u32; 2]) -> [u32; 4] {
     for round in 0..10 {

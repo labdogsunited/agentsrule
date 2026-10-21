@@ -44,6 +44,16 @@ pub struct Frame {
     pub agents: Vec<Agent>,
     /// The window of `Agent::made`, if one was counted; without it a view's `made` is unavailable.
     pub made: Option<Made>,
+    /// State fields, on the same grid as the conserved field.
+    pub states: Vec<States>,
+}
+
+/// A state field in a frame: its name, its states' names, and each cell's state (row-major).
+#[derive(Debug, Clone, PartialEq)]
+pub struct States {
+    pub name: String,
+    pub names: Vec<String>,
+    pub cells: Vec<u8>,
 }
 
 impl Frame {
@@ -79,6 +89,7 @@ impl Frame {
                 .map(|e| Agent { id: e.id, lineage: e.lineage, pos: e.pos, heading: e.heading, age: e.age, expressed_genes: e.genome.active_genes(), amounts: e.store.amounts[..ns].to_vec(), made: e.made })
                 .collect(),
             made: None,
+            states: w.states.iter().map(|f| States { name: f.name.clone(), names: f.names.clone(), cells: f.cells.clone() }).collect(),
         }
     }
 }
