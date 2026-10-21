@@ -1,8 +1,8 @@
 # The `.em` Language
 
-**Language reference — draft, companion to spec v0.7.8**
+**Language reference — draft, companion to spec v0.7.9**
 
-This document defines the syntax and static rules of `.em` files. `spec-v0.7.8.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
+This document defines the syntax and static rules of `.em` files. `spec-v0.7.9.md` defines what the constructs mean at runtime (tick pipeline, arbitration, evolution). This document is normative for syntax; the spec is normative for behaviour. `examples/dish.em` is the reference program and the parser fixture (§13).
 
 > **Being restructured.** `core.md` now defines the core language. This document's syntax will be rewritten around it; until then, `core.md`'s examples are provisional and this document remains the syntax reference for the creatures application.
 

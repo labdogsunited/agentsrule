@@ -4,15 +4,9 @@ What building and testing `emerge-ref` shows about the current spec and `core.md
 
 ## Open
 
-None. Spec v0.7.8 settled what implementing mutation and contact found (Appendix I): exact mutation operators and draws, the order of the reaction space, the senses the spec only listed, contact targets, and partial runs that leave out menu items.
+- `delta(s)` subtracts two `u32` amounts in the default mode, which wraps when the amount fell, so a decrease reads as a huge positive number (clamped to the reading limit). Contract mode (`--contract gpu`) uses the signed difference. Spec v0.7.9 §10.1 records this as a known deviation of the default mode, kept so archived runs reproduce. `archive/plan-test9.md` records the `test9q` experiment (`~/test9q/`) that used this sense; its result may have been affected. Fixing the default mode changes default evolutionary behaviour, so it waits for the user.
 
-**Found by the GPU runtime (2026-10-20), not changed in the default mode so that archived runs stay reproducible:**
-
-- `delta(s)` subtracts two `u32` amounts, which wraps when the amount fell, so a decrease reads as a huge positive number (clamped to the reading limit). `archive/plan-test9.md` records the `test9q` experiment (`~/test9q/`) that used this sense; its result may have been affected. Contract mode (`--contract gpu`) uses the signed difference.
-- The contract mode (`--contract gpu`, `crates/emerge-ref/src/contract.rs`) is an opt-in set of definitions for float operations that a GPU can reproduce bit for bit (fused multiply-add everywhere, a flush rule below 2⁻¹⁰⁰, polynomial `sin`/`cos`, a heading renormalised without `sqrt`, a normal draw as twelve uniforms, `floor(x + 0.5)` for rounding, the clock phase as an integer fraction, an integer difference in the gradient and `delta`). It changes results slightly; it is off by default.
-- Catalysts (spec §4.5) compute their factor in `f64`, with a division, which a GPU need not round the same way. Contract mode uses an integer form instead (`contract::catalyst_scale`: `c / (c + half)` and `boost − 1` each to 2⁻¹⁶), which differs from the `f64` result by at most about `(boost + 1) × 2⁻¹⁶` of the cap. The spec should say it.
-
-**Changed in both modes (2026-10-20; approved by the user 2026-10-21, with the contract-mode catalyst form):** a catalysed world-reaction rate is capped at `10_000bp`. Above that, the reaction took more than the cell held and an amount underflowed. No archived dish catalyses a world reaction (`archive/catalyst-dish.em` catalyses `respiration`, an entity reaction), so archived runs are unchanged. The spec should say it.
+Settled in spec v0.7.9 (Appendix J): contract mode (§10.1), the contract-mode catalyst factor and the `10_000bp` cap on a catalysed world rate (§4.5).
 
 ## Not yet covered by the runner
 
