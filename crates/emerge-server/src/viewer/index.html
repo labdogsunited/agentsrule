@@ -44,6 +44,30 @@
   #cam button { padding: 3px 8px; }
   body.graph #sel { order: -1; margin-bottom: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
   body.graph #sel h2 { margin-top: 0; }
+  #code { display: none; position: relative; width: 480px; min-width: 260px; flex: none; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); }
+  body.code-open #code { display: flex; }
+  #code .bar { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  #code .bar select { width: auto; flex: 1; min-width: 0; }
+  #code .bar button { padding: 3px 8px; }
+  #code-world { display: none; }
+  body.codeonly #code-world { display: block; }
+  #codehandle { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 2; }
+  #codebody { flex: 1; overflow: auto; font: 12px/1.55 ui-monospace, monospace; padding: 6px 0; tab-size: 4; }
+  .cl { display: flex; white-space: pre; }
+  .cl .n { flex: none; width: 46px; text-align: right; padding-right: 10px; color: var(--muted); opacity: 0.7; user-select: none; cursor: pointer; }
+  .cl .t { flex: 1; padding-right: 14px; }
+  .cl.hl { background: #2a2f3a; }
+  .cl.hl .n { color: var(--accent); opacity: 1; }
+  .cl.flash { animation: flash 2s ease-out; }
+  @keyframes flash { from { background: #4a3d1f; } to { background: transparent; } }
+  .tk-c { color: #6b7686; font-style: italic; }
+  .tk-k { color: #c8a2ea; }
+  .tk-l { color: #e0a050; }
+  .tk-n { color: #6fbfae; }
+  .tk-s { color: #9cc77a; }
+  body.codeonly aside, body.codeonly main, body.codeonly .modes, body.codeonly .server, body.codeonly #where { display: none; }
+  body.codeonly #code { display: flex; flex: 1; width: auto; border-left: 0; }
+  body.codeonly #codehandle, body.codeonly #popout { display: none; }
   .modes { display: flex; gap: 4px; }
   .modes button { padding: 3px 10px; }
   .modes button.on { background: var(--accent); color: #1a1408; border-color: var(--accent); font-weight: 600; }
@@ -80,7 +104,7 @@
 </style>
 </head>
 <body>
-<header><h1>Emerge</h1><span id="status">connecting…</span><span class="modes"><button id="m-picture" class="on">Picture</button><button id="m-graph">Graph</button></span><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
+<header><h1>Emerge</h1><span id="status">connecting…</span><span class="modes"><button id="m-picture" class="on">Picture</button><button id="m-graph">Graph</button><button id="codebtn" title="Show the complete source of the world">Code</button></span><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
 <div class="layout">
   <aside>
     <h2>World</h2>
@@ -124,6 +148,11 @@
     <div id="error"></div>
   </aside>
   <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit."><span id="zoom">100%</span><button id="fit">Fit</button></div></main>
+  <section id="code">
+    <div id="codehandle"></div>
+    <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
+    <div id="codebody"><span style="padding:10px;color:var(--muted)">Create a world, or pick one.</span></div>
+  </section>
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -221,6 +250,143 @@ stage.addEventListener("pointercancel", () => { drag = null; stage.classList.rem
 stage.addEventListener("dblclick", (e) => { if (!e.target.closest("#cam") && !e.target.closest(".box")) { fitCam(); applyCam(); } });
 $("fit").onclick = () => { fitCam(); applyCam(); };
 window.addEventListener("resize", () => { if (cams[mode].fit) { fitCam(); applyCam(); } });
+
+// ---- The code window: the complete source of the running world, read-only. A statement or box
+// selected in the graph is marked here, a click on a line selects the box that holds it, and lines a
+// swap changed flash. It stays current as the world's revision moves. `Pop out` opens the same
+// window on its own (`#k=…&code=1`), for a second screen.
+const codeonly = new URLSearchParams(location.hash.slice(1)).get("code") === "1";
+if (codeonly) document.body.classList.add("codeonly", "code-open");
+let codeRev = null, codeLines = [], codeWorldName = null;
+const KEYWORDS = new Set("world lineage view chart patch rule ruleset reaction substance element field source sink waste genesis space upkeep limits second_law reaction_space senses actions regulation module gene seed genome profile mutation react transfer diffuse_conserved life_like when else for let in extends catalyze holds signal combine states weight const any on sense action regulate emit take move turn divide remains decompose layer scale palette".split(" "));
+const TOKEN = /(\/\/[^\n]*)|(@\w+)|("[^"\n]*")|(\b\d[\d_]*(?:\.\d+)?(?:mu|bp|ms|u)?\b)|(\b[A-Za-z_]\w*\b)/g;
+function tokens(line) {
+  const out = [];
+  let last = 0;
+  for (const m of line.matchAll(TOKEN)) {
+    if (m.index > last) out.push(["", line.slice(last, m.index)]);
+    const cls = m[1] ? "tk-c" : m[2] ? "tk-l" : m[3] ? "tk-s" : m[4] ? "tk-n" : KEYWORDS.has(m[5]) ? "tk-k" : "";
+    out.push([cls, m[0]]);
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) out.push(["", line.slice(last)]);
+  return out;
+}
+const codeOpen = () => document.body.classList.contains("code-open");
+const codeWorld = () => $("code-world").value || $("world").value;
+
+function renderCode(src, prev) {
+  const body = $("codebody"), keep = body.scrollTop;
+  body.textContent = "";
+  codeLines = src.split("\n");
+  if (codeLines.length && codeLines[codeLines.length - 1] === "") codeLines.pop();
+  const before = new Map();
+  for (const l of prev || []) before.set(l, (before.get(l) || 0) + 1);
+  codeLines.forEach((text, i) => {
+    const row = document.createElement("div"), n = document.createElement("span"), t = document.createElement("span");
+    row.className = "cl";
+    row.dataset.line = i + 1;
+    n.className = "n";
+    n.textContent = i + 1;
+    t.className = "t";
+    for (const [cls, piece] of tokens(text)) {
+      if (!cls) { t.append(document.createTextNode(piece)); continue; }
+      const sp = document.createElement("span");
+      sp.className = cls;
+      sp.textContent = piece;
+      t.append(sp);
+    }
+    if (prev && text.trim()) {
+      const k = before.get(text) || 0;
+      if (k) before.set(text, k - 1); else row.classList.add("flash");
+    }
+    row.append(n, t);
+    body.append(row);
+  });
+  body.scrollTop = keep;
+}
+
+async function loadCode() {
+  const w = codeWorld();
+  if (!w || !codeOpen()) return;
+  const r = await call("world.source", { world: w });
+  const prev = w === codeWorldName ? codeLines : null;
+  codeWorldName = w;
+  codeRev = r.revision;
+  $("codeinfo").textContent = `${w} · revision ${r.revision} · ${r.source.split("\n").length - 1} lines`;
+  renderCode(r.source, prev);
+  if (selected) highlightCode(selected, false);
+}
+
+// The last line of the item that starts at `start` (1-based): to the `;` or `}` that closes it.
+function spanEnd(start) {
+  let depth = 0, seen = false;
+  for (let i = start - 1; i < codeLines.length; i++) {
+    const line = codeLines[i].replace(/\/\/.*$/, "");
+    for (const c of line) {
+      if ("([{".includes(c)) { depth++; seen = true; }
+      else if (")]}".includes(c)) { depth--; if (depth <= 0 && seen && c === "}") return i + 1; }
+      else if (c === ";" && depth <= 0) return i + 1;
+    }
+  }
+  return start;
+}
+
+function highlightCode(id, scroll = true) {
+  const rows = $("codebody").querySelectorAll(".cl");
+  rows.forEach((r) => r.classList.remove("hl"));
+  const n = graphData && graphData.nodes.find((x) => x.id === id);
+  if (!n || !n.line || n.line > codeLines.length) return;
+  const end = spanEnd(n.line);
+  for (let l = n.line; l <= end; l++) rows[l - 1] && rows[l - 1].classList.add("hl");
+  if (scroll && rows[n.line - 1]) rows[n.line - 1].scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+$("codebody").addEventListener("click", async (e) => {
+  const row = e.target.closest(".cl");
+  if (!row) return;
+  const line = +row.dataset.line;
+  if (!graphData && !codeonly) await loadGraph().catch(() => {});
+  if (!graphData) {
+    $("codebody").querySelectorAll(".cl").forEach((r) => r.classList.toggle("hl", r === row));
+    return;
+  }
+  // The smallest item that holds the line.
+  let best = null, size = Infinity;
+  for (const n of graphData.nodes) {
+    if (!n.line || n.line > line) continue;
+    const end = spanEnd(n.line);
+    if (end >= line && end - n.line < size) { best = n; size = end - n.line; }
+  }
+  if (best) { if (mode !== "graph") setMode("graph"); select(best.id); }
+});
+
+$("codebtn").onclick = () => {
+  document.body.classList.toggle("code-open");
+  $("codebtn").classList.toggle("on", codeOpen());
+  try { localStorage.setItem("emerge.code", codeOpen() ? "1" : "0"); } catch (_) {}
+  if (codeOpen()) loadCode().catch(oops);
+  window.dispatchEvent(new Event("resize"));
+};
+$("copycode").onclick = () => navigator.clipboard && navigator.clipboard.writeText(codeLines.join("\n") + "\n").catch(() => {});
+$("popout").onclick = () => {
+  window.open(`${location.origin}/#k=${token}&code=1`, "emerge-code", "width=780,height=940");
+  if (codeOpen()) $("codebtn").click();
+};
+$("code-world").onchange = () => loadCode().catch(oops);
+{
+  // The window can be made wider or narrower by its left edge.
+  let dragging = null;
+  const h = $("codehandle");
+  h.addEventListener("pointerdown", (e) => { dragging = { x: e.clientX, w: $("code").getBoundingClientRect().width }; h.setPointerCapture(e.pointerId); });
+  h.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    $("code").style.width = `${Math.min(window.innerWidth - 320, Math.max(260, dragging.w + dragging.x - e.clientX))}px`;
+    window.dispatchEvent(new Event("resize"));
+  });
+  h.addEventListener("pointerup", () => { dragging = null; });
+}
+try { if (!codeonly && localStorage.getItem("emerge.code") === "1") { document.body.classList.add("code-open"); $("codebtn").classList.add("on"); } } catch (_) {}
 
 // ---- The graph (`proposals/node-editor.md`): boxes and wires, a projection of the source text.
 // Columns: sources and reactions on the left, the statements of the rules in the middle in the
@@ -338,6 +504,7 @@ let dirty = false;
 function select(id) {
   selected = id;
   dirty = false;
+  highlightCode(id);
   for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === id);
   const n = graphData && graphData.nodes.find((x) => x.id === id);
   const picked = $("picked");
@@ -365,6 +532,7 @@ function select(id) {
       await call("world.graph_edit", { world: $("world").value, id: n.id, text: ta.value, base_revision: graphData.revision });
       dirty = false;
       await loadGraph();
+      await loadCode().catch(() => {});
       const m = $("picked").querySelector(".msg");
       if (m) { m.className = "msg ok"; m.textContent = `Applied: the world runs the new text (revision ${graphData.revision}).`; }
     } catch (e) {
@@ -430,8 +598,12 @@ const viewNames = (src) => [...src.matchAll(/^view\s+(\w+)\s+for\s+\w+/gm)].map(
 async function refreshWorlds(select) {
   const { worlds } = await call("world.list");
   const sel = $("world"), keep = select || sel.value;
+  const cwPrev = $("code-world").value;
   sel.innerHTML = worlds.map((w) => `<option value="${w.world}">${w.world}: ${w.lineages.join(", ")}${w.running ? " (running)" : ""}</option>`).join("");
   if (worlds.some((w) => w.world === keep)) sel.value = keep;
+  const cw = $("code-world");
+  cw.innerHTML = sel.innerHTML;
+  cw.value = codeonly && worlds.some((w) => w.world === cwPrev) ? cwPrev : sel.value;
   return worlds;
 }
 
@@ -493,13 +665,16 @@ function connect() {
     say("connected", "ok");
     example = await call("docs.example");
     const worlds = await refreshWorlds();
-    if (worlds.length) { await refreshViews(); await subscribe(); await stats(); }
+    if (codeonly) await loadCode();
+    else if (worlds.length) { await refreshViews(); await subscribe(); await stats(); if (codeOpen()) await loadCode(); }
     clearInterval(poll);
     poll = setInterval(() => {
       stats().catch(() => {});
       refreshWorlds().then((ws) => {
         const w = ws.find((x) => x.world === $("world").value);
         if (mode === "graph" && w && w.revision !== graphRev) loadGraph().catch(() => {});
+        const cw = ws.find((x) => x.world === codeWorld());
+        if (codeOpen() && cw && (cw.world !== codeWorldName || cw.revision !== codeRev)) loadCode().catch(() => {});
       }).catch(() => {});
     }, 1000);
   };
@@ -515,7 +690,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => refreshViews().then(subscribe).then(stats).then(() => (mode === "graph" ? loadGraph() : null)).catch(oops);
+$("world").onchange = () => refreshViews().then(subscribe).then(stats).then(() => (mode === "graph" ? loadGraph() : null)).then(() => loadCode()).catch(oops);
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().catch(oops);
 $("play").onclick = () => call("run.resume", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
 $("pause").onclick = () => call("run.pause", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
