@@ -54,7 +54,7 @@ pub fn run_move(gpu: &Gpu, p: &Packed, rec_in: &[u32]) -> MoveOut {
     let counters = gpu.storage(16);
     let gw = gpu.storage_with(&p.gw);
     let ecap = gpu.storage_with(&p.ecap);
-    let scr = gpu.storage(r.next_power_of_two().max(2) * 8);
+    let scr = gpu.storage(r.next_power_of_two().max(2) * 16);
     let sortp0 = gpu.storage_with(&[0u32, 0, 0, 0]);
     let flows = gpu.storage(3 * ns * 8 + 16);
     let (sb_in, sb_out, sb_blocks, sb_cur) = (gpu.storage(16), gpu.storage(16), gpu.storage(16), gpu.storage(16));

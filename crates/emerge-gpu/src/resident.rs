@@ -427,7 +427,8 @@ impl<'a> Resident<'a> {
         let list_slots = rq_slots.max(n).next_power_of_two().max(2);
         self.ensure(&mut list, &mut lc, list_slots * 8);
         let mut sc = 0usize;
-        self.ensure(&mut scr, &mut sc, list_slots * 8);
+        // Twice the list: the upper half holds the draws of `share`.
+        self.ensure(&mut scr, &mut sc, list_slots * 16);
         (self.b.rec, self.b.rlist, self.b.rq, self.b.list, self.b.scr) = (rec, rlist, rq, list, scr);
         if (self.b.rec_cap, self.b.rq_cap, self.b.list_cap) != (rc, qc, lc) {
             self.sort_cache.clear(); // the bind groups point at the old buffers

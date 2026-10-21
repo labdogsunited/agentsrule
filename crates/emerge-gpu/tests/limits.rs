@@ -36,6 +36,16 @@ fn one_store_asked_by_many() {
 }
 
 #[test]
+fn one_store_asked_by_thousands() {
+    // 5_000 Builders on one cell: a group of thousands, whose leftover µ `share` gives out by bisection
+    // rather than one at a time (a draw per member per µ was some 10^7 draws in one thread).
+    let gpu = Gpu::new();
+    let t = std::time::Instant::now();
+    clean("one cell, 5_000 Builders", compare_full_with(&mut world(&crowded("w: 1, h: 1", "5_000"), "Builder"), &gpu, 6, 1, true, |_| {}));
+    println!("5_000 on one cell, 6 ticks on both runners: {:.2} s", t.elapsed().as_secs_f64());
+}
+
+#[test]
 fn distinct_stores_in_one_bucket() {
     let gpu = Gpu::new();
     // 64 cells, so each is asked by about 30 Builders; with one or two buckets the keys share them.

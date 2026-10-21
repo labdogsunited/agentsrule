@@ -460,27 +460,60 @@ fn share(@builtin(global_invocation_id) id: vec3<u32>) {
         granted_sum += g;
         set_grant(r, stage, u32(g));
     }
-    // The leftover µ, one at a time, to the largest fractions; ties by the draw, then the position.
-    var leftover = u64(available) - granted_sum;
-    // scr_taken: mark by setting the fraction to all ones after use.
-    while (leftover > u64(0u)) {
-        var best = 0xffffffffu;
-        var best_frac: u64 = u64(0u);
-        var best_draw = 0u;
-        for (var q = pos; q < end; q++) {
-            let frac = scr[q];
-            if (frac == U64_MAX()) { continue; }
-            let d = draw(stream, domain, s, pas, q - pos);
-            if (best == 0xffffffffu || frac > best_frac || (frac == best_frac && d < best_draw)) {
-                best = q;
-                best_frac = frac;
-                best_draw = d;
-            }
+    // The leftover µ, one each, to the `leftover` largest fractions; ties by the draw, then the position
+    // (the order `arbitrate::share` sorts by on the CPU). Rather than picking the best one at a time,
+    // which costs a draw per member per µ, the draws are made once (in the upper half of `scr`), and the
+    // cut is found by bisection: first the smallest fraction that gets one, then among the members with
+    // that fraction the largest draw that does. About 100 passes over the group, whatever its size.
+    var k = u64(available) - granted_sum;
+    if (k == u64(0u)) { return; }
+    let half = arrayLength(&scr) / 2u;
+    var top_frac = u64(0u);
+    for (var q = pos; q < end; q++) {
+        scr[half + q] = u64(draw(stream, domain, s, pas, q - pos));
+        top_frac = max(top_frac, scr[q]);
+    }
+    // The largest t with at least k members whose fraction is t or more.
+    var lo = u64(0u);
+    var hi = top_frac;
+    while (lo < hi) {
+        let mid = lo + (hi - lo + u64(1u)) / u64(2u);
+        var n = u64(0u);
+        for (var q = pos; q < end; q++) { if (scr[q] >= mid) { n += u64(1u); } }
+        if (n >= k) { lo = mid; } else { hi = mid - u64(1u); }
+    }
+    let t = lo;
+    var above = u64(0u);
+    var top_draw = u64(0u);
+    for (var q = pos; q < end; q++) {
+        if (scr[q] > t) { above += u64(1u); }
+        if (scr[q] == t) { top_draw = max(top_draw, scr[half + q]); }
+    }
+    // Among the members at fraction t, k - above get one: the smallest draw d with that many at or below it.
+    let want = k - above;
+    var dlo = u64(0u);
+    var dhi = top_draw;
+    while (dlo < dhi) {
+        let mid = dlo + (dhi - dlo) / u64(2u);
+        var n = u64(0u);
+        for (var q = pos; q < end; q++) { if (scr[q] == t && scr[half + q] <= mid) { n += u64(1u); } }
+        if (n >= want) { dhi = mid; } else { dlo = mid + u64(1u); }
+    }
+    let d = dlo;
+    var below = u64(0u);
+    for (var q = pos; q < end; q++) { if (scr[q] == t && scr[half + q] < d) { below += u64(1u); } }
+    // Members at (t, d) take the rest in list order.
+    var rest = want - below;
+    for (var q = pos; q < end; q++) {
+        var gets = scr[q] > t || (scr[q] == t && scr[half + q] < d);
+        if (!gets && scr[q] == t && scr[half + q] == d && rest > u64(0u)) {
+            gets = true;
+            rest -= u64(1u);
         }
-        let r = u32(list[best] & u64(0xffffffffu));
-        set_grant(r, stage, get_grant(r, stage) + 1u);
-        scr[best] = U64_MAX();
-        leftover -= u64(1u);
+        if (gets) {
+            let r = u32(list[q] & u64(0xffffffffu));
+            set_grant(r, stage, get_grant(r, stage) + 1u);
+        }
     }
 }
 
