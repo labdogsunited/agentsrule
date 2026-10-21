@@ -298,7 +298,8 @@ pub fn lower(file: &File, world: &str) -> Result<Schedule, String> {
     })
 }
 
-const NO_EFFECT: &str = "it has no effect";
+pub(crate) const NO_EFFECT: &str = "it has no effect";
+pub(crate) const MIXED: &str = "it mixes kinds of effect";
 
 /// The slot a rule's statements put it in, or why it has none.
 pub fn block_slot(body: &[Node<Stmt>]) -> Result<Slot, String> {
@@ -308,7 +309,7 @@ pub fn block_slot(body: &[Node<Stmt>]) -> Result<Slot, String> {
     for k in kinds {
         let this = leaf_slot(&k)?;
         if slot != Slot::None && slot != this {
-            return Err("it mixes kinds of effect".to_string());
+            return Err(MIXED.to_string());
         }
         slot = this;
     }

@@ -146,3 +146,22 @@ fn extends_formats_and_parses_back() {
     assert!(text.contains("@extra after @respiration;"));
     assert_eq!(parse(&text).unwrap(), file);
 }
+
+#[test]
+fn a_world_rule_holds_one_kind_of_effect_and_at_least_one() {
+    // A transfer and a reaction in one rule: E0303, at the rule, naming both kinds.
+    let mixed = ("react(rot, rate: 50bp) @react_rot;", "react(rot, rate: 50bp) @react_rot;\n        diffuse_conserved([sugar], rate: 300bp) @diffuse_conserved;");
+    let p = problems(&[mixed]);
+    assert_eq!(p.len(), 1, "{p:?}");
+    assert_eq!((p[0].code, p[0].path.as_str()), ("E0303", "Dish.rules.rotting"));
+    assert!(p[0].message.contains("react and transfer"), "{}", p[0].message);
+
+    // A rule with nothing that acts: E0304.
+    let idle = ("react(rot, rate: 50bp) @react_rot;", "let unused = 1.0;");
+    let p = problems(&[idle]);
+    assert_eq!((p[0].code, p[0].path.as_str()), ("E0304", "Dish.rules.rotting"), "{p:?}");
+
+    // `let` next to one kind of effect is fine.
+    let with_let = ("react(rot, rate: 50bp) @react_rot;", "let r = 50bp;\n        react(rot, rate: 50bp) @react_rot;");
+    assert_eq!(problems(&[with_let]), []);
+}

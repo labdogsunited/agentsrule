@@ -4,9 +4,9 @@ What building and testing `emerge-ref` shows about the current spec and `core.md
 
 ## Open
 
-**A rule that mixes kinds of effect is not rejected.** Spec v0.7.9 §7.4 (line 539) and `language.md` §7 say the compiler rejects it (`E0303`, and `E0304` for a rule with no effect). No crate reports either code: the compiler accepts such a rule, the CPU runner builds a law for each statement and runs it in that statement's step, and `emerge order` lists each statement under its step (2026-10-21, decision 7). No file in the repository mixes kinds. The spec should say either that the compiler rejects it (and the compiler should) or that a mixed rule is allowed and runs statement by statement; see decision 9 in `proposals/decisions-for-review.md`.
+None.
 
-Settled: `delta(s)` is the signed difference in the default mode too (2026-10-21, commit `8cb5436`; spec v0.7.9 §10.1). Settled in spec v0.7.9 (Appendix J): contract mode (§10.1), the contract-mode catalyst factor and the `10_000bp` cap on a catalysed world rate (§4.5).
+Settled: a rule that mixes kinds of effect is `E0303`, and a rule with no effect `E0304`, as spec §7.4 says (2026-10-21, decision 9; the compiler accepted both before). `delta(s)` is the signed difference in the default mode too (2026-10-21, commit `8cb5436`; spec v0.7.9 §10.1). Settled in spec v0.7.9 (Appendix J): contract mode (§10.1), the contract-mode catalyst factor and the `10_000bp` cap on a catalysed world rate (§4.5).
 
 ## Not yet covered by the runner
 

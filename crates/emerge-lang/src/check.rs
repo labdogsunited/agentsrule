@@ -37,6 +37,7 @@ pub fn check(file: &File) -> Vec<Problem> {
             Item::World(w) => {
                 names(w, &mut out);
                 writers(w, &mut out);
+                rule_kinds(w, &mut out);
                 chemistry(w, &mut out);
                 upkeep(w, &mut out);
             }
@@ -115,6 +116,38 @@ fn writers(w: &World, out: &mut Vec<Problem>) {
                 message: format!("`{name}` is already written by another rule; declare how writes combine: `field {name} : ... signal combine max;`"),
                 fix: None,
             });
+        }
+    }
+}
+
+/// E0303 and E0304: a world rule holds one kind of effect, and at least one (`language.md` §7, spec
+/// §7.4). The kind is the one `emerge order` places it by (`schedule::block_slot`).
+fn rule_kinds(w: &World, out: &mut Vec<Problem>) {
+    use crate::schedule::{block_slot, Slot, MIXED, NO_EFFECT};
+    for d in &w.decls {
+        let WDecl::Rule { name, body, .. } = &d.node else { continue };
+        let path = format!("{}.rules.{name}", w.name);
+        match block_slot(body) {
+            Err(why) if why == MIXED => {
+                let mut kinds: Vec<&str> = Vec::new();
+                for st in body {
+                    let kind = match block_slot(std::slice::from_ref(st)) {
+                        Ok(Slot::Signal) => "signal",
+                        Ok(Slot::Transfer) => "transfer",
+                        Ok(Slot::React) => "react",
+                        _ => continue,
+                    };
+                    if !kinds.contains(&kind) {
+                        kinds.push(kind);
+                    }
+                }
+                let message = format!("rule `{name}` mixes kinds of effect ({}); a world rule holds one kind, so split it into consecutive rules", kinds.join(" and "));
+                out.push(Problem { code: "E0303", path, pos: d.pos, message, fix: None });
+            }
+            Err(why) if why == NO_EFFECT => {
+                out.push(Problem { code: "E0304", path, pos: d.pos, message: format!("rule `{name}` has no effect: it needs a `transfer`, a `react`, a diffusion or an assignment"), fix: None });
+            }
+            _ => {}
         }
     }
 }
