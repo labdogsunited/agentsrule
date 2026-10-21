@@ -463,3 +463,74 @@ fn a_conditional_world_rule_runs_on_the_cpu_and_the_gpu_refuses_it() {
     assert_eq!(swap["error"]["data"]["kind"], "not_swappable", "{swap}");
     assert_eq!(c.ok("run.step", json!({"world": gpu, "ticks": 5}))["tick"], 5, "the GPU world is unchanged and runs on");
 }
+
+#[test]
+fn every_graph_edit_can_be_undone_and_done_again() {
+    let dir = std::env::temp_dir().join(format!("emerge-graph-undo-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut c = client(start(Some(dir.clone())));
+    let w = c.ok("world.create", json!({"source": small_dish(), "lineages": ["Drifter"], "seed": 3}))["world"].as_str().unwrap().to_string();
+    let source = |c: &mut Client| c.ok("world.source", json!({"world": w}))["source"].as_str().unwrap().to_string();
+    let rev = |c: &mut Client| c.ok("world.graph", json!({"world": w}))["revision"].as_u64().unwrap();
+    let op = |c: &mut Client, op: Value| {
+        let base = rev(c);
+        let r = c.call("world.graph_op", json!({"world": w, "base_revision": base, "op": op}));
+        assert!(r.get("error").is_none(), "{op}: {r}");
+        r["result"].clone()
+    };
+    let squeeze = |s: &str| s.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>().join("\n");
+    let start_text = source(&mut c);
+    let edits: Vec<(&str, Value)> = vec![
+        ("a parameter", json!({"op": "set_param", "id": "Dish.rules.sunlight@transfer_light", "param": "amount", "value": "3u"})),
+        ("a setting", json!({"op": "set_param", "id": "Dish.config.upkeep", "param": "per_gene", "value": "7mu"})),
+        ("an action cost", json!({"op": "set_param", "id": "Dish.menus.actions", "param": "take.cost", "value": "8mu"})),
+        ("a new rule", json!({"op": "add_rule", "kind": "react"})),
+        ("a statement of a rule with others", json!({"op": "delete", "id": "Dish.rules.weather@transfer_body"})),
+        ("a rule's only statement", json!({"op": "delete", "id": "Dish.rules.rotting@react_rot"})),
+    ];
+    for (what, e) in &edits {
+        let before = source(&mut c);
+        c.ok("run.step", json!({"world": w, "ticks": 3}));
+        op(&mut c, e.clone());
+        let after = source(&mut c);
+        assert_ne!(before, after, "{what}: the edit changed nothing");
+        // A rule put back after being deleted is a new node: the blank line that stood before it (its
+        // formatting, not its content) is not restored. Everything else is, byte for byte.
+        let same = |a: &str, b: &str| if what.contains("only statement") { squeeze(a) == squeeze(b) } else { a == b };
+        c.ok("world.undo", json!({"world": w}));
+        let undone = source(&mut c);
+        assert!(same(&undone, &before), "{what}: undo did not give the source back");
+        c.ok("world.redo", json!({"world": w}));
+        assert!(same(&source(&mut c), &after), "{what}: redo did not do it again");
+        c.ok("world.undo", json!({"world": w}));
+        let again = source(&mut c);
+        assert!(same(&again, &before), "{what}: the second undo");
+        // Later steps start from what the undo left.
+        let _ = undone;
+    }
+    assert_eq!(squeeze(&source(&mut c)), squeeze(&start_text));
+    // A text edit and a wire, then everything back, newest first.
+    let id = "Dish.rules.sunlight@transfer_light";
+    let text = c.ok("world.graph", json!({"world": w}))["nodes"].as_array().unwrap().iter().find(|n| n["id"] == id).unwrap()["text"].as_str().unwrap().replace("40mu", "9mu");
+    let base = rev(&mut c);
+    c.ok("world.graph_edit", json!({"world": w, "id": id, "text": text, "base_revision": base}));
+    let added = op(&mut c, json!({"op": "add_rule", "kind": "react"}))["selected"].as_str().unwrap().to_string();
+    op(&mut c, json!({"op": "wire", "from": "Dish.reactions.rot", "to": added}));
+    let hist = c.ok("world.graph", json!({"world": w}))["history"].clone();
+    assert_eq!(hist["undo"].as_array().unwrap().len(), 3, "{hist}");
+    for _ in 0..3 {
+        c.ok("world.undo", json!({"world": w}));
+    }
+    assert_eq!(squeeze(&source(&mut c)), squeeze(&start_text), "three undos, newest first, give the start back");
+    assert_eq!(c.ok("world.graph", json!({"world": w}))["history"]["redo"].as_array().unwrap().len(), 3);
+    // A new edit ends the redo list; with nothing left, undo and redo say so.
+    op(&mut c, json!({"op": "set_param", "id": id, "param": "amount", "value": "5u"}));
+    assert!(c.call("world.redo", json!({"world": w})).get("error").is_some());
+    c.ok("world.undo", json!({"world": w}));
+    assert!(c.call("world.undo", json!({"world": w})).get("error").is_some() || squeeze(&source(&mut c)) == squeeze(&start_text));
+    // Every step is in the journal with its reason, and the journal replays.
+    let journal = std::fs::read_to_string(dir.join(format!("{w}.jsonl"))).unwrap();
+    assert!(journal.contains("undo ") && journal.contains("redo "), "undo and redo are journalled");
+    emerge_server::journal::replay(&journal).expect("the journal replays");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

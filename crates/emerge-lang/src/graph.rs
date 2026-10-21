@@ -281,11 +281,45 @@ pub fn graph(file: &File, world: &str) -> Result<Graph, String> {
     Ok(Graph { world: world.to_string(), nodes, wires })
 }
 
-/// The patch that replaces the text of one statement box (`proposals/node-editor.md` §6, N2):
+/// One edit of the graph as patches: the patch itself (written against `base`), the box the edit leaves
+/// selected, and the bodies of the two patches that move between the states before and after it. A
+/// body is what goes between the braces of `patch W base N { … }`, so undo and redo can be written
+/// against whatever the revision is when they are applied.
+#[derive(Clone, Debug)]
+pub struct Edit {
+    pub patch: String,
+    pub selected: Option<String>,
+    /// Goes back to the state before the edit.
+    pub undo: String,
+    /// Does the edit again after an undo.
+    pub redo: String,
+}
+
+impl Edit {
+    fn new(world: &str, base: u64, redo: String, undo: String, selected: Option<String>) -> Edit {
+        Edit { patch: patch_text(world, base, &redo), selected, undo, redo }
+    }
+}
+
+/// `patch World base N { body }`.
+pub fn patch_text(world: &str, base: u64, body: &str) -> String {
+    format!("patch {world} base {base} {{ {body} }}")
+}
+
+/// The statements of the rule that holds box `id`, as they are now (the whole rule body: what undoes a
+/// change to any one of them, whatever happened to its label).
+fn rule_body_replace(g: &Graph, rule_id: &str) -> String {
+    let prefix = format!("{}.", g.world);
+    let rel = rule_id.strip_prefix(&prefix).unwrap_or(rule_id);
+    let stmts: Vec<&str> = g.nodes.iter().filter(|n| n.group.as_deref() == Some(rule_id)).map(|n| n.text.as_str()).collect();
+    format!("replace {rel} {{ {} }}", stmts.join(" "))
+}
+
+/// The edit that replaces the text of one statement box (`proposals/node-editor.md` §6, N2):
 /// `replace rules.R@label { … }` for a labelled statement, and for one without a label the rule's
 /// whole body with that statement swapped. `base` is the revision the graph was drawn at. Only
 /// statements can be edited; the other boxes are not yet (a reaction or a store has no `replace`).
-pub fn edit_patch(g: &Graph, id: &str, text: &str, base: u64) -> Result<String, String> {
+pub fn edit_text(g: &Graph, id: &str, text: &str, base: u64) -> Result<Edit, String> {
     let node = g.nodes.iter().find(|n| n.id == id).ok_or_else(|| format!("no box `{id}`"))?;
     let Some(rule_id) = &node.group else { return Err(format!("`{id}` is not a statement; only statements can be edited so far")) };
     let prefix = format!("{}.", g.world);
@@ -296,7 +330,7 @@ pub fn edit_patch(g: &Graph, id: &str, text: &str, base: u64) -> Result<String, 
         let stmts: Vec<String> = g.nodes.iter().filter(|n| n.group.as_ref() == Some(rule_id)).map(|n| if n.id == id { text.to_string() } else { n.text.clone() }).collect();
         format!("replace {} {{ {} }}", rel(rule_id), stmts.join(" "))
     };
-    Ok(format!("patch {} base {base} {{ {body} }}", g.world))
+    Ok(Edit::new(&g.world, base, body, rule_body_replace(g, rule_id), Some(id.to_string())))
 }
 
 /// An edit of the graph (`proposals/node-editor.md` §6, N3). Each one becomes one patch.
@@ -352,7 +386,7 @@ fn short(id: &str) -> &str {
 
 /// The patch for `op` on `world` of the parsed `file`, written against revision `base`, and the id
 /// of the box the edit leaves selected, if there is one.
-pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<(String, Option<String>), String> {
+pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<Edit, String> {
     let g = graph(file, world)?;
     let w = file
         .items
@@ -386,15 +420,21 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<(String,
         }
         Err(format!("no statement `{id}`"))
     };
-    let replace_with = |id: &str, stmt: &Stmt| edit_patch(&g, id, &stmt_text(stmt), base).map(|p| (p, Some(id.to_string())));
+    let replace_with = |id: &str, stmt: &Stmt| edit_text(&g, id, &stmt_text(stmt), base);
     // Change one named argument. A labelled statement that has the argument is changed in place with
     // `set`, which keeps its comments; otherwise the statement is replaced by its new text.
-    let set_arg = |id: &str, param: &str, text: &str| -> Result<(String, Option<String>), String> {
+    let set_arg = |id: &str, param: &str, text: &str| -> Result<Edit, String> {
         let (_, _, mut stmt) = statement(id)?;
         let value = parse_value(text)?;
         let Stmt::Call { call, .. } = &mut stmt else { return Err(format!("`{id}` has no arguments to set")) };
         if id.contains('@') && call.args.iter().any(|a| a.name.as_deref() == Some(param)) {
-            return Ok((format!("patch {world} base {base} {{ set {}.{param} = {text}; }}", rel(id)), Some(id.to_string())));
+            // Undone by setting the old text back, if the argument had one that can be written again.
+            let old = node(id)?.params.iter().find(|(k, _)| k == param).map(|(_, v)| v.clone());
+            let undo = match old {
+                Some(v) if parse_value(&v).is_ok() => format!("set {}.{param} = {v};", rel(id)),
+                _ => rule_body_replace(&g, node(id)?.group.as_deref().unwrap_or_default()),
+            };
+            return Ok(Edit::new(world, base, format!("set {}.{param} = {text};", rel(id)), undo, Some(id.to_string())));
         }
         put_arg(call, Some(param), value);
         replace_with(id, &stmt)
@@ -419,7 +459,9 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<(String,
                 Some(("reactions", name)) => format!("reactions.{name}.{param}"),
                 _ => return Err(format!("`{id}` cannot be set")),
             };
-            Ok((format!("patch {world} base {base} {{ set {path} = {value}; }}"), Some(id.clone())))
+            let old = n.params.iter().find(|(k, _)| k == param).map(|(_, v)| v.clone()).unwrap_or_default();
+            // A catalyst that was absent has no old value to write back: refused as not swappable anyway.
+            Ok(Edit::new(world, base, format!("set {path} = {value};"), format!("set {path} = {old};"), Some(id.clone())))
         }
         Op::SetParam { id, param, value } => set_arg(id, param, value),
         Op::Wire { from, to } => {
@@ -449,15 +491,25 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<(String,
             let n = node(id)?;
             let rule_id = n.group.clone().ok_or_else(|| format!("`{id}` is not a statement; only statements can be deleted so far"))?;
             let siblings = g.nodes.iter().filter(|x| x.group.as_ref() == Some(&rule_id)).count();
-            let patch = if siblings == 1 {
-                format!("remove {};", rel(&rule_id))
+            let (body, undo) = if siblings == 1 {
+                // The whole rule goes; it comes back after the rule before it (or before the one after).
+                let rule_name = rule_id.rsplit('.').next().unwrap_or_default().to_string();
+                let rules: Vec<&Node<WDecl>> = w.decls.iter().filter(|d| matches!(d.node, WDecl::Rule { .. })).collect();
+                let at = rules.iter().position(|d| matches!(&d.node, WDecl::Rule { name, .. } if *name == rule_name)).ok_or("the rule is not in the world")?;
+                let text = decl_text(&rules[at].node);
+                let place = match (at.checked_sub(1).and_then(|i| rules.get(i)), rules.get(at + 1)) {
+                    (Some(prev), _) => format!("add after rules.{}: ", name_of(&prev.node)),
+                    (None, Some(next)) => format!("add before rules.{}: ", name_of(&next.node)),
+                    (None, None) => "add ".to_string(),
+                };
+                (format!("remove {};", rel(&rule_id)), format!("{place}{text}"))
             } else if id.contains('@') {
-                format!("remove {};", rel(id))
+                (format!("remove {};", rel(id)), rule_body_replace(&g, &rule_id))
             } else {
                 let rest: Vec<String> = g.nodes.iter().filter(|x| x.group.as_ref() == Some(&rule_id) && x.id != *id).map(|x| x.text.clone()).collect();
-                format!("replace {} {{ {} }}", rel(&rule_id), rest.join(" "))
+                (format!("replace {} {{ {} }}", rel(&rule_id), rest.join(" ")), rule_body_replace(&g, &rule_id))
             };
-            Ok((format!("patch {world} base {base} {{ {patch} }}"), None))
+            Ok(Edit::new(world, base, body, undo, None))
         }
         Op::AddRule { kind } => {
             let mut names: Vec<String> = Vec::new();
@@ -501,8 +553,8 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<(String,
                 other => return Err(format!("unknown kind `{other}`: transfer, react, diffuse or code")),
             };
             let label = stmt.rsplit('@').next().unwrap_or("").trim_end_matches(';').to_string();
-            let patch = format!("patch {world} base {base} {{ add after rules.{last_rule}: rule {name} on {field} {{ {stmt} }} }}");
-            Ok((patch, Some(format!("{world}.rules.{name}@{label}"))))
+            let body = format!("add after rules.{last_rule}: rule {name} on {field} {{ {stmt} }}");
+            Ok(Edit::new(world, base, body, format!("remove rules.{name};"), Some(format!("{world}.rules.{name}@{label}"))))
         }
     }
 }

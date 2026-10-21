@@ -135,6 +135,7 @@
   #palette { position: absolute; left: 12px; top: 12px; display: none; gap: 6px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; z-index: 3; cursor: default; color: var(--muted); font-size: 12px; }
   body.graph #palette { display: flex; }
   #palette button { padding: 3px 8px; }
+  #palette button:disabled { opacity: 0.4; cursor: default; }
   #picked .params { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; margin-bottom: 8px; }
   #picked .params label { margin: 0; }
   #picked .params input { padding: 3px 6px; font: 12px ui-monospace, monospace; }
@@ -211,7 +212,7 @@
     </div>
     <div id="error"></div>
   </aside>
-  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button></div><div id="pickmark"></div><div id="infopanel"></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit. i: info picker."><span id="zoom">100%</span><button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button><button id="fit">Fit</button></div></main>
+  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div><div id="pickmark"></div><div id="infopanel"></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit. i: info picker."><span id="zoom">100%</span><button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button><button id="fit">Fit</button></div></main>
   <section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
@@ -715,12 +716,41 @@ async function graphOp(op) {
     oops(m ? `The engine cannot swap this into a running world (${m[1]} changed). The world is unchanged; create a new world from the changed source to try it.` : e);
   }
 }
+// Undo and redo: the server keeps the patch that undoes each graph edit (`world.undo`, `world.redo`).
+// A change made some other way can stop an undo from applying; the reason is shown and nothing changes.
+function updateHistory() {
+  const h = (graphData && graphData.history) || { undo: [], redo: [] };
+  $("undo").disabled = !h.undo.length;
+  $("redo").disabled = !h.redo.length;
+  $("undo").title = h.undo.length ? `Undo: ${h.undo[h.undo.length - 1]} (Ctrl+Z)` : "Nothing to undo";
+  $("redo").title = h.redo.length ? `Redo: ${h.redo[h.redo.length - 1]} (Ctrl+Shift+Z)` : "Nothing to redo";
+}
+async function stepHistory(method) {
+  oops();
+  try {
+    await call(method, { world: $("world").value });
+    await loadGraph();
+    await loadCode().catch(() => {});
+    if (selected && !graphData.nodes.some((n) => n.id === selected)) select(null);
+  } catch (e) {
+    oops(e);
+  }
+}
+$("undo").onclick = () => stepHistory("world.undo");
+$("redo").onclick = () => stepHistory("world.redo");
+window.addEventListener("keydown", (e) => {
+  if (mode !== "graph" || !(e.ctrlKey || e.metaKey) || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (k === "z" && !e.shiftKey) { e.preventDefault(); if (!$("undo").disabled) stepHistory("world.undo"); }
+  else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); if (!$("redo").disabled) stepHistory("world.redo"); }
+});
+
 function savePosition(id) {
   const p = placed.get(id);
   if (!p || !graphData) return;
   call("world.layout_set", { world: $("world").value, positions: { [id]: [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10] } }).catch(() => {});
 }
-for (const b of document.querySelectorAll("#palette button")) b.onclick = () => graphOp({ op: "add_rule", kind: b.dataset.kind });
+for (const b of document.querySelectorAll("#palette button[data-kind]")) b.onclick = () => graphOp({ op: "add_rule", kind: b.dataset.kind });
 
 // The selected box. A statement is edited in place: Apply sends the new text, the server makes the
 // patch and swaps the running world (`world.graph_edit`); a refused edit changes nothing and its
@@ -802,6 +832,7 @@ async function loadGraph() {
   graphData = await call("world.graph", { world: w });
   graphRev = graphData.revision;
   drawGraph();
+  updateHistory();
 }
 
 // ---- The genome view (`proposals/node-editor.md` N5): one living creature's genes as boxes, in the

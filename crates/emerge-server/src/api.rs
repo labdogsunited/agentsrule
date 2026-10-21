@@ -50,6 +50,29 @@ struct Entry {
     running: bool,
     /// Where the node editor's boxes sit, by box id (`world.layout_set`); a sidecar, never part of the source.
     layout: serde_json::Map<String, Value>,
+    /// The graph edits made, newest last, and the ones undone (`world.undo`, `world.redo`).
+    undo: Vec<Step>,
+    redo: Vec<Step>,
+}
+
+/// One graph edit as the bodies of the patches that undo and redo it (`emerge_lang::graph::Edit`).
+#[derive(Clone)]
+struct Step {
+    what: String,
+    undo: String,
+    redo: String,
+}
+
+/// Applies a graph edit to the run: the patch goes through `hotswap` (checked, preflighted,
+/// journalled with `reason`), and on success the edit is remembered so that it can be undone.
+fn apply_edit(e: &mut Entry, edit: emerge_lang::graph::Edit, base: u64, reason: &str, what: &str) -> Result<Value, Fault> {
+    let mut r = e.run.hotswap(&edit.patch, base, reason).map_err(|r| rejected(&r))?;
+    e.undo.push(Step { what: what.to_string(), undo: edit.undo, redo: edit.redo });
+    e.redo.clear();
+    if let (Some(id), Value::Object(m)) = (edit.selected, &mut r) {
+        m.insert("selected".into(), json!(id));
+    }
+    Ok(r)
 }
 
 #[derive(Default)]
@@ -163,7 +186,7 @@ impl Engine {
                 };
                 let run = Run::create(spec, journal).map_err(|e| rejected(&e))?;
                 let out = json!({"world": id, "revision": 0, "tick": 0, "population": run.population(), "backend": run.device});
-                self.runs.insert(id, Entry { run, running: false, layout: Default::default() });
+                self.runs.insert(id, Entry { run, running: false, layout: Default::default(), undo: Vec::new(), redo: Vec::new() });
                 Ok(out)
             }
             "world.validate" => {
@@ -192,6 +215,7 @@ impl Engine {
                     "revision": e.run.revision(),
                     "world": g.world,
                     "positions": e.layout,
+                    "history": {"undo": e.undo.iter().map(|s| s.what.clone()).collect::<Vec<_>>(), "redo": e.redo.iter().map(|s| s.what.clone()).collect::<Vec<_>>()},
                     "nodes": g.nodes.iter().map(|n| json!({"id": n.id, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "step": n.step, "group": n.group, "line": n.line, "params": n.params})).collect::<Vec<_>>(),
                     "wires": g.wires.iter().map(|w| json!({"from": w.from, "to": w.to, "substance": w.substance})).collect::<Vec<_>>(),
                 }))
@@ -208,16 +232,16 @@ impl Engine {
                     _ => None,
                 });
                 let g = emerge_lang::graph::graph(&file, &world.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?).map_err(|m| fault(-32005, m))?;
-                let patch = emerge_lang::graph::edit_patch(&g, &id, &text, base).map_err(|m| fault(-32602, m))?;
+                let edit = emerge_lang::graph::edit_text(&g, &id, &text, base).map_err(|m| fault(-32602, m))?;
                 // A syntax error is told in terms of the user's text, not of the patch made from it.
-                if let Err(d) = emerge_lang::parse(&patch) {
-                    if let (1, Some(off)) = (d.line, patch.find(&text)) {
+                if let Err(d) = emerge_lang::parse(&edit.patch) {
+                    if let (1, Some(off)) = (d.line, edit.patch.find(&text)) {
                         let col = d.col.saturating_sub(off);
                         let at = if col == 0 || col > text.chars().count() { "at the end of the text".to_string() } else { format!("at column {col} of the text") };
                         return Err(Fault { code: -32001, message: format!("invalid: {} {at}: {}", d.code, d.message), data: Some(json!({"kind": "invalid"})) });
                     }
                 }
-                e.run.hotswap(&patch, base, &format!("graph edit of {id}")).map_err(|r| rejected(&r))
+                apply_edit(e, edit, base, &format!("graph edit of {id}"), &format!("edit {id}"))
             }
             "world.graph_op" => {
                 // One edit of the graph (`emerge_lang::graph::Op`): the patch is made from the model and
@@ -231,10 +255,31 @@ impl Engine {
                     _ => None,
                 });
                 let world = world.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
-                let (patch, selected) = emerge_lang::graph::op_patch(&file, &world, &op, base).map_err(|m| fault(-32602, m))?;
-                let mut r = e.run.hotswap(&patch, base, &format!("graph {what}")).map_err(|r| rejected(&r))?;
-                if let (Some(id), Value::Object(m)) = (selected, &mut r) {
-                    m.insert("selected".into(), json!(id));
+                let edit = emerge_lang::graph::op_patch(&file, &world, &op, base).map_err(|m| fault(-32602, m))?;
+                apply_edit(e, edit, base, &format!("graph {what}"), &what)
+            }
+            "world.undo" | "world.redo" => {
+                // Takes back the last graph edit (or does it again): the patch that undoes it, written
+                // against the current revision, goes through `hotswap` like any swap. If the world has
+                // changed in a way that makes it fail, the edit stays where it was and the reason is given.
+                let undoing = method == "world.undo";
+                let e = self.entry(p)?;
+                let step = (if undoing { e.undo.last() } else { e.redo.last() }).cloned().ok_or_else(|| bad(if undoing { "nothing to undo" } else { "nothing to redo" }))?;
+                let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+                let world = file.items.iter().find_map(|i| match &i.node {
+                    emerge_lang::ast::Item::World(w) => Some(w.name.clone()),
+                    _ => None,
+                });
+                let world = world.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+                let base = e.run.revision();
+                let patch = emerge_lang::graph::patch_text(&world, base, if undoing { &step.undo } else { &step.redo });
+                let r = e.run.hotswap(&patch, base, &format!("{} {}", if undoing { "undo" } else { "redo" }, step.what)).map_err(|r| rejected(&r))?;
+                if undoing {
+                    e.undo.pop();
+                    e.redo.push(step);
+                } else {
+                    e.redo.pop();
+                    e.undo.push(step);
                 }
                 Ok(r)
             }
