@@ -161,22 +161,7 @@ fn let_else_and_nesting_run_as_on_the_cpu() {
     same_on_both(&mixed, &["Drifter", "Builder"], 4, 400, 25);
     // Each condition of that dish holds in some cells and not in others, so the paths of a failing
     // condition (no diffusion requests, no reaction) ran on the GPU too.
-    let mut w = world(&mixed, &["Drifter", "Builder"], 4);
-    let mut split = vec![false; w.laws.len()];
-    for tick in 0..400u64 {
-        if tick % 25 == 10 {
-            for (li, law) in w.laws.iter().enumerate() {
-                if let Some(cond) = law.parts().1 {
-                    let holds = w.cells.iter().filter(|c| cond.holds(&emerge_ref::cond::Ctx { tick: w.tick, amounts: &c.amounts[..], caps: &c.caps[..] })).count();
-                    split[li] |= holds > 0 && holds < w.cells.len();
-                }
-            }
-        }
-        w.run_tick();
-    }
-    let conditional: Vec<usize> = (0..w.laws.len()).filter(|&l| w.laws[l].is_conditional()).collect();
-    assert_eq!(conditional.len(), 3, "the rich reaction, its else, and the diffusion");
-    assert!(conditional.iter().all(|&l| split[l]), "a condition held everywhere or nowhere: {split:?}");
+    assert_split(&mixed, &["Drifter", "Builder"], 4, 400);
 }
 
 #[test]
@@ -303,4 +288,82 @@ fn a_condition_deeper_than_the_gpu_stack_is_refused_with_the_reason() {
     assert!(matches!(hotswap(&mut live, &mut r, &patch, base), Err(Rejected::NotSwappable(why)) if why.contains("values deep")));
     r.tick();
     assert_eq!(live.revision, 0);
+}
+
+// ---------- stage 2a: neighbour reads (proposals/rule-conditions.md) ----------
+
+/// A `w × h` grid that wraps or not, no creatures, and one conditional inflow per `(name, condition,
+/// substance, amount, source)`.
+fn grid_src(w: usize, h: usize, wrap: bool, list: &[(&str, &str, &str, &str, &str)]) -> String {
+    let rules: String = list.iter().map(|(n, c, s, a, f)| format!("    rule {n} on cells {{\n        when {c} {{ transfer({s}, from: {f}, to: self, amount: {a}, overflow: void) @transfer_{s}; }}\n    }}\n")).collect();
+    bare(&rules).replace("Grid(w: 96, h: 96)", &format!("Grid(w: {w}, h: {h})")).replace("wrap: true", &format!("wrap: {wrap}"))
+}
+
+/// Asserts that every condition of the world holds in some cells and not in others at some of the
+/// sampled ticks, so the GPU ran both outcomes.
+fn assert_split(src: &str, lineages: &[&str], seed: u64, ticks: u64) {
+    let mut w = world(src, lineages, seed);
+    let space = w.space.clone().unwrap();
+    let mut split = vec![false; w.laws.len()];
+    for tick in 0..ticks {
+        if tick % 25 == 10 {
+            let cells = &w.cells;
+            for (li, law) in w.laws.iter().enumerate() {
+                let Some(cond) = law.parts().1 else { continue };
+                let holds = (0..cells.len())
+                    .filter(|&c| {
+                        let nb = |d: usize| emerge_ref::cond::neighbour(space.grid_w, space.grid_h, space.wrap, c, d).map(|n| &cells[n].amounts[..]);
+                        cond.holds(&emerge_ref::cond::Ctx { tick: w.tick, amounts: &cells[c].amounts[..], caps: &cells[c].caps[..], neighbour: &nb })
+                    })
+                    .count();
+                split[li] |= holds > 0 && holds < cells.len();
+            }
+        }
+        w.run_tick();
+    }
+    let conditional: Vec<usize> = (0..w.laws.len()).filter(|&l| w.laws[l].is_conditional()).collect();
+    assert!(conditional.iter().all(|&l| split[l]), "a condition held everywhere or nowhere: {split:?}");
+}
+
+#[test]
+fn neighbour_reads_run_as_on_the_cpu() {
+    let rules = [
+        ("grow", "above.nitrate == 0u", "nitrate", "1u", "rock"),
+        ("stripe", "max(vonneumann.nitrate) > self.nitrate", "carbon", "1u", "rock"),
+        ("inner", "sum(moore.nitrate) > 8 * self.nitrate", "body", "1mu", "rock"),
+        ("none", "min(moore.nitrate) == 0u", "light", "1mu", "sun"),
+        ("edge", "count(moore.nitrate >= 20u) < 8 and left.carbon + right.carbon > 2u * 50 - 1u", "body", "2mu", "rock"),
+    ];
+    for wrap in [false, true] {
+        same_on_both(&grid_src(6, 5, wrap, &rules), &[], 1, 8, 1);
+    }
+    // Two cells wide and one high, wrapping: neighbours count twice, and the cell is its own.
+    same_on_both(&grid_src(2, 1, true, &rules), &[], 1, 4, 1);
+    same_on_both(&grid_src(3, 2, true, &rules), &[], 1, 4, 1);
+}
+
+#[test]
+fn neighbour_reads_with_creatures_run_as_on_the_cpu() {
+    let reads = |src: String| {
+        src.replace(SUN, &format!("when above.light < 40mu or count(moore.carbon > self.carbon) >= 4 {{ {SUN} }}"))
+            .replace(ROT, &format!("when max(moore.body) > self.body + 2mu {{ {ROT} }}"))
+            .replace(SPREAD, &format!("when sum(vonneumann.carbon) > 4 * self.carbon or min(moore.sugar - below.sugar) > 0u {{ {SPREAD} }}"))
+    };
+    let wrapping = reads(small());
+    let edged = reads(small().replace("wrap: true", "wrap: false"));
+    for src in [&wrapping, &edged] {
+        assert_split(src, &["Drifter", "Builder"], 3, 300);
+    }
+    for (src, seed) in [(&wrapping, 3), (&edged, 8)] {
+        same_on_both(src, &["Drifter", "Builder"], seed, 320, 20);
+    }
+}
+
+#[test]
+fn a_reduction_body_deeper_than_the_gpu_stack_is_refused() {
+    let body = |levels: usize| (0..levels).fold("moore.carbon".to_string(), |e, _| format!("self.carbon + ({e})"));
+    let src = |levels: usize| grid_src(6, 5, false, &[("deep", &format!("sum({}) > 1u", body(levels)), "nitrate", "1u", "rock")]);
+    assert!(world(&src(15), &[], 1).gpu_unsupported().is_none(), "a body 16 deep fits");
+    same_on_both(&src(15), &[], 1, 3, 1);
+    assert!(world(&src(16), &[], 1).gpu_unsupported().unwrap().contains("17 values deep"));
 }

@@ -942,8 +942,13 @@ impl World {
             }
             for c in 0..self.cells.len() {
                 if let Some(cond) = cond {
+                    let (cells, space) = (&self.cells, self.space.as_ref());
+                    let neighbour = |d: usize| -> Option<&[Mu]> {
+                        let sp = space.filter(|sp| c < sp.grid_w * sp.grid_h)?;
+                        crate::cond::neighbour(sp.grid_w, sp.grid_h, sp.wrap, c, d).map(|n| &cells[n].amounts[..])
+                    };
                     let cell = &self.cells[c];
-                    if !cond.holds(&crate::cond::Ctx { tick: self.tick, amounts: &cell.amounts[..], caps: &cell.caps[..] }) {
+                    if !cond.holds(&crate::cond::Ctx { tick: self.tick, amounts: &cell.amounts[..], caps: &cell.caps[..], neighbour: &neighbour }) {
                         if let Some(m) = &mut self.react_masks[li] {
                             m[c] = false;
                         }

@@ -158,7 +158,8 @@ fn what_cannot_be_evaluated_yet_is_refused_with_the_reason() {
     let (c, m) = code("self.nitrate / 2u > 3u").unwrap();
     assert_eq!(c, "E1001", "{m}");
     assert!(m.contains("division"), "{m}");
-    assert_eq!(code("above.nitrate > 0u").unwrap().0, "E1001");
+    assert_eq!(code("mean(moore.nitrate) > 0u").unwrap().0, "E1001");
+    assert_eq!(code("scent.here > 0u").unwrap().0, "E1001");
     assert_eq!(code("self.value > 0.5").unwrap().0, "E1001");
     // A comparison of an amount with an integer, a condition that is not true or false, an unknown name.
     assert_eq!(code("self.nitrate > 5").unwrap().0, "E0205");
@@ -189,4 +190,128 @@ fn a_swap_can_add_a_conditional_rule() {
     // The rule can be changed and removed again.
     live.hotswap("patch Dish {\n    remove rules.gate;\n}\n", live.revision).unwrap();
     assert!(!live.world.laws.iter().any(|l| l.is_conditional()));
+}
+
+// ---------- stage 2a: neighbour reads (proposals/rule-conditions.md) ----------
+
+/// A `w × h` grid that wraps or not, no creatures, and the rules given; cells start at 50u carbon,
+/// 20u nitrate, 1u body and no light.
+fn grid_world(w: usize, h: usize, wrap: bool, rules: &str) -> World {
+    let src = cut_rules(DISH, &["sunlight", "weather", "rotting", "spread"])
+        .replace("Grid(w: 256, h: 256)", &format!("Grid(w: {w}, h: {h})"))
+        .replace("wrap: true", &format!("wrap: {wrap}"));
+    let at = src.find("    genesis {").unwrap();
+    let mut src = src;
+    src.insert_str(at, &format!("{rules}\n"));
+    compile(&src, &[], opts(1)).unwrap_or_else(|e| panic!("{e}")).world
+}
+
+fn inflow(s: &str, amount: &str, from: &str) -> String {
+    format!("transfer({s}, from: {from}, to: self, amount: {amount}, overflow: void) @transfer_{s}")
+}
+
+/// One rule per line of `(name, condition, substance, amount, source)`.
+fn rules(list: &[(&str, &str, &str, &str, &str)]) -> String {
+    list.iter().map(|(n, c, s, a, f)| format!("    rule {n} on cells {{\n        when {c} {{ {}; }}\n    }}\n", inflow(s, a, f))).collect()
+}
+
+/// The amount of `name` in every cell, row by row.
+fn rows(w: &World, name: &str, width: usize) -> Vec<Vec<u32>> {
+    let s = w.chem.substances.iter().position(|x| x.name == name).unwrap();
+    w.cells.chunks(width).map(|r| r.iter().map(|c| c.amounts[s]).collect()).collect()
+}
+
+const NEIGHBOUR_RULES: [(&str, &str, &str, &str, &str); 4] = [
+    ("grow", "above.nitrate == 0u", "nitrate", "1u", "rock"),
+    ("stripe", "max(vonneumann.nitrate) > self.nitrate", "carbon", "1u", "rock"),
+    ("inner", "sum(moore.nitrate) > 8 * self.nitrate", "body", "1mu", "rock"),
+    ("none", "min(moore.nitrate) == 0u", "light", "1mu", "sun"),
+];
+
+#[test]
+fn neighbour_reads_give_the_amounts_worked_out_by_hand() {
+    // A 6 × 5 grid that does not wrap. Only the top row has no cell above, which reads 0, so only it
+    // grows (1u a tick). From the second tick the row below it sees a richer neighbour above (`max`),
+    // and its inner cells, with three richer cells among their eight, have a Moore sum above 8 times
+    // their own (`sum`). Cells outside the grid are no members, so `min` is never 0.
+    let mut w = grid_world(6, 5, false, &rules(&NEIGHBOUR_RULES));
+    for _ in 0..5 {
+        w.step().unwrap();
+    }
+    w.audit().unwrap();
+    let row = |v: u32| vec![v; 6];
+    assert_eq!(rows(&w, "nitrate", 6), vec![row(25_000), row(20_000), row(20_000), row(20_000), row(20_000)]);
+    assert_eq!(rows(&w, "carbon", 6), vec![row(50_000), row(54_000), row(50_000), row(50_000), row(50_000)]);
+    assert_eq!(rows(&w, "body", 6)[1], vec![1_000, 1_004, 1_004, 1_004, 1_004, 1_000], "the edge cells of row 1 have five neighbours");
+    assert!(rows(&w, "body", 6).iter().enumerate().all(|(y, r)| y == 1 || r.iter().all(|&b| b == 1_000)));
+    assert!(rows(&w, "light", 6).iter().flatten().all(|&l| l == 0));
+    // On the same grid wrapping, every cell has a cell above, and nothing happens at all.
+    let mut w = grid_world(6, 5, true, &rules(&NEIGHBOUR_RULES));
+    for _ in 0..5 {
+        w.step().unwrap();
+    }
+    assert!(rows(&w, "nitrate", 6).iter().flatten().all(|&n| n == 20_000));
+    assert!(rows(&w, "carbon", 6).iter().flatten().all(|&n| n == 50_000));
+}
+
+#[test]
+fn border_cells_have_fewer_neighbours() {
+    // Every cell has 8 Moore neighbours at 20u or more, except on the border of a grid that does not wrap.
+    let r = rules(&[("border", "count(moore.nitrate >= 20u) < 8", "nitrate", "1u", "rock")]);
+    let mut w = grid_world(5, 4, false, &r);
+    for _ in 0..3 {
+        w.step().unwrap();
+    }
+    let grid = rows(&w, "nitrate", 5);
+    for (y, row) in grid.iter().enumerate() {
+        for (x, &n) in row.iter().enumerate() {
+            let border = x == 0 || y == 0 || x == 4 || y == 3;
+            assert_eq!(n, if border { 23_000 } else { 20_000 }, "cell ({x}, {y})");
+        }
+    }
+    let mut w = grid_world(5, 4, true, &r);
+    w.step().unwrap();
+    assert!(rows(&w, "nitrate", 5).iter().flatten().all(|&n| n == 20_000));
+}
+
+#[test]
+fn on_a_narrow_wrapping_grid_a_neighbour_can_count_twice() {
+    // Two cells wide: left and right are the same cell, and so are the three cells to each side; one
+    // cell high would make the cell its own neighbour. All 8 members are there, as in `life_like`.
+    let r = rules(&[
+        ("all", "count(moore.nitrate >= 20u) == 8 and sum(moore.nitrate) == 8 * self.nitrate", "nitrate", "1u", "rock"),
+        ("self_too", "count(vonneumann.carbon == self.carbon) == 4", "carbon", "1u", "rock"),
+    ]);
+    let mut w = grid_world(2, 1, true, &r);
+    w.step().unwrap();
+    assert!(rows(&w, "nitrate", 2).iter().flatten().all(|&n| n == 21_000));
+    assert!(rows(&w, "carbon", 2).iter().flatten().all(|&n| n == 51_000));
+}
+
+#[test]
+fn neighbour_reads_refuse_what_they_cannot_mean() {
+    let code = |cond: &str| {
+        let src = cut_rules(&small(), &["sunlight", "weather", "rotting", "spread"]);
+        let at = src.find("    genesis {").unwrap();
+        let mut src = src;
+        src.insert_str(at, &rules(&[("gate", cond, "nitrate", "1u", "rock")]));
+        compile(&src, &[], opts(1)).err().map(|e| (e.code, e.message))
+    };
+    for (cond, want, says) in [
+        ("mean(moore.nitrate) > 1u", "E1001", "mean"),
+        ("argmin(moore.nitrate) > 1u", "E1001", "argmin"),
+        ("sum(moore.nitrate + sum(moore.carbon)) > 1u", "E1001", "inside another reduction"),
+        ("sum(moore.nitrate + vonneumann.carbon) > 1u", "E0205", "not both"),
+        ("moore.nitrate > 1u", "E0205", "inside `sum`"),
+        ("min(self.nitrate, 5u) > 1u", "E0005", "only the first argument may be unnamed"),
+        ("count(moore.nitrate) > 1", "E0205", "count"),
+        ("sum(moore.nitrate > 1u) > 1", "E0205", "use `count"),
+        ("sum(self.nitrate) > 1u", "E0205", "needs a collection"),
+        ("scent.here > 1u", "E1001", "scent"),
+    ] {
+        let (c, m) = code(cond).unwrap_or_else(|| panic!("`{cond}` was accepted"));
+        assert_eq!(c, want, "`{cond}`: {m}");
+        assert!(m.contains(says), "`{cond}`: {m}");
+    }
+    assert!(code("count(moore.nitrate > self.nitrate) >= 3 and min(vonneumann.carbon * 2) < 100u + below.carbon").is_none());
 }

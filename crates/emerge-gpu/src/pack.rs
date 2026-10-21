@@ -120,6 +120,17 @@ pub const C_GE: u32 = 12;
 pub const C_AND: u32 = 13;
 pub const C_OR: u32 = 14;
 pub const C_NOT: u32 = 15;
+/// A neighbour's amount: substance in bits 8–15, direction (`cond::OFFSETS`) in bits 16–23.
+pub const C_NB: u32 = 16;
+/// The current neighbour's amount, in a reduction's body.
+pub const C_ELEM: u32 = 17;
+/// A reduction: `RED_*` in bits 8–11, 1 for Moore (else von Neumann) in bits 12–15; the next word is
+/// the length of its body, whose words follow.
+pub const C_REDUCE: u32 = 18;
+pub const RED_SUM: u32 = 0;
+pub const RED_MIN: u32 = 1;
+pub const RED_MAX: u32 = 2;
+pub const RED_COUNT: u32 = 3;
 
 /// Output record codes (word 0). 0 is no intent.
 pub const R_MOVE: u32 = 1;
@@ -497,7 +508,7 @@ pub fn pack_transform(world: &World, p: &mut Packed) {
 /// then the words. `cond_holds` (shader.rs) evaluates it in 64-bit two's complement with the
 /// saturation of the CPU's `i64` arithmetic, on the cells as the tick began.
 pub fn cond_program(cond: &emerge_ref::cond::Ex, out: &mut Vec<u32>) {
-    use emerge_ref::cond::{Cmp, Ex};
+    use emerge_ref::cond::{Cmp, Ex, Red, Set};
     fn emit(x: &Ex, out: &mut Vec<u32>) {
         let pair = |a: &Ex, b: &Ex, op: u32, out: &mut Vec<u32>| {
             emit(a, out);
@@ -509,6 +520,20 @@ pub fn cond_program(cond: &emerge_ref::cond::Ex, out: &mut Vec<u32>) {
             Ex::Tick => out.push(C_TICK),
             Ex::Own(s) => out.push(C_OWN | (*s as u32) << 8),
             Ex::Cap(s) => out.push(C_CAP | (*s as u32) << 8),
+            Ex::Nb(d, s) => out.push(C_NB | (*s as u32) << 8 | (*d as u32) << 16),
+            Ex::Elem(s) => out.push(C_ELEM | (*s as u32) << 8),
+            Ex::Reduce(red, set, body) => {
+                let red = match red {
+                    Red::Sum => RED_SUM,
+                    Red::Min => RED_MIN,
+                    Red::Max => RED_MAX,
+                    Red::Count => RED_COUNT,
+                };
+                out.extend_from_slice(&[C_REDUCE | red << 8 | u32::from(*set == Set::Moore) << 12, 0]);
+                let at = out.len();
+                emit(body, out);
+                out[at - 1] = (out.len() - at) as u32;
+            }
             Ex::Add(a, b) => pair(a, b, C_ADD, out),
             Ex::Sub(a, b) => pair(a, b, C_SUB, out),
             Ex::Mul(a, b) => pair(a, b, C_MUL, out),

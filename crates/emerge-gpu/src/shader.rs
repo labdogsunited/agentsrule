@@ -109,9 +109,62 @@ fn fit(v: f32, size: f32, wrap: bool) -> f32 {{
 }
 
 /// `cond_holds(at, c)`: whether the condition program at word `at` of `table` (`pack::cond_program`)
-/// holds in cell `c`. It reads the cells as the tick began (`camt0`), their caps (`ccap`) and the
-/// tick. Values are `i64` held as `u64` in two's complement, with the saturation of `cond.rs`.
+/// holds in cell `c`. It reads the cells as the tick began (`camt0`), their caps (`ccap`), the tick
+/// and the grid (`P_GW`, `P_GH`, `P_WRAP`). Values are `i64` held as `u64` in two's complement, with
+/// the saturation of `cond.rs`. WGSL has no recursion, so a reduction's body runs in a second
+/// evaluator, `cond_body`, which has no reductions and reads the current neighbour (`C_ELEM`).
 pub fn cond(table: &str) -> String {
+    let ops = |elem: bool| {
+        let push = format!(
+            r#"if (op == {c_const}) {{
+            st[sp] = (u64({table}[i + 1u]) << 32u) | u64({table}[i]);
+            i += 2u;
+            sp++;
+        }} else if (op == {c_tick}) {{
+            st[sp] = u64(params[P_TICK]);
+            sp++;
+        }} else if (op == {c_own}) {{
+            st[sp] = u64(camt0[c * ns + (arg & 0xffu)]);
+            sp++;
+        }} else if (op == {c_cap}) {{
+            st[sp] = u64(ccap[c * ns + (arg & 0xffu)]);
+            sp++;
+        }} else if (op == {c_nb}) {{
+            let n = c_nb(c, arg >> 8u);
+            st[sp] = u64(0u);
+            if (n != NONE) {{ st[sp] = u64(camt0[n * ns + (arg & 0xffu)]); }}
+            sp++;
+        }}"#,
+            c_const = C_CONST, c_tick = C_TICK, c_own = C_OWN, c_cap = C_CAP, c_nb = C_NB,
+        );
+        let elem = if elem { format!(" else if (op == {C_ELEM}) {{\n            st[sp] = u64(camt0[nb * ns + (arg & 0xffu)]);\n            sp++;\n        }}") } else { String::new() };
+        let rest = format!(
+            r#" else if (op == {c_not}) {{
+            st[sp - 1u] = c_bool(st[sp - 1u] == u64(0u));
+        }} else {{
+            let b = st[sp - 1u];
+            let a = st[sp - 2u];
+            sp--;
+            var r = u64(0u);
+            if (op == {c_add}) {{ r = c_add(a, b); }}
+            else if (op == {c_sub}) {{ r = c_sub(a, b); }}
+            else if (op == {c_mul}) {{ r = c_mul(a, b); }}
+            else if (op == {c_eq}) {{ r = c_bool(a == b); }}
+            else if (op == {c_ne}) {{ r = c_bool(a != b); }}
+            else if (op == {c_lt}) {{ r = c_bool(c_lt(a, b)); }}
+            else if (op == {c_le}) {{ r = c_bool(!c_lt(b, a)); }}
+            else if (op == {c_gt}) {{ r = c_bool(c_lt(b, a)); }}
+            else if (op == {c_ge}) {{ r = c_bool(!c_lt(a, b)); }}
+            else if (op == {c_and}) {{ r = c_bool(a != u64(0u) && b != u64(0u)); }}
+            else {{ r = c_bool(a != u64(0u) || b != u64(0u)); }}
+            st[sp - 1u] = r;
+        }}"#,
+            c_not = C_NOT, c_add = C_ADD, c_sub = C_SUB, c_mul = C_MUL, c_eq = C_EQ, c_ne = C_NE, c_lt = C_LT, c_le = C_LE,
+            c_gt = C_GT, c_ge = C_GE, c_and = C_AND,
+        );
+        format!("{push}{elem}{rest}")
+    };
+    let offsets: Vec<String> = emerge_ref::cond::OFFSETS.iter().map(|(dx, dy)| format!("vec2<i32>({dx}, {dy})")).collect();
     format!(
         r#"
 fn c_min() -> u64 {{ return u64(1u) << 63u; }}
@@ -138,6 +191,37 @@ fn c_mul(a: u64, b: u64) -> u64 {{
     return select(p, u64(0u) - p, neg);
 }}
 fn c_bool(b: bool) -> u64 {{ return select(u64(0u), u64(1u), b); }}
+// The neighbour of cell c in direction d (N, E, S, W, NE, SE, SW, NW), wrapped if the grid wraps,
+// else NONE outside it (`cond::neighbour`).
+fn c_nb(c: u32, d: u32) -> u32 {{
+    var offs = array<vec2<i32>, 8>({offsets});
+    let w = i32(params[P_GW]);
+    let h = i32(params[P_GH]);
+    var x = i32(c % params[P_GW]) + offs[d].x;
+    var y = i32(c / params[P_GW]) + offs[d].y;
+    if (params[P_WRAP] != 0u) {{
+        if (x < 0) {{ x += w; }} else if (x >= w) {{ x -= w; }}
+        if (y < 0) {{ y += h; }} else if (y >= h) {{ y -= h; }}
+    }} else if (x < 0 || x >= w || y < 0 || y >= h) {{
+        return NONE;
+    }}
+    return u32(y * w + x);
+}}
+// A reduction's body, words [start, end), for cell c and its neighbour nb.
+fn cond_body(start: u32, end: u32, c: u32, nb: u32) -> u64 {{
+    var st: array<u64, {stack}>;
+    var sp = 0u;
+    let ns = params[P_NS];
+    var i = start;
+    loop {{
+        if (i >= end) {{ break; }}
+        let op = {table}[i] & 0xffu;
+        let arg = {table}[i] >> 8u;
+        i++;
+        {body_ops}
+    }}
+    return st[0];
+}}
 fn cond_holds(at: u32, c: u32) -> bool {{
     var st: array<u64, {stack}>;
     var sp = 0u;
@@ -149,45 +233,37 @@ fn cond_holds(at: u32, c: u32) -> bool {{
         let op = {table}[i] & 0xffu;
         let arg = {table}[i] >> 8u;
         i++;
-        if (op == {c_const}) {{
-            st[sp] = (u64({table}[i + 1u]) << 32u) | u64({table}[i]);
-            i += 2u;
+        if (op == {c_reduce}) {{
+            let red = arg & 0xfu;
+            let nd = select(4u, 8u, ((arg >> 4u) & 0xfu) == 1u);
+            let len = {table}[i];
+            let body = i + 1u;
+            i = body + len;
+            var acc = u64(0u);
+            var any = false;
+            var count = 0u;
+            for (var d = 0u; d < nd; d++) {{
+                let nb = c_nb(c, d);
+                if (nb == NONE) {{ continue; }}
+                let v = cond_body(body, body + len, c, nb);
+                if (red == {red_sum}) {{ acc = c_add(acc, v); }}
+                else if (red == {red_count}) {{ if (v != u64(0u)) {{ count++; }} }}
+                else if (red == {red_min}) {{ if (!any || c_lt(v, acc)) {{ acc = v; }} }}
+                else {{ if (!any || c_lt(acc, v)) {{ acc = v; }} }}
+                any = true;
+            }}
+            st[sp] = select(acc, u64(count), red == {red_count});
             sp++;
-        }} else if (op == {c_tick}) {{
-            st[sp] = u64(params[P_TICK]);
-            sp++;
-        }} else if (op == {c_own}) {{
-            st[sp] = u64(camt0[c * ns + arg]);
-            sp++;
-        }} else if (op == {c_cap}) {{
-            st[sp] = u64(ccap[c * ns + arg]);
-            sp++;
-        }} else if (op == {c_not}) {{
-            st[sp - 1u] = c_bool(st[sp - 1u] == u64(0u));
-        }} else {{
-            let b = st[sp - 1u];
-            let a = st[sp - 2u];
-            sp--;
-            var r = u64(0u);
-            if (op == {c_add}) {{ r = c_add(a, b); }}
-            else if (op == {c_sub}) {{ r = c_sub(a, b); }}
-            else if (op == {c_mul}) {{ r = c_mul(a, b); }}
-            else if (op == {c_eq}) {{ r = c_bool(a == b); }}
-            else if (op == {c_ne}) {{ r = c_bool(a != b); }}
-            else if (op == {c_lt}) {{ r = c_bool(c_lt(a, b)); }}
-            else if (op == {c_le}) {{ r = c_bool(!c_lt(b, a)); }}
-            else if (op == {c_gt}) {{ r = c_bool(c_lt(b, a)); }}
-            else if (op == {c_ge}) {{ r = c_bool(!c_lt(a, b)); }}
-            else if (op == {c_and}) {{ r = c_bool(a != u64(0u) && b != u64(0u)); }}
-            else {{ r = c_bool(a != u64(0u) || b != u64(0u)); }}
-            st[sp - 1u] = r;
-        }}
+        }} else {outer_ops}
     }}
     return st[0] != u64(0u);
 }}
 "#,
         stack = emerge_ref::cond::GPU_STACK,
-        c_const = C_CONST, c_tick = C_TICK, c_own = C_OWN, c_cap = C_CAP, c_add = C_ADD, c_sub = C_SUB, c_mul = C_MUL,
-        c_eq = C_EQ, c_ne = C_NE, c_lt = C_LT, c_le = C_LE, c_gt = C_GT, c_ge = C_GE, c_and = C_AND, c_not = C_NOT,
+        offsets = offsets.join(", "),
+        body_ops = ops(true),
+        outer_ops = ops(false),
+        c_reduce = C_REDUCE,
+        red_sum = RED_SUM, red_count = RED_COUNT, red_min = RED_MIN,
     )
 }
