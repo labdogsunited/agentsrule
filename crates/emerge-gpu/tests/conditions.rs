@@ -157,8 +157,26 @@ fn let_else_and_nesting_run_as_on_the_cpu() {
     // With creatures, diffusion and a conditional reaction together, so cells differ from one another.
     let mixed = small()
         .replace(ROT, &format!("let rich = self.carbon > 50u + 5u * 2; when rich {{ {ROT} }} else {{ react(rot, rate: 200bp) @react_rot_fast; }}"))
-        .replace(SPREAD, &format!("when self.sugar < cap(sugar) - 1u or tick < 5 {{ {SPREAD} }}"));
+        .replace(SPREAD, &format!("when self.carbon > 50u + 1u or tick < 5 {{ {SPREAD} }}"));
     same_on_both(&mixed, &["Drifter", "Builder"], 4, 400, 25);
+    // Each condition of that dish holds in some cells and not in others, so the paths of a failing
+    // condition (no diffusion requests, no reaction) ran on the GPU too.
+    let mut w = world(&mixed, &["Drifter", "Builder"], 4);
+    let mut split = vec![false; w.laws.len()];
+    for tick in 0..400u64 {
+        if tick % 25 == 10 {
+            for (li, law) in w.laws.iter().enumerate() {
+                if let Some(cond) = law.parts().1 {
+                    let holds = w.cells.iter().filter(|c| cond.holds(&emerge_ref::cond::Ctx { tick: w.tick, amounts: &c.amounts[..], caps: &c.caps[..] })).count();
+                    split[li] |= holds > 0 && holds < w.cells.len();
+                }
+            }
+        }
+        w.run_tick();
+    }
+    let conditional: Vec<usize> = (0..w.laws.len()).filter(|&l| w.laws[l].is_conditional()).collect();
+    assert_eq!(conditional.len(), 3, "the rich reaction, its else, and the diffusion");
+    assert!(conditional.iter().all(|&l| split[l]), "a condition held everywhere or nowhere: {split:?}");
 }
 
 #[test]
