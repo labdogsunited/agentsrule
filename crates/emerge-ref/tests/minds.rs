@@ -180,3 +180,30 @@ fn upkeep_counts_active_genes_signals_in_use_retention_and_carried_units() {
     // + ceil(10 × 0.25) = 3 for s1's retention + floor(5.5u carried) = 5. Total 50mu.
     assert_eq!(w.entities[0].store.amounts[d.energy], 5 * U - 50);
 }
+
+#[test]
+fn delta_reads_the_signed_change_since_the_last_reading_in_both_modes() {
+    // Amounts at each tick's snapshot: 5u, 7u, 3u, 3u, then the full `u32` range down and up.
+    // The first reading is 0; a decrease reads negative (it used to wrap to a huge positive).
+    let amounts: [u32; 6] = [5_000, 7_000, 3_000, 3_000, 0, u32::MAX];
+    let read = |contract: bool| {
+        let (mut w, d) = dish(0, 0);
+        w.contract = contract;
+        let cell = dish_cell(&mut w, &d);
+        w.spawn(cell, vec![Gene::sense(Sense::Delta(d.body), 0)]);
+        amounts
+            .iter()
+            .map(|&a| {
+                w.entities[0].store.amounts[d.body] = a;
+                w.run_tick(); // the amounts are set by hand, so the ledger would not close
+                w.entities[0].signals[0]
+            })
+            .collect::<Vec<f32>>()
+    };
+    let default = read(false);
+    assert_eq!(default[..4], [0.0, 2_000.0 * 0.001, -(4_000.0 * 0.001), 0.0]);
+    assert_eq!(default[4], -(3_000.0 * 0.001));
+    // The largest rise is cut at the signal limit (1e4).
+    assert_eq!(default[5], 1e4);
+    assert_eq!(default, read(true));
+}

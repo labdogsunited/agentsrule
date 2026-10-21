@@ -1311,10 +1311,8 @@ impl World {
                 [(std::f32::consts::TAU * phase).sin(), 0.0]
             }
             Sense::Inventory(s) => [units(e.store.amounts[s]), 0.0],
-            // Default mode subtracts as `u32`, which wraps when the amount fell (a bug kept so that
-            // archived runs stay reproducible); contract mode uses the signed difference.
-            Sense::Delta(s) if self.contract => [e.prev.get(s).map_or(0.0, |&p| crate::contract::amount_diff(e.store.amounts[s], p, 0.001)), 0.0],
-            Sense::Delta(s) => [e.prev.get(s).map_or(0.0, |&p| (e.store.amounts[s].wrapping_sub(p)) as f32 * 0.001), 0.0],
+            // The signed difference since the last reading, in both modes (decision 1, 2026-10-21).
+            Sense::Delta(s) => [e.prev.get(s).map_or(0.0, |&p| crate::contract::amount_diff(e.store.amounts[s], p, 0.001)), 0.0],
             Sense::Cell(s) => [units(self.cells[e.cell].amounts[s]), 0.0],
             Sense::Gradient(s) => {
                 let Some(space) = &self.space else { return [0.0, 0.0] };
