@@ -1,5 +1,6 @@
 #!/bin/sh
 # agentsrule web [--port N] [--no-open] [--journal-dir DIR]
+#   Without --port, the first free port from 7878 up; with --port, that port or an error.
 #   Starts the browser viewer (emerge-server serve --viewer) and opens it. The page has Restart and
 #   Stop buttons; Ctrl-C here stops it too. A restart keeps the address, so an open page reconnects.
 #
@@ -14,8 +15,19 @@ usage() {
   exit 2
 }
 
+# True if something listens on 127.0.0.1:$1 (needs ss; without it, assume nothing does).
+busy() {
+  command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$1" 2>/dev/null | grep -q LISTEN
+}
+
+# True if process $1 runs (a child that has exited but is not yet waited for does not count).
+alive() {
+  s=$(ps -o stat= -p "$1" 2>/dev/null)
+  [ -n "$s" ] && [ "${s#Z}" = "$s" ]
+}
+
 web() {
-  port=7878
+  port=""
   open=1
   journals=""
   while [ $# -gt 0 ]; do
@@ -26,6 +38,14 @@ web() {
       *) usage ;;
     esac
   done
+
+  if [ -z "$port" ]; then
+    port=7878
+    while busy "$port"; do port=$((port + 1)); done
+  elif busy "$port"; then
+    echo "agentsrule web: port $port is in use" >&2
+    exit 1
+  fi
 
   # A no-op when the binary is up to date.
   (cd "$repo" && cargo build --release --quiet -p emerge-server) || exit 1
@@ -47,10 +67,12 @@ web() {
     pid=$!
     if [ "$first" = 1 ]; then
       first=0
-      echo "agentsrule web: $url"
+      echo "agentsrule web: $url" >&2
+      # Open the page only once our server listens (not another program on the port).
+      tries=0
+      until busy "$port" || ! alive "$pid" || [ "$tries" -ge 100 ]; do sleep 0.1; tries=$((tries + 1)); done
+      alive "$pid" || { wait "$pid" || exit $?; exit 1; }
       if [ "$open" = 1 ]; then
-        # The server needs a moment to listen; the page retries anyway only after a restart.
-        sleep 1
         { xdg-open "$url" || open "$url"; } >/dev/null 2>&1 || echo "agentsrule web: open the address above in a browser"
       fi
     fi
