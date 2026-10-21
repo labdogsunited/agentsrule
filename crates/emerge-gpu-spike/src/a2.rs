@@ -109,7 +109,7 @@ fn clamp(x: f32, lo: f32, hi: f32) -> f32 {
     x.max(lo).min(hi)
 }
 
-const TINY: f32 = 7.888609052210118e-31;
+const TINY: f32 = 7.888_609e-31;
 
 fn tanh_d(x: f32) -> f32 {
     let t = if x.abs() < TINY { 0.0 } else { x };

@@ -61,7 +61,7 @@ fn slot_of(body: &Block) -> Result<Slot, String> {
         let this = match k {
             Leaf::Assign => Slot::Signal,
             Leaf::Call(n) if n == "transfer" || n == "diffuse_conserved" => Slot::Transfer,
-            Leaf::Call(n) if n == "react" => Slot::React,
+            Leaf::Call("react") => Slot::React,
             Leaf::Call(n) => return Err(format!("`{n}` has no phase")),
         };
         if slot != Slot::None && slot != this {

@@ -87,7 +87,7 @@ fn a_live_frame_is_the_same_picture_as_render() {
     use serde_json::json;
     let (port, _) = start();
     let (mut ws, _) = connect(format!("ws://127.0.0.1:{port}/")).unwrap();
-    let mut call = |ws: &mut tungstenite::WebSocket<_>, id: u64, method: &str, params: serde_json::Value| {
+    let call = |ws: &mut tungstenite::WebSocket<_>, id: u64, method: &str, params: serde_json::Value| {
         ws.send(Message::Text(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string().into())).unwrap();
         loop {
             if let Message::Text(t) = ws.read().unwrap() {

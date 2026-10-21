@@ -214,11 +214,7 @@ fn shadow_block(owner: &str, consts: &HashMap<String, Lit>, b: &Block) -> Result
 fn wdecl(d: &mut WDecl, consts: &HashMap<String, Lit>) {
     match d {
         WDecl::Field { kind, .. } => call(kind, consts),
-        WDecl::Reaction { catalyze, .. } => {
-            if let Some(c) = catalyze {
-                call(c, consts);
-            }
-        }
+        WDecl::Reaction { catalyze: Some(c), .. } => call(c, consts),
         WDecl::Menu { items, .. } => {
             for i in items {
                 if let MenuItem::Action { requires: Some(r), .. } = &mut i.node {

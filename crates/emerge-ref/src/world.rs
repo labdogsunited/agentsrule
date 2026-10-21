@@ -744,7 +744,7 @@ impl World {
 
     /// Move (spec §7.2) with the plans `set_phase` returned: upkeep, fees, transfers and
     /// movement. Returns which entities are dying; the plans' `live` flags are updated.
-    pub fn move_phase(&mut self, plans: &mut Vec<Plan>) -> Vec<bool> {
+    pub fn move_phase(&mut self, plans: &mut [Plan]) -> Vec<bool> {
         let n = self.entities.len();
         let mut dying = vec![false; n];
         // ---- 2 Move ----

@@ -394,7 +394,9 @@ impl<'a> Resident<'a> {
             if me.profile.is_some() {
                 me.gpu.sync();
                 let now = std::time::Instant::now();
-                me.profile.as_mut().unwrap()[k] += (now - mark).as_secs_f64();
+                if let Some(p) = me.profile.as_mut() {
+                    p[k] += (now - mark).as_secs_f64();
+                }
                 mark = now;
             }
         };
@@ -465,12 +467,12 @@ impl<'a> Resident<'a> {
             let b = &self.b;
             let g = gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats, &b.flows]);
             let pipe = |name: &str| self.tr_m.pipe(name);
-            gpu.dispatch(&[(&pipe("react_entities"), &g, wg(n))]);
+            gpu.dispatch(&[(pipe("react_entities"), &g, wg(n))]);
             for l in 0..self.params[P_NRLAWS] {
                 gpu.copy_word(&self.b.consts, (l * 4) as u64, &self.b.params, (P_LAWIDX * 4) as u64);
-                gpu.dispatch(&[(&pipe("react_cells"), &g, wg(nc))]);
+                gpu.dispatch(&[(pipe("react_cells"), &g, wg(nc))]);
             }
-            gpu.dispatch(&[(&pipe("vent"), &g, wg(n))]);
+            gpu.dispatch(&[(pipe("vent"), &g, wg(n))]);
         }
 
         lap(self, 3);
@@ -690,7 +692,7 @@ impl<'a> Resident<'a> {
             let b = &self.b;
             let g = gpu.group(&self.mut_m.bgl, &[&b.params, &b.menus, &b.rates, &b.mw, &b.ent, &b.ent2, &b.gw, &b.pool, &b.work]);
             gpu.dispatch_sized(&[(self.mut_m.pipe("mutate_children"), &g, Size::Grid((children as u32).min(32768), (children as u32).div_ceil(32768)))]);
-            if self.tick % 8 != 0 {
+            if !self.tick.is_multiple_of(8) {
                 // The pools are checked every eighth tick (a read-back is a wait).
             } else {
             let tops: Vec<u32> = gpu.read(&self.b.pool, 2);

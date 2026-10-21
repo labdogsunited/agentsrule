@@ -264,6 +264,7 @@ fn connection(mut stream: TcpStream, to_engine: mpsc::Sender<Call>, viewer: Opti
     if viewer.is_some() && answer_http(&mut stream) {
         return;
     }
+    #[allow(clippy::result_large_err)] // tungstenite's handshake callback returns its own error type
     let Ok(mut ws) = tungstenite::accept_hdr(stream, |req: &Request, resp: Response| admit(req, resp, viewer, port)) else { return };
     // Reads time out, so frames pushed by the engine go out between messages.
     let _ = ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)));

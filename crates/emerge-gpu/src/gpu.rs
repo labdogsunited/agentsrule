@@ -39,6 +39,7 @@ impl Gpu {
     /// The Vulkan discrete GPU; fails if there is none (llvmpipe and the OpenGL entry do not
     /// count). `SPIKE_ADAPTER=llvmpipe` picks the Vulkan adapter whose name contains that text,
     /// to run a spike on a second implementation.
+    #[allow(clippy::new_without_default)] // finding a device is not a default value
     pub fn new() -> Gpu {
         let want = std::env::var("SPIKE_ADAPTER").ok();
         let instance = wgpu::Instance::default();

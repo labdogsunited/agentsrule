@@ -50,7 +50,7 @@ pub fn sigmoid_p(x: f32) -> f32 {
 
 /// An input below 2^-100 in magnitude is zero.
 fn tiny(x: f32) -> f32 {
-    if x.abs() < 7.888609052210118e-31 { 0.0 } else { x }
+    if x.abs() < 7.888_609e-31 { 0.0 } else { x }
 }
 
 pub fn tanh_d(x: f32) -> f32 {

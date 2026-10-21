@@ -74,8 +74,8 @@ fn the_budget_closes_for_each_lineage_of_the_dish_over_many_ticks() {
         w.run_tick();
     }
     assert!(w.deaths > 0 && w.births > 0, "the run should have births and deaths");
-    for l in 0..2 {
-        assert_eq!(held(&w, l, pay) - before[l][0], change(&w, "pay", Some(l)), "pay, lineage {l}");
-        assert_eq!(held(&w, l, flux) - before[l][1], change(&w, "flux", Some(l)), "flux, lineage {l}");
+    for (l, b) in before.iter().enumerate() {
+        assert_eq!(held(&w, l, pay) - b[0], change(&w, "pay", Some(l)), "pay, lineage {l}");
+        assert_eq!(held(&w, l, flux) - b[1], change(&w, "flux", Some(l)), "flux, lineage {l}");
     }
 }

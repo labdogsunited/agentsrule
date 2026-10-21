@@ -101,7 +101,7 @@ pub fn run_restructure(gpu: &Gpu, p: &Packed, rec: &[u32], dying: &[u32]) -> Res
             }
             k *= 2;
         }
-        let groups: Vec<_> = keep.iter().map(|b| with_sortp(b)).collect();
+        let groups: Vec<_> = keep.iter().map(with_sortp).collect();
         let (pad, bit, dispose) = (pipe("pad_list"), pipe("bitonic"), pipe("dispose"));
         let mut steps: Vec<(&wgpu::ComputePipeline, &wgpu::BindGroup, u32)> = vec![(&pad, &groups[0], wg(size))];
         for g in &groups {

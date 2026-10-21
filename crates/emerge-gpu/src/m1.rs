@@ -61,11 +61,11 @@ pub fn compare(world: &mut emerge_ref::World, gpu: &Gpu, ticks: u64, every: u64,
         world.begin_tick();
         let sample = tick % every == 0;
         let gpu_out = sample.then(|| {
-            let mut packed = pack(&world);
+            let mut packed = pack(world);
             if std::env::var_os("EMERGE_GPU_BREAK").is_some() {
                 packed.params[P_STEPS] += 1; // a deliberate error, to show that the comparison can fail
             }
-            let (out, t) = run_set(&gpu, &packed);
+            let (out, t) = run_set(gpu, &packed);
             rep.gpu_time += t;
             (packed, out)
         });
@@ -93,7 +93,7 @@ pub fn compare(world: &mut emerge_ref::World, gpu: &Gpu, ticks: u64, every: u64,
                 }
                 // Records.
                 let plan = &plans[i];
-                let want = cpu_records(&world, i, plan);
+                let want = cpu_records(world, i, plan);
                 let off = {
                     let first: usize = packed.genes[..i].iter().map(Vec::len).sum();
                     first * REC
