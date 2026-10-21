@@ -208,6 +208,7 @@ impl<'a> Resident<'a> {
     pub fn new(gpu: &'a Gpu, world: &mut World) -> Resident<'a> {
         // An automaton drawn as an empty board would mislead (`proposals/field-rules.md`).
         assert!(world.states.is_empty(), "state fields run on the CPU only; the GPU runtime does not run them");
+        assert!(world.creatures, "a world without creatures runs on the CPU only; the GPU runtime packs upkeep and remains");
         world.begin_tick();
         let mut p = pack(world);
         pack_move(world, &mut p);

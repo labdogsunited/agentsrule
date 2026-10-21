@@ -1014,6 +1014,8 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | `space: Continuous2D(…)` | yes | yes | yes |
 | Other spaces | parsed | `E1001` | no |
 | No `space` | `E0116` | only worlds built in Rust (the `minds.rs` fixtures) | no |
+| `upkeep` and `remains` | required together when the world has creatures (a lineage of the project is for it, or it declares a menu, `upkeep`, `remains` or `decompose`), else `E0116`; a world without creatures declares neither | yes | yes; a world without creatures is refused (it runs on the CPU only) |
+| Injecting a lineage into a world without creatures | — | refused with an error | — |
 | One conserved field `Grid(…) holds […]` | yes | yes | yes |
 | A second conserved field, other field kinds | parsed | `E1001` | no |
 | Signal fields, and rules on them (`fade`, `blur`) | yes | left out | left out |

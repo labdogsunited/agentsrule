@@ -635,7 +635,10 @@ fn run(args: &[String]) -> ExitCode {
         if let Some((_, at)) = &inject {
             if w.tick == *at {
                 if let Some(other) = invader.take() {
-                    injected = Some(w.inject(other, 0));
+                    injected = Some(w.inject(other, 0).unwrap_or_else(|e| {
+                        eprintln!("{path}: --inject: {e}");
+                        std::process::exit(2);
+                    }));
                     eprintln!("injected {} entities at tick {at}", w.entities.iter().filter(|e| Some(e.lineage) == injected).count());
                 }
             }

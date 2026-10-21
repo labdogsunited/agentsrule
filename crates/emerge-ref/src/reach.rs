@@ -55,7 +55,7 @@ pub fn reach(w: &World) -> Reach {
     let fires = |possible: &[bool], r: ReactionId| w.chem.reactions[r].inputs.iter().all(|&(s, _)| possible[s]);
     loop {
         let mut changed = false;
-        if possible[w.upkeep.pay] && !possible[w.upkeep.becomes] {
+        if w.creatures && possible[w.upkeep.pay] && !possible[w.upkeep.becomes] {
             possible[w.upkeep.becomes] = true;
             changed = true;
         }

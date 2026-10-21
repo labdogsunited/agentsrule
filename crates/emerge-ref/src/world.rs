@@ -436,6 +436,10 @@ pub struct World {
     /// State fields (`field NAME : Grid(…) states […]`): one discrete state per cell, outside the
     /// ledger, updated at the start of Set from the previous states (`proposals/field-rules.md`).
     pub states: Vec<StateField>,
+    /// Whether the world has the creature capability: entities, with `upkeep` and `remains`
+    /// (`proposals/checked-schedule-ir.md` §3). Without it `upkeep` and `remains` are placeholders
+    /// that nothing reads, and no entity can be added.
+    pub creatures: bool,
     pub upkeep: Upkeep,
     pub waste: Vec<(SubstanceId, SinkId)>,
     pub remains: SinkId,
@@ -504,6 +508,8 @@ pub struct World {
 }
 
 impl World {
+    /// A world with creatures: `upkeep` and `remains` are checked together, so a payment route
+    /// that does not close is an error.
     pub fn new(chem: Chemistry, upkeep: Upkeep, sinks: Vec<Sink>, remains: SinkId) -> Result<Self, ChemError> {
         let pay = &chem.substances[upkeep.pay];
         let becomes = &chem.substances[upkeep.becomes];
@@ -516,9 +522,20 @@ impl World {
         if !sinks[upkeep.vent].accepts(upkeep.becomes) {
             return Err(ChemError::PaymentRoute { reason: "vent does not accept becomes".into() });
         }
+        Ok(Self::build(chem, true, upkeep, sinks, remains))
+    }
+
+    /// A world without creatures (a state automaton, a chemistry on a field): no upkeep, no
+    /// `remains`, and `spawn*` and `inject` are refused.
+    pub fn without_creatures(chem: Chemistry, sinks: Vec<Sink>) -> Self {
+        let upkeep = Upkeep { pay: 0, becomes: 0, vent: 0, base: 0, per_gene: 0, per_signal: 0, per_signal_keep: 0, per_carried_u: 0 };
+        Self::build(chem, false, upkeep, sinks, 0)
+    }
+
+    fn build(chem: Chemistry, creatures: bool, upkeep: Upkeep, sinks: Vec<Sink>, remains: SinkId) -> Self {
         let n = chem.elements.len();
         let reactions = chem.reactions.len();
-        Ok(World {
+        World {
             chem,
             cells: Vec::new(),
             neighbours: Vec::new(),
@@ -528,6 +545,7 @@ impl World {
             sinks,
             laws: Vec::new(),
             states: Vec::new(),
+            creatures,
             upkeep,
             waste: Vec::new(),
             remains,
@@ -570,7 +588,7 @@ impl World {
             near: crate::near::Index::default(),
             snap_pos: Vec::new(),
             snap_ids: Vec::new(),
-        })
+        }
     }
 
     pub fn add_source(&mut self, name: &str) -> SourceId {
@@ -618,6 +636,7 @@ impl World {
 
     /// Adds an entity with an empty inventory. Its signals start at `0.0`.
     pub fn spawn_genome(&mut self, cell: usize, genome: Genome) -> usize {
+        assert!(self.creatures, "this world has no creature capability (`upkeep` and `remains`); it cannot hold entities");
         let caps = vec![self.inventory_cap; self.chem.substances.len()];
         let signals = vec![0.0; genome.keep.len()];
         let shape = GenomeShape::of(&genome);
@@ -652,8 +671,12 @@ impl World {
 
     /// Adds the entities of `other`, a world compiled from the same file with only the
     /// lineage `lineage` of it, as a new lineage. They get new IDs, and their stores are
-    /// endowed here, so the ledger stays balanced. Returns the new lineage's index.
-    pub fn inject(&mut self, other: World, lineage: usize) -> usize {
+    /// endowed here, so the ledger stays balanced. Returns the new lineage's index, or an error
+    /// for a world without the creature capability.
+    pub fn inject(&mut self, other: World, lineage: usize) -> Result<usize, String> {
+        if !self.creatures {
+            return Err("this world has no creature capability (`upkeep` and `remains`); it cannot take an injected lineage".into());
+        }
         let index = self.variation.len();
         self.variation.push(other.variation[lineage].clone());
         for e in other.entities.into_iter().filter(|e| e.lineage == lineage) {
@@ -665,7 +688,7 @@ impl World {
                 }
             }
         }
-        index
+        Ok(index)
     }
 
     /// Genesis: moves `amount` from a source into a store, recording it as emitted.

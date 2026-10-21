@@ -118,7 +118,17 @@ fn build_at(file: &ast::File, lineages: &[&str], options: Options, at: &Cell<Pos
     };
     let ast::Item::World(w) = &item.node else { unreachable!() };
     at.set(item.pos);
-    let mut c = Compiler::new(w, at)?;
+    // The creature capability is needed when any lineage of the project is for this world (whichever
+    // `lineages` selects, so validity does not depend on run options), or the world declares a menu,
+    // `upkeep`, `remains` or `decompose` (`proposals/checked-schedule-ir.md` §3).
+    let creatures = file.items.iter().any(|i| matches!(&i.node, ast::Item::Lineage(l) if l.world == w.name))
+        || w.decls.iter().any(|d| match &d.node {
+            WDecl::Menu { .. } => true,
+            WDecl::Config { name, .. } => name == "upkeep",
+            WDecl::Setting(e) => e.key == "remains" || e.key == "decompose",
+            _ => false,
+        });
+    let mut c = Compiler::new(w, at, creatures)?;
     c.world.seed = options.seed;
     c.world.mutation = options.mutation;
     c.mutation = options.mutation;
@@ -216,7 +226,7 @@ fn err<T>(code: &'static str, path: impl Into<String>, message: impl Into<String
 }
 
 impl<'a> Compiler<'a> {
-    fn new(w: &'a ast::World, at: &'a Cell<Pos>) -> Result<Self, Error> {
+    fn new(w: &'a ast::World, at: &'a Cell<Pos>, creatures: bool) -> Result<Self, Error> {
         let p = |what: &str| format!("{}.{what}", w.name);
         let world_pos = at.get();
 
@@ -281,49 +291,60 @@ impl<'a> Compiler<'a> {
             WDecl::Setting(e) if e.key == key => Some(&e.value),
             _ => None,
         });
-        let remains = match setting("remains") {
-            Some(v) => lookup(&sink_ids, name_of(expr(v)?, &p("remains"))?, &p("remains"), "sink")?,
-            None => {
+        // `upkeep` and `remains` are required together, and only for a world with creatures.
+        let creature = if creatures {
+            Some({
+            let remains = match setting("remains") {
+                Some(v) => lookup(&sink_ids, name_of(expr(v)?, &p("remains"))?, &p("remains"), "sink")?,
+                None => {
+                    at.set(world_pos);
+                    return err("E0116", p("remains"), "a world with creatures must declare `remains`");
+                }
+            };
+            let config = |block: &str| w.decls.iter().find_map(|d| match &d.node {
+                WDecl::Config { name, entries } if name == block => Some(entries),
+                _ => None,
+            });
+            let Some(up) = config("upkeep") else {
                 at.set(world_pos);
-                return err("E0116", p("remains"), "a world must declare `remains`");
+                return err("E0116", p("upkeep"), "a world with creatures must declare `upkeep`");
+            };
+            let mut upkeep = Upkeep { pay: 0, becomes: 0, vent: 0, base: 0, per_gene: 0, per_signal: 0, per_signal_keep: 0, per_carried_u: 0 };
+            let (mut pay, mut becomes, mut vent) = (None, None, None);
+            for e in up {
+                at.set(e.pos);
+                let path = p("upkeep");
+                let v = expr(&e.node.value)?;
+                match e.node.key.as_str() {
+                    "pay" => pay = Some(lookup(&substances, name_of(v, &path)?, &path, "substance")?),
+                    "becomes" => becomes = Some(lookup(&substances, name_of(v, &path)?, &path, "substance")?),
+                    "vent" => vent = Some(lookup(&sink_ids, name_of(v, &path)?, &path, "sink")?),
+                    "base" => upkeep.base = amount(v, &path)?,
+                    "per_gene" => upkeep.per_gene = amount(v, &path)?,
+                    "per_signal" => upkeep.per_signal = amount(v, &path)?,
+                    "per_signal_keep" => upkeep.per_signal_keep = amount(v, &path)?,
+                    "per_carried_u" => upkeep.per_carried_u = amount(v, &path)?,
+                    k => return err("E0115", path, format!("unknown setting `{k}`")),
+                }
             }
-        };
-        let config = |block: &str| w.decls.iter().find_map(|d| match &d.node {
-            WDecl::Config { name, entries } if name == block => Some(entries),
-            _ => None,
-        });
-        let Some(up) = config("upkeep") else {
-            at.set(world_pos);
-            return err("E0116", p("upkeep"), "a world must declare `upkeep`");
-        };
-        let mut upkeep = Upkeep { pay: 0, becomes: 0, vent: 0, base: 0, per_gene: 0, per_signal: 0, per_signal_keep: 0, per_carried_u: 0 };
-        let (mut pay, mut becomes, mut vent) = (None, None, None);
-        for e in up {
-            at.set(e.pos);
-            let path = p("upkeep");
-            let v = expr(&e.node.value)?;
-            match e.node.key.as_str() {
-                "pay" => pay = Some(lookup(&substances, name_of(v, &path)?, &path, "substance")?),
-                "becomes" => becomes = Some(lookup(&substances, name_of(v, &path)?, &path, "substance")?),
-                "vent" => vent = Some(lookup(&sink_ids, name_of(v, &path)?, &path, "sink")?),
-                "base" => upkeep.base = amount(v, &path)?,
-                "per_gene" => upkeep.per_gene = amount(v, &path)?,
-                "per_signal" => upkeep.per_signal = amount(v, &path)?,
-                "per_signal_keep" => upkeep.per_signal_keep = amount(v, &path)?,
-                "per_carried_u" => upkeep.per_carried_u = amount(v, &path)?,
-                k => return err("E0115", path, format!("unknown setting `{k}`")),
+            match (pay, becomes, vent) {
+                (Some(a), Some(b), Some(c)) => (upkeep.pay, upkeep.becomes, upkeep.vent) = (a, b, c),
+                _ => return err("E0116", p("upkeep"), "upkeep needs `pay`, `becomes` and `vent`"),
             }
-        }
-        match (pay, becomes, vent) {
-            (Some(a), Some(b), Some(c)) => (upkeep.pay, upkeep.becomes, upkeep.vent) = (a, b, c),
-            _ => return err("E0116", p("upkeep"), "upkeep needs `pay`, `becomes` and `vent`"),
-        }
-        if let Some(s) = (0..chem.substances.len()).find(|&s| !sinks[remains].accepts(s)) {
-            return err("E0704", p("remains"), format!("`{}` must accept every substance; it does not accept `{}`", sinks[remains].name, chem.substances[s].name));
-        }
+            if let Some(s) = (0..chem.substances.len()).find(|&s| !sinks[remains].accepts(s)) {
+                return err("E0704", p("remains"), format!("`{}` must accept every substance; it does not accept `{}`", sinks[remains].name, chem.substances[s].name));
+            }
+                (upkeep, remains)
+            })
+        } else {
+            None
+        };
         let reactions_declared = chem.reactions.len();
         let space = reaction_space(w, &mut chem, &reactions, at)?;
-        let world = World::new(chem, upkeep, sinks, remains).map_err(|e| Error { code: "E0701", pos: Pos::default(), path: p("upkeep"), message: format!("{e:?}") })?;
+        let world = match creature {
+            Some((upkeep, remains)) => World::new(chem, upkeep, sinks, remains).map_err(|e| Error { code: "E0701", pos: Pos::default(), path: p("upkeep"), message: format!("{e:?}") })?,
+            None => World::without_creatures(chem, sinks),
+        };
 
         let mut c = Compiler {
             w,
@@ -501,6 +522,14 @@ impl<'a> Compiler<'a> {
             let space = Space { w: sw, h: sh, wrap, grid_w: gw as usize, grid_h: gh as usize, child_offset, radius };
             self.world.grid(space, caps);
             self.grid = Some(name.clone());
+        }
+        // A world with state fields and no conserved field still gets its cells, empty ones, on the first
+        // state field's grid: the cells are what a state field is drawn over.
+        if self.world.space.is_none() {
+            if let Some(f) = self.world.states.first() {
+                let space = Space { w: sw, h: sh, wrap, grid_w: f.w, grid_h: f.h, child_offset, radius };
+                self.world.grid(space, vec![0; self.world.chem.substances.len()]);
+            }
         }
         // A state field is drawn over the conserved field's cells, so it has the same grid (for now).
         if let Some(space) = &self.world.space {
