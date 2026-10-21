@@ -1,0 +1,67 @@
+#!/bin/sh
+# agentsrule web [--port N] [--no-open] [--journal-dir DIR]
+#   Starts the browser viewer (emerge-server serve --viewer) and opens it. The page has Restart and
+#   Stop buttons; Ctrl-C here stops it too. A restart keeps the address, so an open page reconnects.
+#
+# Install: ln -s "$PWD/scripts/agentsrule" ~/.local/bin/agentsrule
+set -eu
+
+here=$(dirname "$(readlink -f "$0")")
+repo=$(dirname "$here")
+
+usage() {
+  echo "usage: agentsrule web [--port N] [--no-open] [--journal-dir DIR]" >&2
+  exit 2
+}
+
+web() {
+  port=7878
+  open=1
+  journals=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --port) [ $# -ge 2 ] || usage; port=$2; shift 2 ;;
+      --no-open) open=0; shift ;;
+      --journal-dir) [ $# -ge 2 ] || usage; journals=$2; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+
+  # A no-op when the binary is up to date.
+  (cd "$repo" && cargo build --release --quiet -p emerge-server) || exit 1
+  server="$repo/target/release/emerge-server"
+
+  # One token for every restart, so the open page keeps working.
+  EMERGE_VIEWER_TOKEN=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  export EMERGE_VIEWER_TOKEN
+  url="http://127.0.0.1:$port/#k=$EMERGE_VIEWER_TOKEN"
+
+  trap 'kill "$pid" 2>/dev/null; exit 130' INT TERM
+  first=1
+  while :; do
+    if [ -n "$journals" ]; then
+      "$server" serve --viewer --port "$port" --journal-dir "$journals" &
+    else
+      "$server" serve --viewer --port "$port" &
+    fi
+    pid=$!
+    if [ "$first" = 1 ]; then
+      first=0
+      echo "agentsrule web: $url"
+      if [ "$open" = 1 ]; then
+        # The server needs a moment to listen; the page retries anyway only after a restart.
+        sleep 1
+        { xdg-open "$url" || open "$url"; } >/dev/null 2>&1 || echo "agentsrule web: open the address above in a browser"
+      fi
+    fi
+    code=0
+    wait "$pid" || code=$?
+    [ "$code" = 75 ] || exit "$code"
+    echo "agentsrule web: restarting" >&2
+  done
+}
+
+case "${1:-}" in
+  web) shift; web "$@" ;;
+  *) usage ;;
+esac

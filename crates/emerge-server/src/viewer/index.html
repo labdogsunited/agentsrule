@@ -26,6 +26,7 @@
   select, input { width: 100%; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; }
   .row { display: flex; gap: 8px; }
   .row > * { flex: 1; }
+  .server { margin-left: auto; display: flex; gap: 8px; }
   button { background: #22262d; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font: inherit; cursor: pointer; }
   button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); color: #1a1408; border-color: var(--accent); font-weight: 600; }
@@ -45,7 +46,7 @@
 </style>
 </head>
 <body>
-<header><h1>Emerge</h1><span id="status">connecting…</span><span id="where"></span></header>
+<header><h1>Emerge</h1><span id="status">connecting…</span><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
 <div class="layout">
   <aside>
     <h2>World</h2>
@@ -91,7 +92,7 @@ const oops = (e) => { $("error").textContent = e ? String(e.message || e) : ""; 
 
 // The token is in the address's fragment, which the browser never sends to the server.
 const token = new URLSearchParams(location.hash.slice(1)).get("k") || "";
-let ws, nextId = 0, pending = new Map(), example = { source: "", views: "" }, sub = null, shown = null;
+let ws, nextId = 0, pending = new Map(), example = { source: "", views: "" }, sub = null, shown = null, poll = null, leaving = null;
 
 function call(method, params = {}) {
   return new Promise((resolve, reject) => {
@@ -183,13 +184,22 @@ function connect() {
     r.error ? p.reject(new Error(r.error.message)) : p.resolve(r.result);
   };
   ws.onopen = async () => {
+    leaving = null;
     say("connected", "ok");
     example = await call("docs.example");
     const worlds = await refreshWorlds();
     if (worlds.length) { await refreshViews(); await subscribe(); await stats(); }
-    setInterval(() => { stats().catch(() => {}); refreshWorlds().catch(() => {}); }, 1000);
+    clearInterval(poll);
+    poll = setInterval(() => { stats().catch(() => {}); refreshWorlds().catch(() => {}); }, 1000);
   };
-  ws.onclose = () => say("disconnected", "bad");
+  ws.onclose = () => {
+    clearInterval(poll);
+    sub = null;
+    pending.clear();
+    if (leaving === "stop") return say("server stopped: close this tab, or run `agentsrule web` again", "bad");
+    say(leaving === "restart" ? "restarting…" : "disconnected", "bad");
+    if (leaving === "restart") setTimeout(connect, 500);
+  };
   ws.onerror = () => say("refused: the token or the address is wrong", "bad");
 }
 
@@ -199,6 +209,15 @@ $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").oncha
 $("play").onclick = () => call("run.resume", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
 $("pause").onclick = () => call("run.pause", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
 $("step").onclick = () => call("run.step", { world: $("world").value, ticks: +$("steps").value || 1 }).then(stats).catch(oops);
+// Stop and restart end the process, so the answer may be a closing socket. The token survives a
+// restart (`agentsrule web` hands it to each new server), so the page reconnects by itself.
+const leave = (how, ask) => {
+  if (!confirm(ask)) return;
+  leaving = how;
+  call("server." + how).catch(() => {});
+};
+$("restart").onclick = () => leave("restart", "Restart the server? Worlds in memory are lost.");
+$("stop").onclick = () => leave("stop", "Stop the server? Worlds in memory are lost.");
 connect();
 </script>
 </body>

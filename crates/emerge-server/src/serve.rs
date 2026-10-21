@@ -46,9 +46,19 @@ pub struct Viewer {
     pub token: String,
 }
 
+/// The exit status of a server that was asked to restart (`server.restart`); `agentsrule web`
+/// starts it again. A stop exits with 0.
+pub const RESTART_EXIT: i32 = 75;
+
 impl Viewer {
-    /// A viewer with a fresh token from the operating system.
+    /// A viewer with the token in `EMERGE_VIEWER_TOKEN` (32 or more hex digits; `agentsrule web`
+    /// sets it, so an open page reconnects after a restart), else a fresh one from the operating system.
     pub fn new() -> std::io::Result<Viewer> {
+        if let Ok(t) = std::env::var("EMERGE_VIEWER_TOKEN") {
+            if t.len() >= 32 && t.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Ok(Viewer { token: t });
+            }
+        }
         let mut bytes = [0u8; 16];
         std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
         Ok(Viewer { token: bytes.iter().map(|b| format!("{b:02x}")).collect() })
@@ -263,6 +273,19 @@ fn answer_http(stream: &mut TcpStream) -> bool {
     true
 }
 
+/// With a viewer, the page can stop or restart the server: `server.stop` ends the process with
+/// status 0, `server.restart` with `RESTART_EXIT`. Worlds in memory are lost. The calls exist only
+/// with `--viewer`; the answer carries the call's `id`.
+fn shutdown_call(text: &str) -> Option<(Value, i32)> {
+    let v: Value = serde_json::from_str(text).ok()?;
+    let code = match v.get("method")?.as_str()? {
+        "server.stop" => 0,
+        "server.restart" => RESTART_EXIT,
+        _ => return None,
+    };
+    Some((v.get("id").cloned().unwrap_or(Value::Null), code))
+}
+
 fn connection(mut stream: TcpStream, to_engine: mpsc::Sender<Call>, viewer: Option<&Viewer>, port: u16) {
     if viewer.is_some() && answer_http(&mut stream) {
         return;
@@ -276,6 +299,10 @@ fn connection(mut stream: TcpStream, to_engine: mpsc::Sender<Call>, viewer: Opti
     loop {
         match ws.read() {
             Ok(Message::Text(t)) => {
+                if let Some((id, code)) = viewer.and(shutdown_call(&t)) {
+                    let _ = ws.send(Message::Text(json!({"jsonrpc": "2.0", "id": id, "result": {"ok": true}}).to_string().into()));
+                    std::process::exit(code);
+                }
                 let (reply_to, reply) = mpsc::channel();
                 if to_engine.send((t.to_string(), reply_to, conn.clone())).is_err() {
                     return;
@@ -297,5 +324,18 @@ fn connection(mut stream: TcpStream, to_engine: mpsc::Sender<Call>, viewer: Opti
             }
             conn.ready.store(true, Ordering::Release);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_two_server_calls_end_the_process() {
+        assert_eq!(shutdown_call(r#"{"jsonrpc":"2.0","id":7,"method":"server.stop"}"#), Some((json!(7), 0)));
+        assert_eq!(shutdown_call(r#"{"id":"a","method":"server.restart"}"#), Some((json!("a"), RESTART_EXIT)));
+        assert_eq!(shutdown_call(r#"{"id":1,"method":"world.list"}"#), None);
+        assert_eq!(shutdown_call("not json"), None);
     }
 }

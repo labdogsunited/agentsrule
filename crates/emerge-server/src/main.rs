@@ -3,6 +3,7 @@
 //! `emerge-server replay JOURNAL`: rebuilds a run from its journal and checks it.
 //! `emerge-server serve [--port N] [--journal-dir DIR] [--viewer]`: the JSON-RPC API over WebSocket on 127.0.0.1
 //! (default port 7878); with `--journal-dir`, every world's journal is written there as `<world>.jsonl`.
+//! With `--viewer`, the page can stop the server (exit 0) or restart it (exit 75); see `scripts/agentsrule`.
 //! `emerge-server mcp [--journal-dir DIR]`: the MCP adapter over stdio (for Claude and other MCP clients).
 //! `emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--seed S] [--mutation off]
 //! [--contract] [--gpu] [--made S --window W] [--views FILE] [--view NAME] [--chart default|NAME]... [--cell PX] [--out PNG]`: draws
