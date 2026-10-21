@@ -1031,7 +1031,7 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | Other rule statements on the conserved field; transfers not from a source | parsed | `E1001` | — |
 | World genesis `for cell in … { transfer(…) }`; lineage genesis `count`, `position = uniform(…)`, `transfer` | yes | yes | yes (genesis runs on the CPU before packing) |
 | **Genomes and mutation** | | | |
-| Senses `inventory`, `gradient`, `probe`, `crowd`, `neighbour`, `clock`, `delta` | yes | yes (`delta` wraps outside contract mode, see `DISCREPANCIES.md`) | yes |
+| Senses `inventory`, `gradient`, `probe`, `crowd`, `neighbour`, `clock`, `delta` | yes | yes (`delta` is the signed difference; before 2026-10-21 it wrapped outside contract mode, spec §10.1) | yes |
 | Other senses (`channel`) | yes | left out | left out |
 | Regulation `weigh`, `product` | yes | yes | yes, `weigh` with at most 4 inputs |
 | Regulation `delay` and the arithmetic kinds | yes | left out | left out |

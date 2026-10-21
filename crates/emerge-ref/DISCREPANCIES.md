@@ -4,9 +4,9 @@ What building and testing `emerge-ref` shows about the current spec and `core.md
 
 ## Open
 
-- `delta(s)` subtracts two `u32` amounts in the default mode, which wraps when the amount fell, so a decrease reads as a huge positive number (clamped to the reading limit). Contract mode (`--contract gpu`) uses the signed difference. Spec v0.7.9 §10.1 records this as a known deviation of the default mode, kept so archived runs reproduce. `archive/plan-test9.md` records the `test9q` experiment (`~/test9q/`) that used this sense; its result may have been affected. Fixing the default mode changes default evolutionary behaviour, so it waits for the user.
+None.
 
-Settled in spec v0.7.9 (Appendix J): contract mode (§10.1), the contract-mode catalyst factor and the `10_000bp` cap on a catalysed world rate (§4.5).
+Settled: `delta(s)` is the signed difference in the default mode too (2026-10-21, commit `8cb5436`; spec v0.7.9 §10.1). Settled in spec v0.7.9 (Appendix J): contract mode (§10.1), the contract-mode catalyst factor and the `10_000bp` cap on a catalysed world rate (§4.5).
 
 ## Not yet covered by the runner
 

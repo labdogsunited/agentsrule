@@ -700,7 +700,7 @@ Denormal floats may be flushed to zero. Fused multiply-add is allowed only where
 
 Exactness is per driver: the NVIDIA driver fuses every `a×b + c` as `mul_add` does, llvmpipe never does. So the GPU runtime equals the CPU reference in contract mode word for word on one driver (§10.2), and across drivers only statistical agreement is claimed. The `emerge-gpu` runtime runs in contract mode only.
 
-**Known deviation of the default mode.** `delta(s)` subtracts two `u32` amounts, so a decrease wraps to a large positive reading (clamped to the reading limit) instead of a negative one. Contract mode uses the signed difference. The default mode is left as it is so archived runs reproduce; whether to fix it is open (`crates/emerge-ref/DISCREPANCIES.md`).
+**Changed 2026-10-21 (commit `8cb5436`): `delta(s)` is the signed difference in both modes.** Before this commit the default mode subtracted two `u32` amounts, so a decrease wrapped to a large positive reading (clamped to the reading limit). Runs made earlier with `delta` on a menu used the wrapping form and do not reproduce with the current engine; reproduce them with the engine at `9688604` or earlier. Increases, equal amounts and the first reading (0) are unchanged. Runs without `delta` are unchanged (checked on `examples/dish.em` and `archive/test9-dish.em`).
 
 ### 10.2 Determinism
 
@@ -1139,7 +1139,7 @@ Found while implementing mutation and contact in the CPU runner, and in the firs
 
 Recorded from the GPU runtime, the engine and the first renderer (2026-10-20); direction decided 2026-10-21:
 
-- **Contract mode (§10.1, §10.2).** An opt-in set of float definitions (fused multiply-add in minds, the defined curves, polynomial `sincos`, a Newton-step heading, a twelve-uniform normal draw, integer differences, integer catalysts) under which the GPU runtime equals the CPU reference word for word on one driver. The default mode is unchanged. The default mode's `delta` wrap is recorded as a known deviation.
+- **Contract mode (§10.1, §10.2).** An opt-in set of float definitions (fused multiply-add in minds, the defined curves, polynomial `sincos`, a Newton-step heading, a twelve-uniform normal draw, integer differences, integer catalysts) under which the GPU runtime equals the CPU reference word for word on one driver. The default mode is unchanged. The default mode's `delta` wrap was fixed on 2026-10-21 (§10.1).
 - **Catalysts (§4.5).** The contract-mode integer factor is defined exactly. A catalysed world-reaction rate is capped at `10_000bp` in both modes; before, a higher rate underflowed an amount. No archived dish catalyses a world reaction. Both approved by the user on 2026-10-21.
 - **Views (§11).** Views and charts are checked (`E0114`, `E0204`, `E0205`, `W1201`); `emerge-view` renders still PNGs with exact cells. The live, VEX-like direction is recorded as decided, not built.
 - **Engine (§12.2, §13).** The implemented API methods, local-safety rules and dual-era MCP adapter; the Phase 0 hot-swap subset with its fail-closed check and measured pauses; the journal as built, with its gaps.
