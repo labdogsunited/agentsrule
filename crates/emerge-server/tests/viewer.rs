@@ -123,3 +123,100 @@ fn a_live_frame_is_the_same_picture_as_render() {
     assert_eq!(refused["error"]["code"], -32602, "{refused}");
     assert_eq!(call(&mut ws, 5, "view.unsubscribe", json!({"subscription": 1}))["unsubscribed"], 1);
 }
+
+#[test]
+fn a_recording_is_render_at_every_tick_and_makes_a_mov() {
+    use emerge_server::journal::Journal;
+    use emerge_server::run::{Run, Spec};
+    use serde_json::json;
+    let dir = std::env::temp_dir().join(format!("emerge-rec-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let journals = dir.clone();
+    std::thread::spawn(move || serve_with(listener, Some(journals), None));
+    let (mut ws, _) = connect(format!("ws://127.0.0.1:{port}/")).unwrap();
+    let mut id = 0;
+    let mut call = |ws: &mut tungstenite::WebSocket<_>, method: &str, params: serde_json::Value| {
+        id += 1;
+        ws.send(Message::Text(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string().into())).unwrap();
+        loop {
+            if let Message::Text(t) = ws.read().unwrap() {
+                let v: serde_json::Value = serde_json::from_str(&t).unwrap();
+                assert!(v.get("error").is_none(), "{method}: {v}");
+                return v["result"].clone();
+            }
+        }
+    };
+    let source = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 96, h: 96)").replace("count: 2_000;", "count: 300;");
+    let w = call(&mut ws, "world.create", json!({"source": source, "lineages": ["Drifter", "Builder"], "seed": 9}))["world"].clone();
+    call(&mut ws, "run.step", json!({"world": w, "ticks": 7}));
+    call(&mut ws, "run.resume", json!({"world": w}));
+    let r = call(&mut ws, "view.record", json!({"world": w, "views": VIEWS, "view": "Energy", "every": 2, "frames": 50, "cell": 4}));
+    let rec = std::path::PathBuf::from(r["dir"].as_str().unwrap());
+    assert!(rec.starts_with(&dir), "recordings stay under the journal directory");
+    while !call(&mut ws, "view.recordings", json!({}))["recordings"].as_array().unwrap().is_empty() {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    call(&mut ws, "run.pause", json!({"world": w}));
+    let manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(rec.join("manifest.json")).unwrap()).unwrap();
+    let frames = manifest["frames"].as_array().unwrap();
+    assert_eq!(frames.len(), 50);
+    let ticks: Vec<u64> = frames.iter().map(|f| f["tick"].as_u64().unwrap()).collect();
+    assert!(ticks.windows(2).all(|p| p[1] == p[0] + 2), "a frame every 2 ticks of the running world: {ticks:?}");
+    // Every frame is the picture `render` draws of the same run at its tick.
+    assert_eq!(manifest["ended"], "complete");
+    let mut run = Run::create(Spec { source: manifest["source"].as_str().unwrap().into(), lineages: vec!["Drifter".into(), "Builder".into()], seed: 9, mutation: true, contract: false, gpu: false }, Journal::memory()).unwrap();
+    let view = emerge_server::picture::pick_view(&run, Some(VIEWS), Some("Energy")).unwrap();
+    for f in frames {
+        let tick = f["tick"].as_u64().unwrap();
+        run.step(tick - run.tick());
+        let (expected, _, _) = emerge_server::picture::png(&run, &view, 4).unwrap();
+        assert!(std::fs::read(rec.join(f["file"].as_str().unwrap())).unwrap() == expected, "frame at tick {tick} differs from render");
+    }
+    // A second recording never reuses a directory; without ffmpeg the MOV step is skipped.
+    if std::process::Command::new("ffprobe").arg("-version").output().is_ok() {
+        let mov = emerge_server::record::mov(&rec, 10).unwrap();
+        let out = std::process::Command::new("ffprobe").args(["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0"]).arg(&mov).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "50");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_recording_of_a_world_that_dies_out_ends() {
+    use serde_json::json;
+    let dir = std::env::temp_dir().join(format!("emerge-rec-dies-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let journals = dir.clone();
+    std::thread::spawn(move || serve_with(listener, Some(journals), None));
+    let (mut ws, _) = connect(format!("ws://127.0.0.1:{port}/")).unwrap();
+    let mut id = 0;
+    let mut call = |ws: &mut tungstenite::WebSocket<_>, method: &str, params: serde_json::Value| {
+        id += 1;
+        ws.send(Message::Text(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string().into())).unwrap();
+        loop {
+            if let Message::Text(t) = ws.read().unwrap() {
+                return serde_json::from_str::<serde_json::Value>(&t).unwrap()["result"].clone();
+            }
+        }
+    };
+    // A dish this small dies out within about 100 ticks (seed 5).
+    let source = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 48, h: 48)").replace("count: 2_000;", "count: 150;");
+    let w = call(&mut ws, "world.create", json!({"source": source, "lineages": ["Drifter", "Builder"], "seed": 5}))["world"].clone();
+    call(&mut ws, "run.resume", json!({"world": w}));
+    let dir_of = call(&mut ws, "view.record", json!({"world": w, "views": VIEWS, "view": "Energy", "frames": 1000, "cell": 2}))["dir"].as_str().unwrap().to_string();
+    let t = std::time::Instant::now();
+    while !call(&mut ws, "view.recordings", json!({}))["recordings"].as_array().unwrap().is_empty() {
+        assert!(t.elapsed().as_secs() < 60, "the recording did not end");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(std::path::Path::new(&dir_of).join("manifest.json")).unwrap()).unwrap();
+    assert!(manifest["ended"].as_str().unwrap().starts_with("the world died out"), "{}", manifest["ended"]);
+    assert!(manifest["frames"].as_array().unwrap().len() < 1000);
+    let _ = std::fs::remove_dir_all(&dir);
+}

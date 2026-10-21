@@ -50,6 +50,19 @@ fn main() -> ExitCode {
             emerge_server::serve::serve_with(listener, flag(&args, "--journal-dir").map(Into::into), viewer);
             ExitCode::SUCCESS
         }
+        Some("mov") if args.len() >= 2 => {
+            let fps = flag(&args, "--fps").map_or(10, |f| f.parse().expect("--fps N"));
+            match emerge_server::record::mov(args[1].as_ref(), fps) {
+                Ok(path) => {
+                    println!("{}", path.display());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Some("replay") if args.len() >= 2 => {
             let text = std::fs::read_to_string(&args[1]).expect("read the journal");
             match replay(&text) {
@@ -64,7 +77,7 @@ fn main() -> ExitCode {
             }
         }
         _ => {
-            eprintln!("usage: emerge-server exit2 DISH [--gpu] [--ticks N] [--journal FILE]\n       emerge-server replay JOURNAL\n       emerge-server serve [--port N] [--journal-dir DIR] [--viewer]\n       emerge-server mcp [--journal-dir DIR]\n       emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--made S --window W] [--views FILE] [--view NAME] [--out PNG]");
+            eprintln!("usage: emerge-server exit2 DISH [--gpu] [--ticks N] [--journal FILE]\n       emerge-server replay JOURNAL\n       emerge-server mov RECORDING_DIR [--fps N]\n       emerge-server serve [--port N] [--journal-dir DIR] [--viewer]\n       emerge-server mcp [--journal-dir DIR]\n       emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--made S --window W] [--views FILE] [--view NAME] [--out PNG]");
             ExitCode::FAILURE
         }
     }

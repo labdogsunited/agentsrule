@@ -102,10 +102,15 @@ impl Engine {
     pub fn background(&mut self, budget: f64) {
         let t = std::time::Instant::now();
         while self.busy() && t.elapsed().as_secs_f64() < budget {
-            for e in self.runs.values_mut().filter(|e| e.running) {
-                if e.run.step(1) == 0 {
-                    e.running = false; // died out
-                }
+            self.tick_running();
+        }
+    }
+
+    /// One tick of every running world.
+    pub fn tick_running(&mut self) {
+        for e in self.runs.values_mut().filter(|e| e.running) {
+            if e.run.step(1) == 0 {
+                e.running = false; // died out
             }
         }
     }

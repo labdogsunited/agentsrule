@@ -5,6 +5,7 @@
 //! (`view.subscribe`, `proposals/live-viewer.md`), which only this server offers.
 
 use crate::api::Engine;
+use crate::record::Recording;
 use emerge_lang::ast::View;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -77,8 +78,9 @@ pub fn serve_with(listener: TcpListener, journal_dir: Option<std::path::PathBuf>
 }
 
 fn engine(calls: mpsc::Receiver<Call>, journal_dir: Option<std::path::PathBuf>) {
-    let mut engine = journal_dir.map_or_else(Engine::new, Engine::with_journals);
+    let mut engine = journal_dir.clone().map_or_else(Engine::new, Engine::with_journals);
     let (mut subs, mut next_sub) = (Vec::<Sub>::new(), 0u64);
+    let mut recs = Vec::<Recording>::new();
     loop {
         let next = if engine.busy() {
             calls.try_recv().map_err(|e| e == mpsc::TryRecvError::Disconnected)
@@ -89,15 +91,58 @@ fn engine(calls: mpsc::Receiver<Call>, journal_dir: Option<std::path::PathBuf>) 
         };
         match next {
             Ok((message, reply, conn)) => {
-                let answer = subscription(&message, &engine, &mut subs, &mut next_sub, conn).unwrap_or_else(|| engine.handle(&message));
+                let answer = recording(&message, &engine, &mut recs, &mut next_sub, journal_dir.as_deref())
+                    .or_else(|| subscription(&message, &engine, &mut subs, &mut next_sub, conn))
+                    .unwrap_or_else(|| engine.handle(&message));
                 let _ = reply.send(answer);
             }
             Err(true) => return, // every sender is gone
-            // Nothing to answer: tick the running worlds for a moment, then look again.
+            // Nothing to answer: tick the running worlds for a moment, then look again. While
+            // something records, one tick at a time, so a frame lands on every tick it is due.
+            Err(false) if engine.busy() && !recs.is_empty() => {
+                let t = Instant::now();
+                while engine.busy() && !recs.is_empty() && t.elapsed() < Duration::from_millis(20) {
+                    engine.tick_running();
+                    advance(&engine, &mut recs);
+                }
+            }
             Err(false) if engine.busy() => engine.background(0.02),
             Err(false) => {}
         }
+        advance(&engine, &mut recs);
         push_frames(&engine, &mut subs);
+    }
+}
+
+/// Writes the frames that are due; a finished (or failed) recording is dropped.
+fn advance(engine: &Engine, recs: &mut Vec<Recording>) {
+    recs.retain_mut(|r| r.advance(engine).unwrap_or(false));
+}
+
+fn reply(req: &Value, result: Result<Value, String>) -> Option<String> {
+    let r = match result {
+        Ok(v) => json!({"jsonrpc": "2.0", "id": req["id"], "result": v}),
+        Err(e) => json!({"jsonrpc": "2.0", "id": req["id"], "error": {"code": -32602, "message": e}}),
+    };
+    req.get("id").map(|_| r.to_string())
+}
+
+/// `view.record` and `view.recordings`; `None` for any other call.
+fn recording(message: &str, engine: &Engine, recs: &mut Vec<Recording>, next_id: &mut u64, root: Option<&std::path::Path>) -> Option<Option<String>> {
+    let req: Value = serde_json::from_str(message).ok()?;
+    match req["method"].as_str()? {
+        "view.record" => {
+            let result = root.ok_or_else(|| "recording needs the server's --journal-dir".to_string()).and_then(|root| {
+                *next_id += 1;
+                let r = Recording::start(engine, root, *next_id, &req["params"])?;
+                let status = r.status();
+                recs.push(r);
+                Ok(status)
+            });
+            Some(reply(&req, result))
+        }
+        "view.recordings" => Some(reply(&req, Ok(json!({"recordings": recs.iter().map(Recording::status).collect::<Vec<_>>()})))),
+        _ => None,
     }
 }
 
