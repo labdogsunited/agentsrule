@@ -155,3 +155,41 @@ fn organising_the_network_changes_nothing_in_the_run() {
     }
     assert_eq!(engine.call("world.graph", &json!({"world": a})).unwrap()["frames"]["f1"]["label"], "light");
 }
+
+/// Stage S2 (`proposals/science-panels.md` §7): the census counts every living entity (so the lineage
+/// counts add up to `stats`), comparing a genome with itself finds every gene shared, and a Builder
+/// against a Drifter shows differences on both sides. Asking changes nothing.
+#[test]
+fn the_census_is_exact_and_a_comparison_matches_genes_by_kind_and_text() {
+    let mut engine = Engine::new();
+    let mk = || json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": false});
+    let w = engine.call("world.create", &mk()).unwrap()["world"].as_str().unwrap().to_string();
+    let twin = engine.call("world.create", &mk()).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 5})).unwrap();
+    engine.call("run.step", &json!({"world": twin, "ticks": 5})).unwrap();
+    let c = engine.call("genome.census", &json!({"world": w})).unwrap();
+    let rows = c["lineages"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    let total: u64 = rows.iter().map(|r| r["count"].as_u64().unwrap()).sum();
+    let ents = engine.call("entities.query", &json!({"world": w, "limit": 10})).unwrap();
+    assert_eq!(total, ents["total"].as_u64().unwrap(), "the census covers the whole population");
+    for r in rows {
+        let hist: u64 = r["histogram"].as_array().unwrap().iter().map(|h| h["count"].as_u64().unwrap()).sum();
+        assert_eq!(hist, r["count"].as_u64().unwrap(), "the histogram holds every entity once");
+    }
+    assert!(c["coverage"].as_str().unwrap().contains("exact"));
+    let mut pick = |lineage: &str| {
+        let all = engine.call("entities.query", &json!({"world": w, "limit": 100000})).unwrap();
+        all["entities"].as_array().unwrap().iter().find(|e| e["lineage"] == lineage).map(|e| e["id"].as_u64().unwrap()).unwrap_or_else(|| panic!("no {lineage}"))
+    };
+    let (d, b) = (pick("Drifter"), pick("Builder"));
+    let same = engine.call("genome.compare", &json!({"world": w, "a": b, "b": b})).unwrap();
+    assert!(same["only_a"].as_array().unwrap().is_empty() && same["only_b"].as_array().unwrap().is_empty());
+    assert_eq!(same["shared"].as_array().unwrap().len() as u64, same["a"]["genes"].as_u64().unwrap());
+    let diff = engine.call("genome.compare", &json!({"world": w, "a": d, "b": b})).unwrap();
+    let n = |k: &str| diff[k].as_array().unwrap().len();
+    assert_eq!(n("shared") + n("only_a"), diff["a"]["genes"].as_u64().unwrap() as usize, "every gene of A is shared or only in A");
+    assert_eq!(n("shared") + n("only_b"), diff["b"]["genes"].as_u64().unwrap() as usize);
+    assert!(n("only_a") + n("only_b") > 0, "Drifter and Builder differ");
+    assert_eq!(engine.run(&w).unwrap().digest(), engine.run(&twin).unwrap().digest(), "asking leaves the trajectory unchanged");
+}

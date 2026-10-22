@@ -473,6 +473,31 @@ impl Engine {
                     "genes": g.genes.iter().map(|x| json!({"index": x.index, "module": x.module, "kind": x.kind, "title": x.title, "text": x.text, "expressed": x.expressed, "active": x.active, "reads": x.reads, "writes": x.writes})).collect::<Vec<_>>(),
                 }))
             }
+            "genome.census" => Ok(self.entry(p)?.run.census()),
+            "genome.compare" => {
+                // Two living entities' genes side by side, matched by kind and text; read-only. Genes in
+                // both are listed once with their activity in each.
+                let e = self.entry(p)?;
+                let id = |k: &str| p[k].as_u64().ok_or_else(|| bad(format!("`{k}` must be an entity ID")));
+                let (a, b) = (id("a")?, id("b")?);
+                let (la, _, ga) = e.run.genome_graph(a).map_err(bad)?;
+                let (lb, _, gb) = e.run.genome_graph(b).map_err(bad)?;
+                let key = |g: &emerge_ref::print::GeneBox| format!("{}\u{1}{}", g.kind, g.text);
+                let mut rest: Vec<Option<&emerge_ref::print::GeneBox>> = gb.genes.iter().map(Some).collect();
+                let (mut shared, mut only_a) = (vec![], vec![]);
+                for g in &ga.genes {
+                    match rest.iter().position(|o| o.is_some_and(|o| key(o) == key(g))) {
+                        Some(i) => {
+                            let o = rest[i].take().unwrap();
+                            shared.push(json!({"kind": g.kind, "title": g.title, "text": g.text, "a": {"index": g.index, "expressed": g.expressed, "active": g.active}, "b": {"index": o.index, "expressed": o.expressed, "active": o.active}}));
+                        }
+                        None => only_a.push(json!({"index": g.index, "kind": g.kind, "title": g.title, "text": g.text, "expressed": g.expressed, "active": g.active})),
+                    }
+                }
+                let only_b: Vec<Value> = rest.iter().flatten().map(|g| json!({"index": g.index, "kind": g.kind, "title": g.title, "text": g.text, "expressed": g.expressed, "active": g.active})).collect();
+                Ok(json!({"tick": e.run.tick(), "a": {"entity": a, "lineage": la, "genes": ga.genes.len()}, "b": {"entity": b, "lineage": lb, "genes": gb.genes.len()},
+                    "matching": "genes match when kind and text are equal; repeated genes pair off one to one", "shared": shared, "only_a": only_a, "only_b": only_b}))
+            }
             "journal.read" => Ok(json!({"lines": self.entry(p)?.run.journal.lines})),
             "view.palettes" => {
                 // The palettes a view may name, each as 17 colours sampled along it (a categorical one
