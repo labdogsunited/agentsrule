@@ -269,6 +269,45 @@ impl Engine {
                 Ok(json!({"world": name, "revision": e.run.revision(), "tick": e.run.tick(), "creatures": sched.creatures, "steps": steps, "unplaced": unplaced, "waste": sched.waste.iter().map(|(a, b)| json!({"substance": a, "sink": b})).collect::<Vec<_>>(),
                     "disposal": sched.disposal.as_ref().map(|d| json!({"decompose": d.decompose, "remains": d.remains})), "source": "checked schedule (the one `emerge order` prints)"}))
             }
+            "rules.activity" => {
+                // What each world-rule statement did, counted by the CPU runner since the world began or its rules
+                // last changed (`proposals/science-panels.md` §3.3): cells looked at, cells a `when` let through,
+                // and for a transfer the asked-for and delivered µ, for a reaction the cells where it ran and its
+                // extent. The statements are the runner's laws in the order it built them.
+                let e = self.entry(p)?;
+                if !matches!(e.run.device.split(':').next(), Some("cpu")) { return Err(fault(-32005, "per-rule counters are kept by the CPU runner only".to_string())); }
+                let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+                let prepared = emerge_lang::prepare(&file).map_err(|d| fault(-32005, format!("{}: {}: {}", d.code, d.path, d.message)))?;
+                let name = prepared.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) => Some(w.name.clone()), _ => None }).ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+                let world = prepared.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) if w.name == name => Some(w), _ => None }).unwrap();
+                fn walk(block: &emerge_lang::ast::Block, top: usize, rule: &str, on: &str, out: &mut Vec<Value>, name: &str) {
+                    let nested = top != usize::MAX;
+                    use emerge_lang::ast::Stmt;
+                    for (k, st) in block.iter().enumerate() {
+                        let top = if top == usize::MAX { k } else { top };
+                        match &st.node {
+                            // The path is the lens's: a labelled top-level call by its label, anything else by the top-level position.
+                            Stmt::Call { call, label } => out.push(json!({"rule": rule, "on": on, "line": st.pos.line, "call": call.name, "text": emerge_lang::fmt::stmt_text(&st.node),
+                                "path": match (label, nested) { (Some(l), false) => format!("{name}.rules.{rule}@{l}"), _ => format!("{name}.rules.{rule}#{top}") }})),
+                            Stmt::When { then, otherwise, .. } => { walk(then, top, rule, on, out, name); if let Some(o) = otherwise { walk(o, top, rule, on, out, name); } }
+                            _ => {}
+                        }
+                    }
+                }
+                let mut named: Vec<Value> = vec![];
+                for d in &world.decls {
+                    if let emerge_lang::ast::WDecl::Rule { name: rn, on, body } = &d.node { walk(body, usize::MAX, rn, on, &mut named, &name); }
+                }
+                let w = &e.run.live.world;
+                if named.len() != w.laws.len() { return Err(fault(-32005, format!("the runner has {} laws but the source has {} effect statements: the counters cannot be tied to statements", w.laws.len(), named.len()))); }
+                let ticks = e.run.tick().saturating_sub(w.law_since);
+                let rows: Vec<Value> = named.into_iter().zip(&w.law_stats).map(|(mut n, st)| { let o = n.as_object_mut().unwrap();
+                    for (k, v) in [("cells", st.cells), ("passed", st.passed), ("requests", st.requests), ("requested_mu", st.requested), ("delivered_mu", st.delivered), ("cut_by_origin", st.cut_by_origin), ("cut_by_dest", st.cut_by_dest), ("ran", st.ran), ("extent", st.extent)] { o.insert(k.into(), json!(v)); }
+                    n }).collect();
+                Ok(json!({"world": name, "revision": e.run.revision(), "tick": e.run.tick(), "since_tick": w.law_since, "ticks": ticks, "rows": rows,
+                    "meaning": {"cells": "cells looked at (every cell, every tick)", "passed": "cells a `when` let through (all of them when there is none)", "requests": "transfer requests made", "requested_mu": "µ asked for", "delivered_mu": "µ that arrived", "cut_by_origin": "requests cut to what the origin held", "cut_by_dest": "requests cut to the room the destination had", "ran": "cells where a reaction had a positive extent", "extent": "total reaction extent in µ of reaction"},
+                    "scope": "world rules only; creatures' own reaction genes are in stats.query"}))
+            }
             "rules.matrix" => {
                 // Which rules touch which declarations (`proposals/science-panels.md` §3.2). Found by
                 // name in the checked statements' text, so it is a lower bound: a dependency hidden

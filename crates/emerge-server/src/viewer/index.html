@@ -383,7 +383,7 @@
   <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
-  <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label></div><div id="rulesbody"></div></main></div>
+  <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label></div><div id="rulesbody"></div></main></div>
   <div class="editor" id="ed-compare"><main id="stage-compare"><div id="comparebar"><span id="comparenote"></span></div><div id="comparebody"></div></main></div>
   <div class="editor" id="ed-family"><main id="stage-family"><div id="familybar"><span id="familynote"></span></div><div id="familybody"></div></main></div>
   <div class="editor" id="ed-budget"><main id="stage-budget"><div id="budgetbar"><span id="budgetnote"></span><button id="budgetstart">Start a budget window now</button><label>or follow the clade of creature # <input type="number" id="budgetclade" style="width:6em"></label><button id="budgetcladego">Start</button><label>or import an accounts file <input type="file" id="budgetfile" accept=".csv,text/csv,text/plain"></label></div><div id="budgetbody"></div></main></div>
@@ -2456,6 +2456,27 @@ let rulesRev = null;
 // name. A blank cell means none found by name, not none exist (the note says so). Clicking a column marks it.
 const MX = { condition: "?", transfer: "T", from: "←", to: "→", overflow: "⌀", react: "R", consumes: "−", produces: "+", diffuse: "~", mentions: "·" };
 let mxCol = null;
+// Activity (S4): what each world-rule statement did since the rules last changed, counted by the runner. Rates
+// divide by the ticks counted; a transfer's delivered share is of what it asked for.
+async function loadActivity(w) {
+  const body = $("rulesbody"), note = $("rulesnote");
+  let r;
+  try { r = await call("rules.activity", { world: w }); } catch (e) { note.textContent = `${w} · ${e.message || e}`; body.textContent = ""; return; }
+  if (w !== $("world").value || !visible.rules) return;
+  rulesRev = r.revision;
+  note.textContent = `${w} · revision ${r.revision} · counted over ticks ${r.since_tick} to ${r.tick} (${r.ticks}) · ${r.scope}`;
+  const keep = body.scrollTop; body.textContent = "";
+  const t = tag("table", "mx"), per = (v) => (r.ticks ? (v / r.ticks).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "–");
+  t.innerHTML = `<tr><th>statement</th><th title="${esc(r.meaning.passed)}">cells through / tick</th><th title="${esc(r.meaning.requests)}">requests / tick</th><th title="${esc(r.meaning.delivered_mu)}">delivered of asked (µ)</th><th title="${esc(r.meaning.cut_by_origin)}">cut by origin</th><th title="${esc(r.meaning.cut_by_dest)}">cut by room</th><th title="${esc(r.meaning.ran)}">cells reacting / tick</th><th title="${esc(r.meaning.extent)}">extent / tick</th></tr>`;
+  for (const x of r.rows) {
+    const isT = x.requests > 0 || x.call === "transfer" || x.call === "diffuse_conserved", isR = x.call === "react";
+    const tr = tag("tr");
+    tr.innerHTML = `<td class="lens-stmt" title="${esc(x.path)}">${esc(x.text.length > 60 ? x.text.slice(0, 60) + "…" : x.text)}</td><td>${per(x.passed)} of ${per(x.cells)}</td><td>${isT ? per(x.requests) : "–"}</td><td>${isT ? `${x.delivered_mu.toLocaleString()} of ${x.requested_mu.toLocaleString()}` : "–"}</td><td>${isT ? x.cut_by_origin.toLocaleString() : "–"}</td><td>${isT ? x.cut_by_dest.toLocaleString() : "–"}</td><td>${isR ? per(x.ran) : "–"}</td><td>${isR ? per(x.extent) : "–"}</td>`;
+    tr.querySelector(".lens-stmt").onclick = () => { setMode("graph"); loadGraph().then(() => select(x.path)).catch(oops); };
+    t.append(tr);
+  }
+  body.append(t); body.scrollTop = keep;
+}
 async function loadMatrix(w) {
   const r = await call("rules.matrix", { world: w }), note = $("rulesnote"), body = $("rulesbody");
   if (w !== $("world").value || !visible.rules) return;
@@ -2480,7 +2501,9 @@ async function loadMatrix(w) {
 async function loadRules() {
   const w = $("world").value, note = $("rulesnote"), body = $("rulesbody");
   if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
-  if (document.querySelector('input[name="rmode"]:checked').value === "matrix") return loadMatrix(w);
+  const rmode = document.querySelector('input[name="rmode"]:checked').value;
+  if (rmode === "matrix") return loadMatrix(w);
+  if (rmode === "activity") return loadActivity(w);
   const r = await call("rules.lens", { world: w });
   if (w !== $("world").value || !visible.rules) return;
   rulesRev = r.revision;

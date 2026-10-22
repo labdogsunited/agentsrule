@@ -454,8 +454,32 @@ pub struct LedgerError {
     pub drift: i128,
 }
 
+/// What one world rule's statement did, counted over every tick since the world began or its rules last
+/// changed (`LawStat`s are observation only: they are not in the state digest). Cells: how many
+/// were looked at, and how many a `when` let through. A transfer: its requests, the µ asked for and the
+/// µ delivered, and how many requests an origin's balance or a destination's room cut. A reaction: the
+/// cells where it ran with a positive extent, and the extent in total.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LawStat {
+    pub cells: u64,
+    pub passed: u64,
+    pub requests: u64,
+    pub requested: u64,
+    pub delivered: u64,
+    pub cut_by_origin: u64,
+    pub cut_by_dest: u64,
+    pub ran: u64,
+    pub extent: u64,
+}
+
 #[derive(Clone)]
 pub struct World {
+    /// Per law, in `laws` order: what it did (see `LawStat`); reset when the laws change.
+    pub law_stats: Vec<LawStat>,
+    /// The tick `law_stats` began counting at.
+    pub law_since: u64,
+    /// Which law made each request of the tick (`u32::MAX`: a creature's own action).
+    req_law: Vec<u32>,
     pub chem: Chemistry,
     pub cells: Vec<Store>,
     pub neighbours: Vec<Vec<usize>>,
@@ -642,6 +666,9 @@ impl World {
             sinks,
             laws: Vec::new(),
             react_masks: Vec::new(),
+            law_stats: Vec::new(),
+            law_since: 0,
+            req_law: Vec::new(),
             states: Vec::new(),
             creatures,
             upkeep,
@@ -911,9 +938,13 @@ impl World {
         // 2.3 Transfers: entity intents and transfer rules, arbitrated together.
         let mut requests = std::mem::take(&mut self.requests);
         requests.clear();
+        let mut req_law = std::mem::take(&mut self.req_law);
+        req_law.clear();
+        let cur = std::cell::Cell::new(u32::MAX);
         let mut request = |origin: End, dest: End, s: SubstanceId, amount: Mu, overflow: Option<SinkId>, steal: bool| {
             if amount > 0 {
                 let overflow = overflow.map_or(u16::MAX, |o| o as u16);
+                req_law.push(cur.get());
                 requests.push(Req { origin: pack(origin), dest: pack(dest), s: s as u16, overflow, requested: amount, steal });
             }
         };
@@ -939,12 +970,18 @@ impl World {
         // A condition reads the cell as the tick begins, which is how the cell is now: nothing has
         // changed a cell's amounts yet (transfers are only requested here, and settled below).
         self.react_masks = vec![None; self.laws.len()];
+        if self.law_stats.len() != self.laws.len() {
+            self.law_stats = vec![LawStat::default(); self.laws.len()];
+            self.law_since = self.tick;
+        }
         for (li, law) in self.laws.iter().enumerate() {
+            cur.set(li as u32);
             let (law, cond) = law.parts();
             if cond.is_some() && matches!(law, Law::React { .. }) {
                 self.react_masks[li] = Some(vec![true; self.cells.len()]);
             }
             for c in 0..self.cells.len() {
+                self.law_stats[li].cells += 1;
                 if let Some(cond) = cond {
                     let (cells, space) = (&self.cells, self.space.as_ref());
                     let neighbour = |d: usize| -> Option<&[Mu]> {
@@ -959,6 +996,7 @@ impl World {
                         continue;
                     }
                 }
+                self.law_stats[li].passed += 1;
                 match law {
                     Law::Inflow { s, source, amount, overflow } => {
                         request(End::Source(*source), End::Cell(c), *s, *amount, *overflow, false)
@@ -987,6 +1025,7 @@ impl World {
                 }
             }
         }
+        self.req_law = req_law;
         self.arbitrate(&requests);
         self.requests = requests;
         // 2.4 Movement: paid turns, then paid moves. No repulsion in P0 (spec §7.2).
@@ -1122,6 +1161,10 @@ impl World {
                         extent = extent.min(cell.headroom(s) / c);
                     }
                     apply_reaction(cell, r, extent);
+                    if extent > 0 {
+                        self.law_stats[li].ran += 1;
+                        self.law_stats[li].extent += extent as u64;
+                    }
                 }
             }
         }
@@ -1619,6 +1662,13 @@ impl World {
                         _ => {}
                     }
                 }
+            }
+            if let Some(st) = self.req_law.get(k).and_then(|&l| self.law_stats.get_mut(l as usize)) {
+                st.requests += 1;
+                st.requested += r.requested as u64;
+                st.delivered += delivered as u64;
+                st.cut_by_origin += (stage1[k] < r.requested) as u64;
+                st.cut_by_dest += (stage2[k] < stage1[k]) as u64;
             }
             if let Some(b) = &mut self.binding {
                 let c = b.transfers.entry((transfer_kind(r), s)).or_default();

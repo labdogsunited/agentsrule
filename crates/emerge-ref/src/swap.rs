@@ -313,6 +313,7 @@ pub fn spill(w: &mut World, cap: Mu) -> Vec<u64> {
 /// Copies a configuration into a running world.
 pub fn apply(w: &mut World, c: &Config) {
     w.laws = c.laws.clone();
+    w.law_stats.clear();
     let u = &mut w.upkeep;
     [u.base, u.per_gene, u.per_signal, u.per_signal_keep, u.per_carried_u] = c.upkeep;
     (w.max_age, w.max_entities, w.mind_steps) = (c.max_age, c.max_entities, c.mind_steps);

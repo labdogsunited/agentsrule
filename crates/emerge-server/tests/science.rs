@@ -417,3 +417,40 @@ fn a_clade_budget_reconciles_as_members_are_born_and_die() {
     for x in g { assert_eq!(x["unreconciled_mu"], 0, "{}: closes", x["lineage"]); }
     assert!(g[1]["creatures_start"].as_u64().unwrap() >= 2, "the clade began with the creature and its descendants");
 }
+
+/// Stage S4 (`proposals/science-panels.md` §3.3): per-statement counters tie to the lens's statements and
+/// count what the runner did: a `when` that holds for two ticks lets every cell through twice, no more; what is
+/// delivered never exceeds what was asked for; a world with no transfers in a tick has no requests.
+#[test]
+fn rule_activity_counts_what_the_runner_did() {
+    let mut engine = Engine::new();
+    let src = small(NIGHT).replace("when tick < 300 or tick >= 400", "when tick < 2");
+    let w = engine.call("world.create", &json!({"source": src, "lineages": ["Builder"], "seed": 1, "mutation": false})).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 5})).unwrap();
+    let a = engine.call("rules.activity", &json!({"world": w})).unwrap();
+    let lens = engine.call("rules.lens", &json!({"world": w})).unwrap();
+    let rows = a["rows"].as_array().unwrap();
+    let cells = 96u64 * 96;
+    let sun = rows.iter().find(|r| r["path"] == "Dish.rules.sunlight#0").unwrap();
+    assert_eq!(sun["cells"], 5 * cells, "every cell is looked at every tick");
+    assert_eq!(sun["passed"], 2 * cells, "the condition held on ticks 0 and 1 only");
+    assert_eq!(sun["requests"], 2 * cells);
+    assert!(sun["delivered_mu"].as_u64() <= sun["requested_mu"].as_u64());
+    assert_eq!(sun["requested_mu"], 2 * cells * 40);
+    let rot = rows.iter().find(|r| r["call"] == "react").unwrap();
+    assert_eq!(rot["passed"], 5 * cells);
+    assert!(rot["ran"].as_u64().unwrap() > 0 && rot["extent"].as_u64().unwrap() >= rot["ran"].as_u64().unwrap(), "rot ran where there was body to rot");
+    for r in rows { assert!(r["delivered_mu"].as_u64() <= r["requested_mu"].as_u64()); }
+    // The statements are the lens's statements.
+    let lens_paths: Vec<&str> = lens["steps"].as_array().unwrap().iter().flat_map(|s| s["rules"].as_array().unwrap()).flat_map(|r| r["statements"].as_array().unwrap()).map(|s| s["path"].as_str().unwrap()).collect();
+    for r in rows { assert!(lens_paths.contains(&r["path"].as_str().unwrap()), "{}", r["path"]); }
+    assert_eq!(a["since_tick"], 0);
+    // A change of rules starts the counters again, and says since when: the old counts belonged to the old rules.
+    engine.call("world.hotswap", &json!({"world": w, "base_revision": 0, "patch": "patch Dish {\n    set rules.rotting@react_rot.rate = 200bp;\n}\n", "reason": "faster recycling"})).unwrap();
+    engine.call("run.step", &json!({"world": w, "ticks": 1})).unwrap();
+    let b = engine.call("rules.activity", &json!({"world": w})).unwrap();
+    assert_eq!(b["since_tick"], 5);
+    assert_eq!(b["revision"], 1);
+    let rot = b["rows"].as_array().unwrap().iter().find(|r| r["call"] == "react").unwrap();
+    assert_eq!(rot["cells"], cells, "one tick of the new rules");
+}

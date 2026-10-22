@@ -16,4 +16,10 @@ export default async (page) => {
   await page.wait(800);
   ok(await page.eval(`document.querySelectorAll("#rulesbody td.mxc.on").length > 0`), "clicking the nitrate column marks it");
   await page.shot(S + "matrix.png");
+  await page.eval(`call("run.step", { world: document.getElementById("world").value, ticks: 20 })`);
+  await page.eval(`document.querySelector('input[name="rmode"][value="activity"]').click()`);
+  await page.wait(1000);
+  const act = await page.eval(`document.getElementById("rulesbody").innerText`);
+  ok(/cells through/.test(act) && /transfer\(light/.test(act) && /react\(rot/.test(act), "activity table lists the statements with counters");
+  await page.shot(S + "activity.png");
 };
