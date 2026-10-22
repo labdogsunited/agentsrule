@@ -406,7 +406,7 @@
   <div class="editor" id="ed-region"><main id="stage-region"><div id="regionbar"><span id="regionnote"></span></div><div id="regionbody"></div></main></div>
   <div class="editor" id="ed-compare"><main id="stage-compare"><div id="comparebar"><span id="comparenote"></span></div><div id="comparebody"></div></main></div>
   <div class="editor" id="ed-family"><main id="stage-family"><div id="familybar"><span id="familynote"></span></div><div id="familybody"></div></main></div>
-  <div class="editor" id="ed-budget"><main id="stage-budget"><div id="budgetbar"><span id="budgetnote"></span><button id="budgetstart">Start a budget window now</button><label>or follow the clade of creature # <input type="number" id="budgetclade" style="width:6em"></label><button id="budgetcladego">Start</button><label>or import an accounts file <input type="file" id="budgetfile" accept=".csv,text/csv,text/plain"></label></div><div id="budgetbody"></div></main></div>
+  <div class="editor" id="ed-budget"><main id="stage-budget"><div id="budgetbar"><span id="budgetnote"></span><label>split by who makes substance <input id="budgetflux" placeholder="e.g. body" style="width:6em"></label><button id="budgetstart">Start a budget window now</button><label>or follow the clade of creature # <input type="number" id="budgetclade" style="width:6em"></label><button id="budgetcladego">Start</button><label>or import an accounts file <input type="file" id="budgetfile" accept=".csv,text/csv,text/plain"></label></div><div id="budgetbody"></div></main></div>
   <div class="editor" id="ed-census"><main id="stage-census"><div id="censusbar"><span id="censusnote"></span></div><div id="censusbody"></div></main></div>
   <div class="editor" id="ed-lineage"><main id="stage-lineage"><div id="lineagebar"><span id="lineagenote"></span><label><input type="radio" name="lmode" value="count" checked> counts</label><label><input type="radio" name="lmode" value="share"> share</label></div><div id="lineagebody"></div></main></div>
   <div class="editor" id="ed-details"><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main></div>
@@ -2847,8 +2847,8 @@ async function loadFamily() {
 async function loadBudget() {
   const w = $("world").value, note = $("budgetnote"), body = $("budgetbody");
   if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
-  $("budgetstart").onclick = async () => { try { await call("accounts.start", { world: w }); } catch (e) { note.textContent = e.message || String(e); return; } loadBudget().catch(oops); };
-  $("budgetcladego").onclick = async () => { try { await call("accounts.start", { world: w, clade: +$("budgetclade").value }); } catch (e) { note.textContent = e.message || String(e); return; } loadBudget().catch(oops); };
+  $("budgetstart").onclick = async () => { try { await call("accounts.start", { world: w, ...($("budgetflux").value ? { flux: $("budgetflux").value } : {}) }); } catch (e) { note.textContent = e.message || String(e); return; } loadBudget().catch(oops); };
+  $("budgetcladego").onclick = async () => { try { await call("accounts.start", { world: w, clade: +$("budgetclade").value, ...($("budgetflux").value ? { flux: $("budgetflux").value } : {}) }); } catch (e) { note.textContent = e.message || String(e); return; } loadBudget().catch(oops); };
   let b;
   try { b = await call("accounts.query", { world: w }); } catch (e) { note.textContent = `${w} · ${e.message || e}`; body.textContent = ""; return; }
   if (w !== $("world").value || !visible.budget) return;
@@ -2862,7 +2862,8 @@ async function loadBudget() {
     t.innerHTML = `<tr><th colspan="3">${esc(l.lineage)}: ${l.creatures_start} creatures at the start, ${l.creatures_now} now (${l.births} born, ${l.starved} starved, ${l.aged} aged)</th></tr>` +
       rows.map((r) => `<tr><td>${esc(r[0])}</td><td class="n">${r[1].toLocaleString()}</td><td><span class="bar ${r[2]}" style="width:${Math.max(1, 220 * r[1] / mx)}px"></span></td></tr>`).join("") +
       `<tr><td>unreconciled</td><td class="n ${l.unreconciled_mu ? "bad" : ""}">${l.unreconciled_mu.toLocaleString()}</td><td>${l.unreconciled_mu ? "the account lines do not explain the change" : "the lines explain the change exactly"}</td></tr>`;
-    body.append(waterfall(l, b.from_tick), t);
+    const dd = l.disposal && !l.disposal.unavailable ? Object.assign(tag("div"), { textContent: `The dead's stock: ${l.disposal.died_with_mu.toLocaleString()} µ when they died; after decompose ${l.disposal.to_cells_mu.toLocaleString()} µ went into the cells they died in and ${l.disposal.to_remains_mu.toLocaleString()} µ to remains${l.disposal.changed_by_decompose_mu ? `; decompose changed ${l.disposal.changed_by_decompose_mu.toLocaleString()} µ` : ""}.` }) : Object.assign(tag("div"), { textContent: l.disposal ? l.disposal.unavailable : "" });
+    body.append(waterfall(l, b.from_tick), t, dd);
   }
   const n = tag("div"); n.textContent = b.not_counted; body.append(n);
 }

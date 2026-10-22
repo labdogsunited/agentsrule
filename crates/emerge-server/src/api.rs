@@ -566,7 +566,7 @@ impl Engine {
             }
             "accounts.start" => {
                 let clade = match &p["clade"] { Value::Null => None, v => Some(v.as_u64().ok_or_else(|| bad("`clade` must be an entity ID"))?) };
-                self.entry(p)?.run.start_accounts(clade).map_err(bad)
+                self.entry(p)?.run.start_accounts(clade, p["flux"].as_str()).map_err(bad)
             }
             "accounts.query" => self.entry(p)?.run.accounts().map_err(bad),
             "ancestry.query" => {

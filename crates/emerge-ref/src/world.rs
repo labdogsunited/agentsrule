@@ -484,8 +484,18 @@ pub struct LawStat {
     pub extent: u64,
 }
 
+/// Where the inventory of the dead went (observation only, not in the state digest): after `decompose` ran, what each
+/// lineage's dead put into the cell they died in and what did not fit and went to the `remains` sink, by substance (µ).
+#[derive(Clone, Debug, Default)]
+pub struct Disposal {
+    pub to_cell: Vec<Vec<u64>>,
+    pub to_remains: Vec<Vec<u64>>,
+}
+
 #[derive(Clone)]
 pub struct World {
+    /// Where the dead's inventory went since the world began (see `Disposal`).
+    pub disposal: Disposal,
     /// Per law, in `laws` order: what it did (see `LawStat`); reset when the laws change.
     pub law_stats: Vec<LawStat>,
     /// The tick `law_stats` began counting at.
@@ -681,6 +691,7 @@ impl World {
             laws: Vec::new(),
             react_masks: Vec::new(),
             law_stats: Vec::new(),
+            disposal: Disposal::default(),
             law_since: 0,
             req_law: Vec::new(),
             last_transfer_meta: Vec::new(),
@@ -1230,11 +1241,18 @@ impl World {
                 let extent = r.inputs.iter().map(|&(s, c)| store.amounts[s] / c).min().unwrap_or(0);
                 apply_reaction(store, r, extent);
             }
+            let (ns, lin) = (self.chem.substances.len(), self.entities[i].lineage);
+            if self.disposal.to_cell.len() <= lin {
+                self.disposal.to_cell.resize(lin + 1, vec![0; ns]);
+                self.disposal.to_remains.resize(lin + 1, vec![0; ns]);
+            }
             for s in 0..self.chem.substances.len() {
                 let amount = std::mem::take(&mut self.entities[i].store.amounts[s]);
                 let to_cell = amount.min(self.cells[cell].headroom(s));
                 self.cells[cell].amounts[s] += to_cell;
                 let rest = amount - to_cell;
+                self.disposal.to_cell[lin][s] += to_cell as u64;
+                self.disposal.to_remains[lin][s] += rest as u64;
                 if rest > 0 {
                     assert!(self.sinks[self.remains].accepts(s), "remains must accept every substance");
                     add_elements(&mut self.absorbed, &self.chem, s, rest);

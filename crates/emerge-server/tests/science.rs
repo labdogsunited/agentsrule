@@ -247,6 +247,11 @@ fn the_resource_budget_reconciles_to_the_integer() {
     for l in b["lineages"].as_array().unwrap() {
         eprintln!("{l}");
         assert_eq!(l["unreconciled_mu"], 0, "{}: the budget closes", l["lineage"]);
+        // Where the dead's stock went: without `decompose` it is all either put in the cell or sent to remains.
+        let d = &l["disposal"];
+        if !small(DISH).contains("decompose:") { assert_eq!(d["changed_by_decompose_mu"], 0, "{}: nothing is changed on the way when there is no decompose", l["lineage"]); }
+        assert_eq!(d["to_cells_mu"].as_u64().unwrap() + d["to_remains_mu"].as_u64().unwrap(), d["died_with_mu"].as_u64().unwrap() - d["changed_by_decompose_mu"].as_i64().unwrap() as u64);
+        if l["starved"].as_u64().unwrap() > 0 { assert!(d["to_cells_mu"].as_u64().unwrap() + d["to_remains_mu"].as_u64().unwrap() > 0 || d["died_with_mu"] == 0); }
     }
     // The digest hashes the whole world, accounts included, so compare what the run did instead.
     let look = |engine: &mut Engine, x: &str| {
@@ -644,4 +649,23 @@ fn answers_carry_an_observation_token_that_changes_when_the_world_does() {
     engine.call("run.step", &json!({"world": w, "ticks": 1})).unwrap();
     let c = engine.call("genome.census", &json!({"world": w})).unwrap();
     assert_ne!(a["observation"]["token"], c["observation"]["token"]);
+}
+
+/// Stage S3 (`proposals/science-panels.md` §8): groups made by what a creature's genome does close as well. Lineages
+/// split into creatures that make a substance and those that do not reconcile to the integer even as children of
+/// one group are born into the other.
+#[test]
+fn a_budget_by_who_makes_a_substance_reconciles() {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": true})).unwrap()["world"].as_str().unwrap().to_string();
+    assert!(engine.call("accounts.start", &json!({"world": w, "flux": "nope"})).is_err());
+    engine.call("run.step", &json!({"world": w, "ticks": 30})).unwrap();
+    engine.call("accounts.start", &json!({"world": w, "flux": "body"})).unwrap();
+    engine.call("run.step", &json!({"world": w, "ticks": 100})).unwrap();
+    let b = engine.call("accounts.query", &json!({"world": w})).unwrap();
+    let g = b["lineages"].as_array().unwrap();
+    assert_eq!(g.len(), 4);
+    assert!(g[1]["lineage"].as_str().unwrap().ends_with("making body") && g[0]["lineage"].as_str().unwrap().ends_with("not making body"));
+    for x in g { assert_eq!(x["unreconciled_mu"], 0, "{}: closes", x["lineage"]); }
+    assert!(g[3]["creatures_start"].as_u64().unwrap() > 0, "Builder makes body");
 }

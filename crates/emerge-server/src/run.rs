@@ -87,6 +87,8 @@ struct AcctStart {
     names: Vec<String>,
     count: Vec<u64>,
     stock: Vec<u64>,
+    /// What the dead's inventory had gone to by the start, per lineage: (cells, remains) of the upkeep substance (µ).
+    disposal0: Vec<(u64, u64)>,
 }
 
 impl Run {
@@ -499,7 +501,7 @@ impl Run {
 
     /// Starts the resource budget window (`accounts.start`, `proposals/science-panels.md` §8): the
     /// runtime's own per-lineage accounts of the upkeep substance, counted from now. CPU only.
-    pub fn start_accounts(&mut self, clade: Option<u64>) -> Result<Value, String> {
+    pub fn start_accounts(&mut self, clade: Option<u64>, flux: Option<&str>) -> Result<Value, String> {
         if !matches!(self.backend, Backend::Cpu) {
             return Err("resource accounts exist on the CPU runner only (the GPU has no accounts yet)".into());
         }
@@ -510,10 +512,15 @@ impl Run {
         if let Some(id) = clade {
             if !self.live.world.entities.iter().any(|e| e.id == id) { return Err(format!("entity {id} is not alive: a clade starts from a living creature")); }
         }
+        let flux_id = match flux {
+            Some(f) => Some(self.live.world.chem.substances.iter().position(|s| s.name == f).ok_or_else(|| format!("no substance `{f}`"))?),
+            None => None,
+        };
         let w = &mut self.live.world;
-        w.accounts = Some(emerge_ref::world::Accounts { clade: members, ..Default::default() });
+        w.accounts = Some(emerge_ref::world::Accounts { clade: members, flux: flux_id, ..Default::default() });
         let pay = w.upkeep.pay;
-        let names: Vec<String> = match clade { Some(id) => vec!["everyone else".into(), format!("clade of #{id}")], None => self.spec.lineages.clone() };
+        let base: Vec<String> = match clade { Some(id) => vec!["everyone else".into(), format!("clade of #{id}")], None => self.spec.lineages.clone() };
+        let names: Vec<String> = match flux { Some(f) => base.iter().flat_map(|b| [format!("{b} / not making {f}"), format!("{b} / making {f}")]).collect(), None => base };
         let (mut count, mut stock) = (vec![0u64; names.len()], vec![0u64; names.len()]);
         let acc = w.accounts.as_ref().unwrap();
         for e in &w.entities {
@@ -521,7 +528,8 @@ impl Run {
             count[g] += 1;
             stock[g] += u64::from(e.store.amounts[pay]);
         }
-        self.acct = Some(AcctStart { tick: w.tick, revision: self.live.revision, names, count, stock });
+        let disposal0 = (0..self.spec.lineages.len()).map(|l| (w.disposal.to_cell.get(l).map_or(0, |v| v[pay]), w.disposal.to_remains.get(l).map_or(0, |v| v[pay]))).collect();
+        self.acct = Some(AcctStart { tick: w.tick, revision: self.live.revision, names, count, stock, disposal0 });
         Ok(json!({"started_at_tick": self.tick(), "substance": self.live.world.chem.substances[pay].name}))
     }
 
@@ -546,7 +554,15 @@ impl Run {
                 let get = |name: &str| t[col(name)] as i128;
                 let explained: i128 = lines.iter().map(|(_, s, x)| s * x).sum();
                 let change = stock[g] as i128 - start.stock[g] as i128;
-                json!({"lineage": start.names[g], "creatures_start": start.count[g], "creatures_now": count[g], "births": get("births"), "starved": get("starved"), "aged": get("aged"),
+                // Where the dead's stock went after `decompose` (cells, or the `remains` sink); by founding lineage only.
+                let disposal = if a.clade.is_none() && a.flux.is_none() {
+                    let (c0, r0) = start.disposal0[g];
+                    let (c1, r1) = (w.disposal.to_cell.get(g).map_or(0, |v| v[pay]), w.disposal.to_remains.get(g).map_or(0, |v| v[pay]));
+                    let after = (c1 - c0 + r1 - r0) as i128;
+                    json!({"to_cells_mu": c1 - c0, "to_remains_mu": r1 - r0, "died_with_mu": get("pay_died_with_mu"), "changed_by_decompose_mu": get("pay_died_with_mu") - after,
+                        "note": "died with is the stock before decompose ran; the two routes are what was left after it. The difference is what decompose turned into other substances (or into this one)."})
+                } else { json!({"unavailable": "disposal routes are kept by founding lineage, not by clade or by who makes a substance"}) };
+                json!({"disposal": disposal, "lineage": start.names[g], "creatures_start": start.count[g], "creatures_now": count[g], "births": get("births"), "starved": get("starved"), "aged": get("aged"),
                     "stock_start_mu": start.stock[g], "stock_now_mu": stock[g], "change_mu": change,
                     "lines": lines.iter().map(|(l, s, x)| json!({"name": l, "sign": s, "mu": x})).collect::<Vec<_>>(),
                     "explained_mu": explained, "unreconciled_mu": change - explained})
@@ -554,7 +570,7 @@ impl Run {
             .collect();
         Ok(json!({"substance": w.chem.substances[pay].name, "unit": "µ (millionths of a unit)", "from_tick": start.tick, "to_tick": self.tick(),
             "revision_start": start.revision, "revision_now": self.live.revision, "crosses_edit": start.revision != self.live.revision,
-            "scope": if a.clade.is_some() { "a clade (the creature and every descendant, children join at birth) against everyone else; stock moving between the two is a line, not an error" } else { "each founding lineage as a whole; a creature's stock moves with it, births count in the parent's lineage" },
+            "scope": if a.flux.is_some() { "each group is a founding lineage (or the clade) split into creatures with an active reaction gene that makes the chosen substance, and the rest; a creature's genome never changes after birth, so it stays in its group, and a child joins its parent's lineage" } else if a.clade.is_some() { "a clade (the creature and every descendant, children join at birth) against everyone else; stock moving between the two is a line, not an error" } else { "each founding lineage as a whole; a creature's stock moves with it, births count in the parent's lineage" },
             "not_counted": "stock that creatures bring in by genesis or injection after the start is not in the account columns and shows as unreconciled",
             "lineages": lineages}))
     }
