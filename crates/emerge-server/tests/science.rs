@@ -286,3 +286,25 @@ fn ancestry_follows_recorded_births_to_a_founder() {
     assert!(with_kids > 0, "some creature has had descendants after 150 ticks");
     assert!(engine.call("ancestry.query", &json!({"world": w, "entity": 999_999_999u64})).is_err(), "a dead or unknown creature is refused, not invented");
 }
+
+/// Stage S6 (`proposals/science-panels.md` §12): comparing two worlds names every setting that
+/// differs, compares only ticks both sampled, and leaves both runs unchanged. Identical setups give
+/// identical series; a different seed is named, and the answer calls them single trials.
+#[test]
+fn comparing_runs_names_the_setup_differences() {
+    let mut engine = Engine::new();
+    let mk = |seed: u64| json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": seed, "mutation": true});
+    let ids: Vec<String> = [1u64, 1, 2].iter().map(|s| engine.call("world.create", &mk(*s)).unwrap()["world"].as_str().unwrap().to_string()).collect();
+    for (i, id) in ids.iter().enumerate() { engine.call("run.step", &json!({"world": id, "ticks": if i == 2 { 40 } else { 60 }})).unwrap(); }
+    let before = engine.run(&ids[0]).unwrap().digest();
+    let same = engine.call("runs.compare", &json!({"a": ids[0], "b": ids[1]})).unwrap();
+    assert!(same["differs"].as_array().unwrap().is_empty());
+    assert!(same["reading"].as_str().unwrap().contains("not explained by the setup"));
+    for s in same["series"].as_array().unwrap() { assert_eq!(s["a"], s["b"], "the same setup gives the same history"); assert!(!s["a"].as_array().unwrap().is_empty()); }
+    let other = engine.call("runs.compare", &json!({"a": ids[0], "b": ids[2]})).unwrap();
+    assert_eq!(other["differs"], json!(["seed (1 against 2)"]));
+    assert!(other["reading"].as_str().unwrap().contains("single trials"));
+    assert!(other["common_samples"].as_u64().unwrap() <= 41 && other["samples_a"].as_u64().unwrap() > other["common_samples"].as_u64().unwrap(), "only common ticks are compared");
+    assert_eq!(engine.run(&ids[0]).unwrap().digest(), before, "comparing changes nothing");
+    assert!(engine.call("runs.compare", &json!({"a": ids[0], "b": "nope"})).is_err());
+}

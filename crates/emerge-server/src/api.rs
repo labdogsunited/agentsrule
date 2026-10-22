@@ -533,6 +533,41 @@ impl Engine {
                 let limit = p["limit"].as_u64().unwrap_or(200).min(5000) as usize;
                 self.entry(p)?.run.ancestry(id, limit).map_err(bad)
             }
+            "runs.compare" => {
+                // Two worlds side by side, read-only (`proposals/science-panels.md` §12): what differs in how
+                // they were made, and their population histories on the ticks both sampled.
+                let (ia, ib) = (text(p, "a")?.to_string(), text(p, "b")?.to_string());
+                let get = |id: &str| self.runs.get(id).ok_or_else(|| fault(-32004, format!("no world `{id}`")));
+                let (ra, rb) = (&get(&ia)?.run, &get(&ib)?.run);
+                let desc = |r: &crate::run::Run| json!({"seed": r.spec.seed, "mutation": r.spec.mutation, "backend": r.device, "contract": r.spec.contract, "revision": r.revision(), "tick": r.tick(), "lineages": r.spec.lineages,
+                    "source_lines": r.live.source.lines().count(), "every": r.history.every});
+                let (sa, sb) = (&ra.spec, &rb.spec);
+                let mut differs: Vec<String> = vec![];
+                if sa.seed != sb.seed { differs.push(format!("seed ({} against {})", sa.seed, sb.seed)); }
+                if sa.mutation != sb.mutation { differs.push("mutation".into()); }
+                if ra.device != rb.device { differs.push(format!("backend ({} against {})", ra.device, rb.device)); }
+                if ra.live.source != rb.live.source { differs.push(format!("source ({} lines changed or moved)", ra.live.source.lines().filter(|l| !rb.live.source.lines().any(|m| m == *l)).count() + rb.live.source.lines().filter(|l| !ra.live.source.lines().any(|m| m == *l)).count())); }
+                if sa.lineages != sb.lineages { differs.push("lineages".into()); }
+                if ra.revision() != 0 || rb.revision() != 0 { differs.push("a world was edited after creation (its samples carry revisions)".into()); }
+                let ticks_b: std::collections::HashSet<u64> = rb.history.samples.iter().map(|x| x.tick).collect();
+                let common: Vec<&emerge_view::frame::Sample> = ra.history.samples.iter().filter(|x| ticks_b.contains(&x.tick)).collect();
+                let at = |r: &crate::run::Run, tick: u64, name: &str| -> Value {
+                    let i = r.spec.lineages.iter().position(|l| l == name);
+                    match (r.history.samples.iter().find(|x| x.tick == tick), i) { (Some(x), Some(i)) => json!(x.by_lineage[i]), _ => Value::Null }
+                };
+                let mut names: Vec<String> = sa.lineages.clone();
+                for n in &sb.lineages { if !names.contains(n) { names.push(n.clone()); } }
+                let series: Vec<Value> = names.iter().map(|n| json!({"lineage": n, "ticks": common.iter().map(|x| x.tick).collect::<Vec<_>>(),
+                    "a": common.iter().map(|x| at(ra, x.tick, n)).collect::<Vec<_>>(), "b": common.iter().map(|x| at(rb, x.tick, n)).collect::<Vec<_>>()})).collect();
+                let paired = sa.seed == sb.seed && ra.live.source == rb.live.source && sa.mutation == sb.mutation && ra.device == rb.device;
+                Ok(json!({"a": {"world": ia, "run": desc(ra)}, "b": {"world": ib, "run": desc(rb)}, "differs": differs,
+                    "reading": if paired { "same source, seed, mutation and backend: any difference between them is not explained by the setup" }
+                               else if differs.is_empty() { "no setup difference found" }
+                               else { "these are single trials that differ in the settings listed; one run each shows what happened, not how likely it is" },
+                    "common_samples": common.len(), "samples_a": ra.history.samples.len(), "samples_b": rb.history.samples.len(),
+                    "sampling": "only ticks both runs sampled are compared; counts are living creatures by founding lineage", "series": series,
+                    "worlds_kept": self.runs.keys().collect::<Vec<_>>()}))
+            }
             "genome.census" => Ok(self.entry(p)?.run.census()),
             "genome.compare" => {
                 // Two living entities' genes side by side, matched by kind and text; read-only. Genes in
