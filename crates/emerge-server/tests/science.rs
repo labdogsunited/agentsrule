@@ -188,9 +188,9 @@ fn the_census_is_exact_and_a_comparison_matches_genes_by_kind_and_text() {
     assert_eq!(same["shared"].as_array().unwrap().len() as u64, same["a"]["genes"].as_u64().unwrap());
     let diff = engine.call("genome.compare", &json!({"world": w, "a": d, "b": b})).unwrap();
     let n = |k: &str| diff[k].as_array().unwrap().len();
-    assert_eq!(n("shared") + n("only_a"), diff["a"]["genes"].as_u64().unwrap() as usize, "every gene of A is shared or only in A");
-    assert_eq!(n("shared") + n("only_b"), diff["b"]["genes"].as_u64().unwrap() as usize);
-    assert!(n("only_a") + n("only_b") > 0, "Drifter and Builder differ");
+    assert_eq!(n("shared") + n("changed") + n("only_a"), diff["a"]["genes"].as_u64().unwrap() as usize, "every gene of A is shared or only in A");
+    assert_eq!(n("shared") + n("changed") + n("only_b"), diff["b"]["genes"].as_u64().unwrap() as usize);
+    assert!(n("changed") + n("only_a") + n("only_b") > 0, "Drifter and Builder differ");
     assert_eq!(engine.run(&w).unwrap().digest(), engine.run(&twin).unwrap().digest(), "asking leaves the trajectory unchanged");
 }
 
@@ -337,4 +337,32 @@ fn region_totals_add_up_across_quarters_and_wrapped_edges() {
     assert_eq!(across["creatures_total"].as_u64().unwrap(), left["creatures_total"].as_u64().unwrap() + right["creatures_total"].as_u64().unwrap());
     assert_eq!(across["cells"]["count"].as_u64().unwrap(), left["cells"]["count"].as_u64().unwrap() + right["cells"]["count"].as_u64().unwrap());
     assert!(q([-1.0, 5.0], [0.0, 5.0]).is_err() && q([0.0, size + 5.0], [0.0, 5.0]).is_err(), "ranges outside the world are refused");
+}
+
+/// Stage S2 (`proposals/science-panels.md` §7): the atlas counts each gene's carriers by group, a clade is
+/// a creature and its descendants, and a changed parameter pairs as one changed gene.
+#[test]
+fn the_atlas_counts_carriers_by_lineage_and_clade() {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": true})).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 120})).unwrap();
+    let a = engine.call("genome.atlas", &json!({"world": w})).unwrap();
+    let census = engine.call("genome.census", &json!({"world": w})).unwrap();
+    for (g, c) in a["groups"].as_array().unwrap().iter().zip(census["lineages"].as_array().unwrap()) {
+        assert_eq!(g["creatures"], c["count"], "the atlas covers the same creatures as the census");
+        let n = g["creatures"].as_u64().unwrap();
+        for t in g["traits"].as_array().unwrap() { assert!(t["active"].as_u64().unwrap() + t["dormant"].as_u64().unwrap() >= 1); let _ = n; }
+    }
+    // A clade: a living creature that has had children; the clade group plus the rest equals everyone.
+    let all = engine.call("entities.query", &json!({"world": w, "limit": 1_000_000})).unwrap();
+    let mut root = None;
+    for e in all["entities"].as_array().unwrap() {
+        let f = engine.call("ancestry.query", &json!({"world": w, "entity": e["id"]})).unwrap();
+        if f["descendants"]["alive_now"].as_u64().unwrap() > 0 { root = Some((e["id"].clone(), f["descendants"]["alive_now"].as_u64().unwrap())); break; }
+    }
+    let (root, alive) = root.expect("a creature with living descendants");
+    let c = engine.call("genome.atlas", &json!({"world": w, "clade": root})).unwrap();
+    let g = c["groups"].as_array().unwrap();
+    assert_eq!(g[0]["creatures"].as_u64().unwrap(), alive + 1, "the clade is the creature and its living descendants");
+    assert_eq!(g[0]["creatures"].as_u64().unwrap() + g[1]["creatures"].as_u64().unwrap(), census["lineages"].as_array().unwrap().iter().map(|l| l["count"].as_u64().unwrap()).sum::<u64>());
 }

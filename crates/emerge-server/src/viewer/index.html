@@ -208,6 +208,7 @@
   #censusbody table { border-collapse: collapse; margin: 4px 0 10px; }
   #censusbody td, #censusbody th { padding: 2px 8px; text-align: left; border-bottom: 1px solid var(--line); font-weight: normal; vertical-align: top; }
   #censusbody .bar { display: inline-block; height: 8px; background: var(--accent, #6aa); vertical-align: middle; margin-right: 4px; }
+  #censusbody .chg td:first-child { border-left: 3px solid #cb6; }
   #censusbody .only-a td:first-child { border-left: 3px solid #d98; } #censusbody .only-b td:first-child { border-left: 3px solid #8ad; }
   #censusbody select { max-width: 220px; }
   #rulesbody table.mx { border-collapse: collapse; }
@@ -2602,7 +2603,7 @@ async function loadBudget() {
 // The census is exact (the whole population); a comparison matches genes by kind and text.
 const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const tag = (t, cls = "") => el(cls, t);
-let cmpPick = { a: "", b: "" };
+let cmpPick = { a: "", b: "" }, atlasBy = "";
 async function loadCensus(keepCompare) {
   const w = $("world").value, note = $("censusnote"), body = $("censusbody");
   if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
@@ -2622,6 +2623,20 @@ async function loadCensus(keepCompare) {
     t.append(tr);
   }
   body.append(t);
+  const at = tag("div"); at.className = "atlas";
+  const grp = tag("select"); grp.innerHTML = '<option value="">by founding lineage</option><option value="clade">clade of creature A below</option>'; grp.value = atlasBy;
+  grp.onchange = () => { atlasBy = grp.value; loadCensus(true).catch(oops); };
+  body.append(Object.assign(tag("div"), { textContent: "Traits: " }), grp, at);
+  try {
+    const cl = atlasBy === "clade" ? (cmpPick.a || (ents.entities[0] && String(ents.entities[0].id))) : null;
+    const A = await call("genome.atlas", cl ? { world: w, clade: +cl } : { world: w });
+    const note2 = tag("div"); note2.textContent = `${A.coverage}. ${A.trait}.`; at.append(note2);
+    for (const g of A.groups) {
+      const tt = tag("table");
+      tt.innerHTML = `<tr><th colspan="3">${esc(g.group)}: ${g.creatures} creatures</th></tr>` + g.traits.map((x) => { const share = g.creatures ? x.active / g.creatures : 0; return `<tr><td>${esc(x.kind)} · ${esc(x.title)}: ${esc(x.text)}</td><td>${x.active} active${x.dormant ? `, ${x.dormant} dormant` : ""}</td><td><span class="bar" style="width:${Math.round(60 * Math.min(1, share))}px"></span>${(100 * share).toFixed(0)}%</td></tr>`; }).join("");
+      at.append(tt);
+    }
+  } catch (e) { at.textContent = e.message || String(e); }
   const row = tag("div"), mk = (k) => { const s = tag("select"); s.innerHTML = ents.entities.map((e) => `<option value="${e.id}">#${e.id} · ${esc(e.lineage)} · ${e.active_genes} genes</option>`).join(""); if (cmpPick[k] && ents.entities.some((e) => String(e.id) === cmpPick[k])) s.value = cmpPick[k]; s.onchange = () => { cmpPick[k] = s.value; }; return s; };
   const sa = mk("a"), sb = mk("b");
   if (!cmpPick.b && ents.entities.length > 1) sb.selectedIndex = ents.entities.length - 1;
@@ -2638,10 +2653,11 @@ async function compareGenomes(a, b) {
   const w = $("world").value, r = await call("genome.compare", { world: w, a, b });
   const res = $("censusbody").querySelector(".cmpres"); res.textContent = "";
   const state = (x) => (x.active ? "active" : x.expressed ? "dormant module" : "dormant gene");
-  const h = tag("div"); h.textContent = `tick ${r.tick} · A = #${r.a.entity} ${r.a.lineage} (${r.a.genes} genes) · B = #${r.b.entity} ${r.b.lineage} (${r.b.genes} genes) · ${r.shared.length} shared, ${r.only_a.length} only in A, ${r.only_b.length} only in B · ${r.matching}`;
+  const h = tag("div"); h.textContent = `tick ${r.tick} · A = #${r.a.entity} ${r.a.lineage} (${r.a.genes} genes) · B = #${r.b.entity} ${r.b.lineage} (${r.b.genes} genes) · ${r.shared.length} shared, ${r.changed.length} changed, ${r.only_a.length} only in A, ${r.only_b.length} only in B · ${r.matching}`;
   const t = tag("table");
   t.innerHTML = "<tr><th>gene</th><th>A</th><th>B</th></tr>";
   const add = (cls, x, ia, ib) => { const tr = tag("tr", cls); tr.innerHTML = `<td>${esc(x.kind)} · ${esc(x.title)}: ${esc(x.text)}</td><td>${ia ? `#${ia.index} ${state(ia)}` : "—"}</td><td>${ib ? `#${ib.index} ${state(ib)}` : "—"}</td>`; t.append(tr); };
+  for (const x of r.changed) { const tr = tag("tr", "chg"); tr.innerHTML = `<td>${esc(x.kind)} · ${esc(x.title)} (changed): ${esc(x.a.text)} → ${esc(x.b.text)}</td><td>#${x.a.index} ${state(x.a)}</td><td>#${x.b.index} ${state(x.b)}</td>`; t.append(tr); }
   for (const x of r.only_a) add("only-a", x, x, null);
   for (const x of r.only_b) add("only-b", x, null, x);
   for (const x of r.shared) add("", x, x.a, x.b);

@@ -12,9 +12,13 @@ export default async (page) => {
   const txt = await page.eval(`document.getElementById("censusbody").innerText`);
   ok(/Drifter/.test(txt) && /Builder/.test(txt) && /min \/ median/.test(txt), "census lists both lineages");
   ok(/exact/.test(await page.eval(`document.getElementById("censusnote").innerText`)), "coverage is stated");
+  ok(/Traits:/.test(txt) && /every living creature/.test(txt) && /creatures/.test(txt), "trait atlas shown with its coverage");
+  await page.eval(`(() => { const g = document.querySelector("#censusbody .atlas").previousSibling; g.value = "clade"; g.onchange(); })()`);
+  await page.wait(1200);
+  ok(/clade of #/.test(await page.eval(`document.getElementById("censusbody").innerText`)), "clade grouping shows the clade");
   await page.eval(`document.querySelector("#censusbody button").click()`);
   await page.wait(1500);
   const cmp = await page.eval(`document.querySelector("#censusbody .cmpres").innerText`);
-  ok(/shared/.test(cmp) && /only in A/.test(cmp), "comparison shown: " + cmp.split("\n")[0].slice(0, 120));
+  ok(/shared/.test(cmp) && /changed/.test(cmp) && /only in A/.test(cmp), "comparison shown: " + cmp.split("\n")[0].slice(0, 120));
   await page.shot(S + "census.png");
 };

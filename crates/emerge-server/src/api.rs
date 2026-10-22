@@ -576,6 +576,10 @@ impl Engine {
                 let (x, y) = (r("x")?, r("y")?);
                 self.entry(p)?.run.region(x, y).map_err(bad)
             }
+            "genome.atlas" => {
+                let clade = match &p["clade"] { Value::Null => None, v => Some(v.as_u64().ok_or_else(|| bad("`clade` must be an entity ID"))?) };
+                self.entry(p)?.run.atlas(clade).map_err(bad)
+            }
             "genome.census" => Ok(self.entry(p)?.run.census()),
             "genome.compare" => {
                 // Two living entities' genes side by side, matched by kind and text; read-only. Genes in
@@ -597,9 +601,21 @@ impl Engine {
                         None => only_a.push(json!({"index": g.index, "kind": g.kind, "title": g.title, "text": g.text, "expressed": g.expressed, "active": g.active})),
                     }
                 }
+                // Mutation-aware: an unmatched gene of A and one of B with the same kind and name are one gene
+                // that changed (a parameter differs), paired in gene order.
+                let mut changed = vec![];
+                let mut left_a = vec![];
+                for g in only_a.drain(..) {
+                    let hit = rest.iter().position(|o| o.is_some_and(|o| o.kind == g["kind"].as_str().unwrap_or("") && o.title == g["title"].as_str().unwrap_or("")));
+                    match hit {
+                        Some(i) => { let o = rest[i].take().unwrap(); changed.push(json!({"kind": o.kind, "title": o.title, "a": g, "b": {"index": o.index, "text": o.text, "expressed": o.expressed, "active": o.active}})); }
+                        None => left_a.push(g),
+                    }
+                }
+                let only_a = left_a;
                 let only_b: Vec<Value> = rest.iter().flatten().map(|g| json!({"index": g.index, "kind": g.kind, "title": g.title, "text": g.text, "expressed": g.expressed, "active": g.active})).collect();
                 Ok(json!({"tick": e.run.tick(), "a": {"entity": a, "lineage": la, "genes": ga.genes.len()}, "b": {"entity": b, "lineage": lb, "genes": gb.genes.len()},
-                    "matching": "genes match when kind and text are equal; repeated genes pair off one to one", "shared": shared, "only_a": only_a, "only_b": only_b}))
+                    "matching": "genes match when kind and text are equal; then unmatched genes with the same kind and name pair as changed (a parameter differs); repeated genes pair off one to one", "shared": shared, "changed": changed, "only_a": only_a, "only_b": only_b}))
             }
             "journal.read" => Ok(json!({"lines": self.entry(p)?.run.journal.lines})),
             "view.palettes" => {

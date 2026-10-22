@@ -632,6 +632,52 @@ impl Run {
             "unit": "µ (millionths of a unit); creatures count when their position is inside the region"}))
     }
 
+    /// The creature `id` and every descendant born so far, from the CPU runner's birth events.
+    pub fn clade_of(&self, id: u64) -> Result<std::collections::HashSet<u64>, String> {
+        if !matches!(self.backend, Backend::Cpu) {
+            return Err("clades follow the CPU runner's birth events; the GPU keeps none".into());
+        }
+        use emerge_ref::world::Event;
+        let mut children: std::collections::HashMap<u64, Vec<u64>> = Default::default();
+        for ev in &self.live.world.events {
+            if let Event::Born { parent, child, .. } = ev { children.entry(*parent).or_default().push(*child); }
+        }
+        let mut seen: std::collections::HashSet<u64> = [id].into();
+        let mut stack = vec![id];
+        while let Some(x) = stack.pop() {
+            for c in children.get(&x).into_iter().flatten() { if seen.insert(*c) { stack.push(*c); } }
+        }
+        Ok(seen)
+    }
+
+    /// The traits of the living population (`genome.atlas`, `proposals/science-panels.md` §7): for each
+    /// group (a founding lineage, or a clade against the rest), how many creatures carry each gene, as an
+    /// active gene or only dormant. Whole population up to `MAX`, an even sample past it, and it says which.
+    pub fn atlas(&self, clade: Option<u64>) -> Result<Value, String> {
+        const MAX: usize = 4000;
+        let w = &self.live.world;
+        if !matches!(self.backend, Backend::Cpu) { return Err("the atlas reads genomes from the CPU runner".into()); }
+        let members = match clade { Some(id) => Some(self.clade_of(id)?), None => None };
+        let field = self.live.field.as_deref().unwrap_or("cells");
+        let every = (w.entities.len() / MAX).max(1);
+        let groups: Vec<String> = match clade { Some(id) => vec![format!("clade of #{id}"), "everyone else".into()], None => self.spec.lineages.clone() };
+        let mut count = vec![0u64; groups.len()];
+        let mut traits: Vec<std::collections::BTreeMap<(String, String, String), (u64, u64)>> = vec![Default::default(); groups.len()];
+        for e in w.entities.iter().step_by(every) {
+            let g = match &members { Some(m) => usize::from(!m.contains(&e.id)), None => e.lineage };
+            count[g] += 1;
+            let gg = emerge_ref::print::genome_graph(w, &e.genome, field);
+            for x in &gg.genes {
+                let t = traits[g].entry((x.kind.to_string(), x.title.clone(), x.text.clone())).or_default();
+                if x.active { t.0 += 1 } else { t.1 += 1 }
+            }
+        }
+        let rows: Vec<Value> = groups.iter().enumerate().map(|(i, name)| json!({"group": name, "creatures": count[i],
+            "traits": traits[i].iter().map(|((k, t, x), (a, d))| json!({"kind": k, "title": t, "text": x, "active": a, "dormant": d})).collect::<Vec<_>>()})).collect();
+        Ok(json!({"tick": self.tick(), "coverage": if every == 1 { "every living creature".to_string() } else { format!("an even sample, every {every}th of {} creatures", w.entities.len()) },
+            "trait": "a gene (kind, name and plain-words text); a creature may carry the same gene more than once (counted each time)", "groups": rows}))
+    }
+
     /// The active-gene count of every living entity, by lineage: the whole population, not a sample
     /// (`genome.census`, `proposals/science-panels.md` S2). Read-only.
     pub fn census(&self) -> Value {
