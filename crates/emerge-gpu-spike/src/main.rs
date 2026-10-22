@@ -1,4 +1,4 @@
-//! GPU spike (proposals/gpu-spike.md). `emerge-gpu-spike a1 | a2 | census | b`.
+//! GPU spike (archive/gpu-spike.md). `emerge-gpu-spike a1 | a2 | census | b`.
 //! Kept as it was measured; style lints are not chased here.
 #![allow(clippy::type_complexity, clippy::needless_range_loop)]
 

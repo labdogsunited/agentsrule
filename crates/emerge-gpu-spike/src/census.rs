@@ -1,4 +1,4 @@
-//! Census of real genomes (proposals/gpu-spike.md, B): runs the CPU runner, counts the
+//! Census of real genomes (archive/gpu-spike.md, B): runs the CPU runner, counts the
 //! shapes of the evolved minds, and packs them for the GPU benchmark.
 //!
 //! Packed file: per entity `[n_slots, n_signals, keep × n_signals (f32), SLOT_WORDS × n_slots]`,

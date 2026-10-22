@@ -1,4 +1,4 @@
-//! B, variant 4 (proposals/gpu-spike.md): what binning entities by shape would cost, by
+//! B, variant 4 (archive/gpu-spike.md): what binning entities by shape would cost, by
 //! measuring its parts. A shape is a kernel specialised for one sequence of kinds. This
 //! measures the time to create one such pipeline and the cost of dispatching many small bins.
 

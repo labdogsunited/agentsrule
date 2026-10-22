@@ -2,7 +2,7 @@
 name = "emerge-gpu-spike"
 version = "0.1.0"
 edition = "2021"
-description = "GPU spike (proposals/gpu-spike.md): portable curves, mind arithmetic and varied genomes on wgpu"
+description = "GPU spike (archive/gpu-spike.md): portable curves, mind arithmetic and varied genomes on wgpu"
 publish = false
 
 [dependencies]

@@ -1,4 +1,4 @@
-//! A2 (proposals/gpu-spike.md): the arithmetic around the curves, as `emerge-ref/src/mind.rs`
+//! A2 (archive/gpu-spike.md): the arithmetic around the curves, as `emerge-ref/src/mind.rs`
 //! (`think`) writes it: `x = fold(bias, acc + w·s)`, the curve, then `keep·s` plus the
 //! contributions in gene order, then sanitize.
 //!

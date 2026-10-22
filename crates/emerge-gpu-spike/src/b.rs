@@ -1,4 +1,4 @@
-//! B (proposals/gpu-spike.md): the cost of running varied minds with a slot loop that reads
+//! B (archive/gpu-spike.md): the cost of running varied minds with a slot loop that reads
 //! each slot's kind as data.
 //!
 //! One thread per entity runs the mind the way `emerge-ref` does: sense genes read once,

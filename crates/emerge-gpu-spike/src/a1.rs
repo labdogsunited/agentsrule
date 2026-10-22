@@ -1,4 +1,4 @@
-//! A1 (proposals/gpu-spike.md): the division-free curves on every f32 bit pattern.
+//! A1 (archive/gpu-spike.md): the division-free curves on every f32 bit pattern.
 
 use crate::gpu::Gpu;
 

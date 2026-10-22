@@ -1,7 +1,7 @@
 //! Contract mode (`proposals/gpu-runtime.md`, M0): every float operation of a tick written
 //! so that a GPU can reproduce it bit for bit.
 //!
-//! The rules (found by the GPU spike, `proposals/gpu-spike.md`):
+//! The rules (found by the GPU spike, `archive/gpu-spike.md`):
 //! - a multiply-add is always one fused operation (`mul_add`), never a rounded product
 //!   followed by an add, because a GPU compiler may fuse the second form and may not;
 //! - a multiply-add result below `2^-100` in magnitude is `0`, because a GPU may flush
