@@ -97,3 +97,74 @@ fn a_statement_the_editor_does_not_draw_is_a_code_box() {
     assert_eq!((sunlight[0].kind, sunlight[0].text.as_str()), (Kind::Code, "let a = 1.0;"));
     assert_eq!(sunlight[1].kind, Kind::Transfer);
 }
+
+fn count_nested(block: &[emerge_lang::ast::Node<emerge_lang::ast::Stmt>]) -> usize {
+    use emerge_lang::ast::Stmt;
+    block
+        .iter()
+        .map(|s| match &s.node {
+            Stmt::When { then, otherwise, .. } => {
+                let kids = then.len() + otherwise.as_ref().map_or(0, |o| o.len());
+                kids + count_nested(then) + otherwise.as_ref().map_or(0, |o| count_nested(o))
+            }
+            _ => 0,
+        })
+        .sum::<usize>()
+}
+
+/// The graph contract (`proposals/houdini-node-system.md` §5): in every world file of the repository, every wire has a
+/// contract that names ports that both of its boxes have, a derived wire says why it has no edit, every box that cannot
+/// do something says why, and the statements inside `when` blocks are exactly the ones the source has.
+#[test]
+fn every_wire_resolves_to_real_ports_and_every_refusal_has_a_reason() {
+    use emerge_lang::contract::contract;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut files = Vec::new();
+    world_files(&root, &mut files);
+    let (mut worlds, mut wires, mut nested_seen) = (0, 0, 0);
+    for path in files {
+        let src = std::fs::read_to_string(&path).unwrap();
+        let Ok(file) = emerge_lang::parse(&src) else { continue };
+        if emerge_lang::prepare(&file).is_err() {
+            continue;
+        }
+        for item in &file.items {
+            let Item::World(w) = &item.node else { continue };
+            let g = graph(&file, &w.name).unwrap();
+            let c = contract(&file, &w.name).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            worlds += 1;
+            assert_eq!(c.wires.len(), g.wires.len());
+            for (wire, wc) in g.wires.iter().zip(&c.wires) {
+                wires += 1;
+                let (a, b) = (&c.nodes[&wire.from], &c.nodes[&wire.to]);
+                assert!(a.ports.iter().any(|p| p.key == wc.from_port && p.dir == "out"), "{}: {} has no out port `{}`", path.display(), wire.from, wc.from_port);
+                assert!(b.ports.iter().any(|p| p.key == wc.to_port && p.dir == "in"), "{}: {} has no in port `{}`", path.display(), wire.to, wc.to_port);
+                assert!(wc.edit.is_some() != wc.why_not.is_some(), "a wire either has an edit or says why not");
+            }
+            for (id, n) in &c.nodes {
+                for op in ["edit_text", "set_param", "delete", "rewire", "duplicate", "label"] {
+                    let can = match op {
+                        "edit_text" => n.caps.edit_text,
+                        "set_param" => n.caps.set_param,
+                        "delete" => n.caps.delete,
+                        "rewire" => n.caps.rewire,
+                        "duplicate" => n.caps.duplicate,
+                        _ => n.caps.label,
+                    };
+                    assert!(can || n.caps.why_not.contains_key(op), "{}: {id} cannot {op} and does not say why", path.display());
+                }
+            }
+            // Nested statements: exactly those of the source, each owned by an existing statement, ids unique.
+            let want: usize = w.decls.iter().map(|d| match &d.node { WDecl::Rule { body, .. } => count_nested(body), _ => 0 }).sum();
+            assert_eq!(c.nested.len(), want, "{}: nested statements", path.display());
+            let mut ids: Vec<&str> = c.nested.iter().map(|n| n.id.as_str()).collect();
+            ids.sort();
+            ids.dedup();
+            assert_eq!(ids.len(), c.nested.len());
+            assert!(c.nested.iter().all(|n| c.nodes.contains_key(&n.container)));
+            nested_seen += c.nested.len();
+        }
+    }
+    assert!(worlds >= 5 && wires > 20, "worlds {worlds}, wires {wires}");
+    assert!(nested_seen > 0, "some world in the repository has a `when` with statements in it");
+}

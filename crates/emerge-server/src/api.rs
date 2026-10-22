@@ -117,7 +117,25 @@ fn graph_op(v: &Value) -> Result<(emerge_lang::graph::Op, String), Fault> {
         Some("wire") => (Op::Wire { from: get("from")?, to: get("to")? }, format!("wire {} to {}", get("from")?, get("to")?)),
         Some("delete") => (Op::Delete { id: get("id")? }, format!("delete {}", get("id")?)),
         Some("add_rule") => (Op::AddRule { kind: get("kind")? }, format!("add a {} rule", get("kind")?)),
-        _ => return Err(bad("`op.op` must be set_param, wire, delete or add_rule")),
+        Some("add_connected") => (Op::AddConnected { kind: get("kind")?, from: get("from")?, to: get("to")?, substance: v["substance"].as_str().map(str::to_string) }, format!("add a {} from {} to {}", get("kind")?, get("from")?, get("to")?)),
+        Some("duplicate") => {
+            let ids: Vec<String> = v["ids"].as_array().ok_or_else(|| bad("`op.ids` must be a list of box ids"))?.iter().filter_map(|x| x.as_str().map(String::from)).collect();
+            let n = ids.len();
+            (Op::Duplicate { ids }, format!("duplicate {n} statement{}", if n == 1 { "" } else { "s" }))
+        }
+        Some("label") => (Op::Label { id: get("id")?, label: get("label")? }, format!("label {} as {}", get("id")?, get("label")?)),
+        Some("unwire") => (Op::Unwire { id: get("id")?, port: get("port")? }, format!("cut {} of {}", get("port")?, get("id")?)),
+        Some("batch") => {
+            let list = v["ops"].as_array().ok_or_else(|| bad("`op.ops` must be a list of edits"))?;
+            let mut ops = Vec::new();
+            for o in list {
+                if o["op"] == "batch" { return Err(bad("a batch holds no batch")); }
+                ops.push(graph_op(o)?.0);
+            }
+            let n = ops.len();
+            (Op::Batch { ops }, format!("{n} edits together"))
+        }
+        _ => return Err(bad("`op.op` must be set_param, wire, delete, add_rule, add_connected, duplicate, label, unwire or batch")),
     })
 }
 
@@ -243,7 +261,9 @@ impl Engine {
                     emerge_lang::ast::Item::World(w) => Some(w.name.clone()),
                     _ => None,
                 });
-                let g = emerge_lang::graph::graph(&file, &world.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?).map_err(|m| fault(-32005, m))?;
+                let world = world.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+                let g = emerge_lang::graph::graph(&file, &world).map_err(|m| fault(-32005, m))?;
+                let contract = emerge_lang::contract::contract(&file, &world).map_err(|m| fault(-32005, m))?;
                 Ok(json!({
                     "revision": e.run.revision(),
                     "world": g.world,
@@ -251,8 +271,10 @@ impl Engine {
                     "notes": e.notes,
                     "frames": e.frames,
                     "history": {"undo": e.undo.iter().map(|s| s.what.clone()).collect::<Vec<_>>(), "redo": e.redo.iter().map(|s| s.what.clone()).collect::<Vec<_>>()},
-                    "nodes": g.nodes.iter().map(|n| json!({"id": n.id, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "step": n.step, "group": n.group, "line": n.line, "params": n.params})).collect::<Vec<_>>(),
-                    "wires": g.wires.iter().map(|w| json!({"from": w.from, "to": w.to, "substance": w.substance})).collect::<Vec<_>>(),
+                    "nodes": g.nodes.iter().map(|n| { let c = contract.nodes.get(&n.id); json!({"id": n.id, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "step": n.step, "group": n.group, "line": n.line, "params": n.params, "contract": c.map(node_contract_json)}) }).collect::<Vec<_>>(),
+                    "wires": g.wires.iter().zip(&contract.wires).map(|(w, c)| json!({"from": w.from, "to": w.to, "substance": w.substance, "kind": c.kind, "from_port": c.from_port, "to_port": c.to_port, "derived": c.derived, "edit": c.edit, "why_not": c.why_not})).collect::<Vec<_>>(),
+                    "nested": contract.nested.iter().map(|n| json!({"id": n.id, "container": n.container, "group": n.group, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "when": n.when, "params": n.params, "contract": node_contract_json(&n.meta)})).collect::<Vec<_>>(),
+                    "contexts": contract.contexts.iter().map(|(k, label)| json!({"key": k, "label": label})).collect::<Vec<_>>(),
                 }))
             }
             "rules.lens" => {
@@ -409,6 +431,11 @@ impl Engine {
                 });
                 let world = world.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
                 let edit = emerge_lang::graph::op_patch(&file, &world, &op, base).map_err(|m| fault(-32602, m))?;
+                // `dry_run`: what the edit would write, applied nowhere (the preview of a hovered connection or a
+                // pending paste): the patch, the way back, and what it would leave selected.
+                if p["dry_run"].as_bool() == Some(true) {
+                    return Ok(json!({"dry_run": true, "what": what, "revision": e.run.revision(), "patch": edit.patch, "redo": edit.redo, "undo": edit.undo, "selected": edit.selected}));
+                }
                 apply_edit(e, edit, base, &format!("graph {what}"), &what)
             }
             "world.undo" | "world.redo" => {
@@ -1055,4 +1082,18 @@ pub fn law_statements(prepared: &emerge_lang::ast::File, name: &str) -> Result<V
         if let emerge_lang::ast::WDecl::Rule { name: rn, on, body } = &d.node { walk(body, usize::MAX, rn, on, &mut named, name); }
     }
     Ok(named)
+}
+
+/// A box's contract as the API gives it (`proposals/houdini-node-system.md` §5): ports, parameter metadata, what it
+/// supports and why not, what it reads and writes (and whether that is complete), and its place in the networks.
+fn node_contract_json(c: &emerge_lang::contract::NodeContract) -> Value {
+    json!({
+        "context": c.context, "identity": c.identity, "children": c.children,
+        "ports": c.ports.iter().map(|p| json!({"key": p.key, "name": p.name, "dir": p.dir, "role": p.role, "type": p.ty, "required": p.required, "many": p.many})).collect::<Vec<_>>(),
+        "params": c.params.iter().map(|p| json!({"key": p.key, "text": p.text, "type": p.ty, "unit": p.unit, "range": p.range, "range_kind": p.range_kind, "help": p.help, "editable": p.editable, "why_not": p.why_not})).collect::<Vec<_>>(),
+        "can": {"edit_text": c.caps.edit_text, "set_param": c.caps.set_param, "delete": c.caps.delete, "rewire": c.caps.rewire, "duplicate": c.caps.duplicate, "label": c.caps.label},
+        "why_not": c.caps.why_not,
+        "deps": {"conditions": c.deps.conditions, "reads": c.deps.reads, "writes": c.deps.writes, "references": c.deps.references, "complete": c.deps.complete},
+        "summary": c.summary.as_ref().map(|s| json!({"on": s.on, "statements": s.statements, "nested": s.nested, "kinds": s.kinds, "steps": s.steps})),
+    })
 }

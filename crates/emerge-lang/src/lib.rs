@@ -7,6 +7,7 @@
 
 pub mod ast;
 pub mod check;
+pub mod contract;
 pub mod expand;
 pub mod fmt;
 pub mod graph;

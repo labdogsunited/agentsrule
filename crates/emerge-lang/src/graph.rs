@@ -348,6 +348,21 @@ pub enum Op {
     /// A new rule with one statement of `kind` (`transfer`, `react`, `diffuse` or `code`) with defaults
     /// the world allows; every rule holds one kind of effect, so a new box is a new rule.
     AddRule { kind: String },
+    /// A new rule with one statement of `kind` already connected: `from` is a source (or a store) for a `transfer`, or
+    /// the reaction for a `react`; `to` is the field the rule works on. One patch, one revision: nothing is applied
+    /// first and connected after.
+    AddConnected { kind: String, from: String, to: String, substance: Option<String> },
+    /// Copy statements, each into a rule of its own after the one it was in, with fresh names (a copy runs as well,
+    /// so it is a second execution of the same effect).
+    Duplicate { ids: Vec<String> },
+    /// Give an unlabelled call statement a label, so a name keeps it in place whatever is inserted before it.
+    Label { id: String, label: String },
+    /// Take a connection away: only where the argument is optional (`overflow`). A required end is replaced by wiring
+    /// a different one, never removed.
+    Unwire { id: String, port: String },
+    /// Several edits as one: each is worked out against the file the ones before it leave, and the result is one
+    /// patch, one revision and one undo.
+    Batch { ops: Vec<Op> },
 }
 
 /// A value as the AST holds it, parsed from source text.
@@ -442,6 +457,122 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<Edit, St
     };
 
     match op {
+        Op::Batch { ops } => op_batch(file, world, ops, base),
+        Op::AddConnected { kind, from, to, substance } => {
+            let field = to.strip_prefix(&prefix).and_then(|r| r.strip_prefix("fields.")).ok_or_else(|| format!("`{to}` is not a field: a new rule works on a field"))?;
+            let held = w.decls.iter().any(|d| matches!(&d.node, WDecl::Field { name, holds: Some(_), .. } if name == field));
+            if !held {
+                return Err(format!("`{field}` holds no substances, so a rule cannot move any into it"));
+            }
+            let last_rule = w.decls.iter().rev().find_map(|d| match &d.node {
+                WDecl::Rule { name, .. } => Some(name.clone()),
+                _ => None,
+            });
+            let last_rule = last_rule.ok_or("the world has no rule to place the new one after")?;
+            let mut taken: Vec<String> = Vec::new();
+            for d in &w.decls {
+                if let Some((n, _)) = crate::check::declared(&d.node) {
+                    taken.push(n.to_string());
+                }
+            }
+            let n = (1..).find(|n| !taken.contains(&format!("new_{kind}_{n}"))).unwrap();
+            let name = format!("new_{kind}_{n}");
+            let src = short(from);
+            let stmt = match kind.as_str() {
+                "transfer" => {
+                    let sources: Vec<&WDecl> = w.decls.iter().map(|d| &d.node).filter(|d| matches!(d, WDecl::Source { name, .. } if name == src)).collect();
+                    let WDecl::Source { emits, .. } = sources.first().ok_or_else(|| format!("`{from}` is not a source: a new transfer takes from a source"))? else { unreachable!() };
+                    let s = match substance {
+                        Some(x) if emits.contains(x) => x.clone(),
+                        Some(x) => return Err(format!("`{src}` does not emit `{x}`")),
+                        None => emits.first().cloned().ok_or_else(|| format!("`{src}` emits nothing"))?,
+                    };
+                    format!("transfer({s}, from: {src}, to: self, amount: 1u) @transfer_{s}_{n};")
+                }
+                "react" => {
+                    if !w.decls.iter().any(|d| matches!(&d.node, WDecl::Reaction { name, .. } if name == src)) {
+                        return Err(format!("`{from}` is not a reaction"));
+                    }
+                    format!("react({src}, rate: 100bp) @react_{src}_{n};")
+                }
+                other => return Err(format!("`{other}` cannot be created connected: transfer or react")),
+            };
+            let label = stmt.rsplit('@').next().unwrap_or("").trim_end_matches(';').to_string();
+            let body = format!("add after rules.{last_rule}: rule {name} on {field} {{ {stmt} }}");
+            Ok(Edit::new(world, base, body, format!("remove rules.{name};"), Some(format!("{world}.rules.{name}@{label}"))))
+        }
+        Op::Label { id, label } => {
+            if label.is_empty() || !label.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') || label.starts_with(|c: char| c.is_ascii_digit()) {
+                return Err(format!("`{label}` is not a label: lower-case letters, digits and `_`, not starting with a digit"));
+            }
+            let (_, _, mut stmt) = statement(id)?;
+            let Stmt::Call { label: l, .. } = &mut stmt else { return Err("only call statements carry a label".to_string()) };
+            if l.is_some() {
+                return Err(format!("`{id}` already has a label"));
+            }
+            let used = g.nodes.iter().any(|n| n.id.ends_with(&format!("@{label}")));
+            if used {
+                return Err(format!("the label `{label}` is already used in this world"));
+            }
+            *l = Some(label.clone());
+            let n = node(id)?;
+            let rule_id = n.group.clone().ok_or("not a statement")?;
+            let new_id = format!("{rule_id}@{label}");
+            let mut e = edit_text(&g, id, &stmt_text(&stmt), base)?;
+            e.selected = Some(new_id);
+            Ok(e)
+        }
+        Op::Unwire { id, port } => match port.as_str() {
+            "overflow" => {
+                let (_, _, mut stmt) = statement(id)?;
+                let Stmt::Call { call, .. } = &mut stmt else { return Err(format!("`{id}` has no arguments")) };
+                let before = call.args.len();
+                call.args.retain(|a| a.name.as_deref() != Some("overflow"));
+                if call.args.len() == before {
+                    return Err(format!("`{id}` has no overflow to remove"));
+                }
+                replace_with(id, &stmt)
+            }
+            "from" | "to" | "reaction" => Err(format!("`{port}` is required: wire a different one in its place instead of removing it (a transfer with no {port} is not a transfer)")),
+            other => Err(format!("`{other}` is not a port a wire can be cut from; derived wires follow the reaction's formula")),
+        },
+        Op::Duplicate { ids } => {
+            let mut taken: Vec<String> = Vec::new();
+            let mut labels: Vec<String> = g.nodes.iter().filter_map(|n| n.id.rsplit_once('@').map(|(_, l)| l.to_string())).collect();
+            for d in &w.decls {
+                if let Some((n, _)) = crate::check::declared(&d.node) {
+                    taken.push(n.to_string());
+                }
+            }
+            let mut notes = Vec::new();
+            let (mut redo, mut undo) = (Vec::new(), Vec::new());
+            let mut selected = None;
+            // After the last copy of the same rule, so copies keep the order of the originals.
+            let mut after: std::collections::HashMap<String, String> = Default::default();
+            for id in ids {
+                let (rule, on, stmt) = statement(id)?;
+                let Stmt::Call { call, label } = &stmt else { return Err(format!("`{id}` is not a call statement: copy statements that are calls")) };
+                let base_name = format!("{rule}_copy");
+                let name = (1..).map(|k| if k == 1 { base_name.clone() } else { format!("{base_name}{k}") }).find(|n| !taken.contains(n)).unwrap();
+                taken.push(name.clone());
+                let stem = label.clone().unwrap_or_else(|| format!("{}_{}", call.name, name));
+                let new_label = (1..).map(|k| if k == 1 { format!("{stem}_copy") } else { format!("{stem}_copy{k}") }).find(|l| !labels.contains(l)).unwrap();
+                labels.push(new_label.clone());
+                let mut copy = stmt.clone();
+                if let Stmt::Call { label, .. } = &mut copy {
+                    *label = Some(new_label.clone());
+                }
+                let place = after.get(&rule).cloned().unwrap_or_else(|| rule.clone());
+                redo.push(format!("add after rules.{place}: rule {name} on {on} {{ {} }}", stmt_text(&copy)));
+                undo.push(format!("remove rules.{name};"));
+                notes.push(format!("{id} -> rule {name}, label {new_label}: the copy runs as well, so the effect happens twice"));
+                after.insert(rule.clone(), name.clone());
+                selected = Some(format!("{world}.rules.{name}@{new_label}"));
+            }
+            undo.reverse();
+            let _ = notes;
+            Ok(Edit::new(world, base, redo.join(" "), undo.join(" "), selected))
+        }
         Op::SetParam { id, param, value } if node(id)?.group.is_none() => {
             // A declaration: a config entry, a setting, a constant, an action's cost, a catalyst.
             let n = node(id)?;
@@ -558,4 +689,26 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<Edit, St
             Ok(Edit::new(world, base, body, format!("remove rules.{name};"), Some(format!("{world}.rules.{name}@{label}"))))
         }
     }
+}
+
+
+/// Several ops as one edit: each is worked out against the file the earlier ones leave (so a positional id means what it
+/// means then), their bodies are joined into one patch, and the undo runs them back in the opposite order.
+fn op_batch(file: &File, world: &str, ops: &[Op], base: u64) -> Result<Edit, String> {
+    if ops.is_empty() {
+        return Err("a batch needs at least one edit".to_string());
+    }
+    let mut current = file.clone();
+    let (mut redo, mut undo) = (Vec::new(), Vec::new());
+    let mut selected = None;
+    for (i, op) in ops.iter().enumerate() {
+        let e = op_patch(&current, world, op, base).map_err(|m| format!("edit {} of {}: {m}", i + 1, ops.len()))?;
+        let parsed = crate::parse(&e.patch).map_err(|d| format!("edit {}: {}", i + 1, d.message))?;
+        current = crate::patch::apply(&current, &parsed).map_err(|p| format!("edit {}: {}: {}", i + 1, p.path, p.message))?;
+        redo.push(e.redo);
+        undo.push(e.undo);
+        selected = e.selected.or(selected);
+    }
+    undo.reverse();
+    Ok(Edit::new(world, base, redo.join(" "), undo.join(" "), selected))
 }

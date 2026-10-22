@@ -669,3 +669,42 @@ fn a_budget_by_who_makes_a_substance_reconciles() {
     for x in g { assert_eq!(x["unreconciled_mu"], 0, "{}: closes", x["lineage"]); }
     assert!(g[3]["creatures_start"].as_u64().unwrap() > 0, "Builder makes body");
 }
+
+/// Node system H2/H3 (`proposals/houdini-node-system.md` §5, §6): the graph names ports and kinds for every wire, says
+/// why a box cannot do something, lists the statements nested in a `when`; a create-and-connect, a duplicate and a
+/// batch are each one revision and one undo; a dry run writes nothing; a required end is never cut.
+#[test]
+fn the_graph_contract_and_atomic_edits() {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": small(NIGHT), "lineages": ["Builder"], "seed": 1, "mutation": false})).unwrap()["world"].as_str().unwrap().to_string();
+    let g = engine.call("world.graph", &json!({"world": w})).unwrap();
+    assert!(g["wires"].as_array().unwrap().iter().all(|x| x["from_port"].is_string() && x["kind"].is_string()));
+    assert_eq!(g["nested"].as_array().unwrap().len(), 1, "the transfer inside the sunlight `when`");
+    assert_eq!(g["nested"][0]["when"], "tick < 300 or tick >= 400");
+    let sun = g["nodes"].as_array().unwrap().iter().find(|n| n["id"] == "Dish.rules.sunlight#0").unwrap();
+    assert_eq!(sun["contract"]["identity"], "position");
+    assert!(sun["contract"]["deps"]["conditions"].as_array().unwrap().contains(&json!("tick")));
+    let store = g["nodes"].as_array().unwrap().iter().find(|n| n["kind"] == "store").unwrap();
+    assert!(store["contract"]["why_not"]["delete"].is_string(), "a refusal has a reason");
+    // A dry run changes nothing.
+    let dry = engine.call("world.graph_op", &json!({"world": w, "base_revision": 0, "dry_run": true, "op": {"op": "add_connected", "kind": "transfer", "from": "Dish.sources.rock", "to": "Dish.fields.cells", "substance": "nitrate"}})).unwrap();
+    assert!(dry["patch"].as_str().unwrap().contains("from: rock"));
+    assert_eq!(engine.run(&w).unwrap().revision(), 0);
+    // Create and connect in one revision, undone in one step.
+    engine.call("world.graph_op", &json!({"world": w, "base_revision": 0, "op": {"op": "add_connected", "kind": "transfer", "from": "Dish.sources.rock", "to": "Dish.fields.cells", "substance": "nitrate"}})).unwrap();
+    assert_eq!(engine.run(&w).unwrap().revision(), 1);
+    // A batch of two edits: one revision.
+    engine.call("world.graph_op", &json!({"world": w, "base_revision": 1, "op": {"op": "batch", "ops": [
+        {"op": "set_param", "id": "Dish.rules.weather@transfer_carbon", "param": "amount", "value": "25mu"},
+        {"op": "set_param", "id": "Dish.rules.weather@transfer_nitrate", "param": "amount", "value": "12mu"}]}})).unwrap();
+    assert_eq!(engine.run(&w).unwrap().revision(), 2, "two edits, one revision");
+    engine.call("world.undo", &json!({"world": w})).unwrap();
+    let after_undo = engine.call("world.graph", &json!({"world": w})).unwrap();
+    let amount = |id: &str| after_undo["nodes"].as_array().unwrap().iter().find(|n| n["id"] == id).unwrap()["params"].as_array().unwrap().iter().find(|p| p[0] == "amount").unwrap()[1].clone();
+    assert_eq!(amount("Dish.rules.weather@transfer_carbon"), "20mu");
+    assert_eq!(amount("Dish.rules.weather@transfer_nitrate"), "10mu", "one undo takes both back");
+    // A duplicate gets fresh names; a required end is not cut; a label keeps a statement in place.
+    engine.call("world.graph_op", &json!({"world": w, "base_revision": 3, "op": {"op": "duplicate", "ids": ["Dish.rules.weather@transfer_carbon"]}})).unwrap();
+    assert!(engine.call("world.graph_op", &json!({"world": w, "base_revision": 4, "op": {"op": "unwire", "id": "Dish.rules.weather@transfer_carbon", "port": "from"}})).is_err());
+    engine.call("world.graph_op", &json!({"world": w, "base_revision": 4, "op": {"op": "label", "id": "Dish.rules.sunlight#0", "label": "sun_gate"}})).ok();
+}
