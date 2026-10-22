@@ -67,6 +67,9 @@ struct Entry {
     /// The graph edits made, newest last, and the ones undone (`world.undo`, `world.redo`).
     undo: Vec<Step>,
     redo: Vec<Step>,
+    /// The analysis notebook (`notebook.add`): bookmarks that carry copies of their evidence, so they stay
+    /// true after a creature dies or the source moves on. A sidecar: never part of the source or the run.
+    notebook: Vec<Value>,
 }
 
 /// One graph edit as the bodies of the patches that undo and redo it (`emerge_lang::graph::Edit`).
@@ -200,7 +203,7 @@ impl Engine {
                 };
                 let run = Run::create(spec, journal).map_err(|e| rejected(&e))?;
                 let out = json!({"world": id, "revision": 0, "tick": 0, "population": run.population(), "backend": run.device});
-                self.runs.insert(id, Entry { run, running: false, layout: Default::default(), notes: Default::default(), frames: Default::default(), undo: Vec::new(), redo: Vec::new() });
+                self.runs.insert(id, Entry { run, running: false, layout: Default::default(), notes: Default::default(), frames: Default::default(), undo: Vec::new(), redo: Vec::new(), notebook: Vec::new() });
                 Ok(out)
             }
             "world.validate" => {
@@ -712,6 +715,71 @@ impl Engine {
                 if from > to { return Err(bad("`from` is after `to`")); }
                 let bins = p["bins"].as_u64().unwrap_or(10).clamp(2, 100) as usize;
                 e.run.life(from, to, bins).map_err(bad)
+            }
+            "notebook.add" => {
+                // A bookmark with evidence copied at this moment (`proposals/science-panels.md` §11): what was asked, what was
+                // seen, and what it was seen with; later edits, deaths or a restart cannot change it.
+                let w = text(p, "world")?.to_string();
+                let title = text(p, "title")?.to_string();
+                let mut evidence = serde_json::Map::new();
+                let wp = |extra: Value| { let mut o = extra; o["world"] = json!(w); o };
+                let wants: Vec<String> = p["attach"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+                for k in &wants {
+                    let got = match k.as_str() {
+                        "stats" => self.call("stats.query", &wp(json!({}))),
+                        "budget" => self.call("accounts.query", &wp(json!({}))),
+                        "rules" => self.call("rules.activity", &wp(json!({}))),
+                        "history" => self.call("history.query", &wp(json!({}))).map(|mut h| { if let Some(a) = h["samples"].as_array_mut() { let n = a.len(); if n > 200 { a.drain(0..n - 200); h["trimmed_to_last"] = json!(200); } } h }),
+                        "genome" => self.call("genome.graph", &wp(json!({"entity": p["entity"]}))),
+                        "region" => self.call("region.query", &wp(json!({"x": p["x"], "y": p["y"]}))),
+                        "source" => { let e = self.entry(&json!({"world": w}))?; Ok(json!({"source": e.run.live.source, "revision": e.run.revision()})) }
+                        other => Err(bad(format!("unknown evidence `{other}`"))),
+                    };
+                    // A question that cannot be answered now is recorded as unavailable, in the entry, not dropped.
+                    evidence.insert(k.clone(), got.unwrap_or_else(|e| json!({"unavailable": e.message})));
+                }
+                let e = self.entry(&json!({"world": w}))?;
+                let id = e.notebook.len() + 1;
+                let entry = json!({"id": id, "title": title, "note": p["note"].as_str().unwrap_or(""), "question": p["question"].as_str().unwrap_or(""), "tick": e.run.tick(), "revision": e.run.revision(), "backend": e.run.device,
+                    "source_hash": format!("{:016x}", crate::journal::fnv(&e.run.live.source)), "kind": "bookmark", "evidence": evidence});
+                e.notebook.push(entry.clone());
+                Ok(entry)
+            }
+            "notebook.list" => Ok(json!({"entries": self.entry(p)?.notebook.clone()})),
+            "notebook.events" | "notebook.export" => {
+                // The run's timeline on one tick axis: source edits (accepted and rejected kept apart), thresholds the
+                // samples crossed (as the interval between two samples, never an invented tick), and bookmarks.
+                let e = self.entry(p)?;
+                let mut events: Vec<Value> = vec![];
+                for l in &e.run.journal.lines {
+                    if l["kind"] == "swap" {
+                        let ok = l["result"] == "committed";
+                        events.push(json!({"tick": l["tick"], "kind": if ok { "edit accepted" } else { "edit rejected" }, "reason": l["reason"], "patch": l["patch"], "why": l["why"], "source_hash": l["source_hash"],
+                            "class": "edit", "wording": if ok { "a source edit was committed at this tick" } else { "an edit was attempted and refused; the world did not change" }}));
+                    }
+                }
+                let h = &e.run.history;
+                let names = &e.run.spec.lineages;
+                for (i, name) in names.iter().enumerate() {
+                    let mut seen = false;
+                    let mut prev = None;
+                    for s in &h.samples {
+                        if s.by_lineage[i] > 0 { seen = true; }
+                        if seen && s.by_lineage[i] == 0 {
+                            events.push(json!({"tick": s.tick, "tick_from": prev, "kind": "lineage sampled at zero", "class": "observation", "lineage": name,
+                                "wording": format!("{name} had creatures at an earlier sample and none at this one; it fell to zero somewhere after tick {} and by tick {}", prev.map_or("?".to_string(), |t: u64| t.to_string()), s.tick)}));
+                            break;
+                        }
+                        prev = Some(s.tick);
+                    }
+                }
+                for b in &e.notebook { events.push(json!({"tick": b["tick"], "kind": "bookmark", "class": "bookmark", "title": b["title"], "id": b["id"], "wording": b["question"]})); }
+                events.sort_by_key(|x| x["tick"].as_u64().unwrap_or(0));
+                let timeline = json!({"events": events, "caution": "an edit followed by a change in the population is a temporal association; testing the edit's effect needs a comparison of runs"});
+                if method == "notebook.events" { return Ok(timeline); }
+                let head = e.run.journal.lines.first().cloned().unwrap_or(Value::Null);
+                Ok(json!({"format": "emerge-notebook/1", "run": {"world": text(p, "world")?, "tick": e.run.tick(), "revision": e.run.revision(), "backend": e.run.device, "seed": e.run.spec.seed, "mutation": e.run.spec.mutation, "lineages": e.run.spec.lineages, "header": head},
+                    "entries": e.notebook.clone(), "timeline": timeline}))
             }
             "genome.census" => Ok(self.entry(p)?.run.census()),
             "genome.compare" => {

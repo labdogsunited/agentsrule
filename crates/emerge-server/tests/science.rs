@@ -558,3 +558,42 @@ fn a_cohort_is_the_births_of_its_ticks_with_the_living_counted_as_censored() {
     assert_eq!(ages, all["total"].as_u64().unwrap(), "the age distribution covers every living creature");
     assert!(l["source"].as_str().unwrap().contains("founders"));
 }
+
+/// Stage S5 (`proposals/science-panels.md` §11): a bookmark keeps copies of its evidence, so it is still what was
+/// seen after the source moves on; the timeline keeps accepted and rejected edits apart and brackets a lineage that
+/// fell to zero by the two samples around it; the export names the run and holds every entry.
+#[test]
+fn the_notebook_keeps_its_evidence_and_the_timeline_says_only_what_was_sampled() {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": true})).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 40})).unwrap();
+    let first = engine.call("entities.query", &json!({"world": w, "limit": 1})).unwrap()["entities"][0]["id"].clone();
+    let b = engine.call("notebook.add", &json!({"world": w, "title": "Why does Builder fall?", "question": "what limits Builder", "note": "n", "attach": ["stats", "source", "genome", "budget"], "entity": first})).unwrap();
+    assert_eq!(b["tick"], 40);
+    assert!(b["evidence"]["budget"]["unavailable"].is_string(), "evidence that cannot be had is recorded as unavailable, not dropped");
+    let old_source = b["evidence"]["source"]["source"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 20})).unwrap();
+    engine.call("world.hotswap", &json!({"world": w, "base_revision": 0, "patch": "patch Dish {\n    set rules.rotting@react_rot.rate = 200bp;\n}\n", "reason": "faster recycling"})).unwrap();
+    assert!(engine.call("world.hotswap", &json!({"world": w, "base_revision": 0, "patch": "patch Dish {\n    set upkeep.base = 25mu;\n}\n"})).is_err());
+    let listed = engine.call("notebook.list", &json!({"world": w})).unwrap();
+    assert_eq!(listed["entries"][0]["evidence"]["source"]["source"].as_str().unwrap(), old_source, "the bookmark's source is the source it was made with");
+    assert_ne!(old_source, engine.call("world.source", &json!({"world": w})).unwrap()["source"].as_str().unwrap_or(""), "the live source has moved on");
+    engine.call("run.step", &json!({"world": w, "ticks": 400})).unwrap();
+    let t = engine.call("notebook.events", &json!({"world": w})).unwrap();
+    let ev = t["events"].as_array().unwrap();
+    assert!(ev.iter().any(|e| e["kind"] == "edit accepted" && e["tick"] == 60));
+    assert!(t["caution"].as_str().unwrap().contains("association"));
+    let h = engine.call("history.query", &json!({"world": w})).unwrap();
+    let zero: Vec<&Value> = ev.iter().filter(|e| e["kind"] == "lineage sampled at zero").collect();
+    assert!(!zero.is_empty(), "a lineage fell to zero within 460 ticks");
+    for z in zero {
+        let i = h["lineages"].as_array().unwrap().iter().position(|n| *n == z["lineage"]).unwrap();
+        let at = |tick: &Value| h["samples"].as_array().unwrap().iter().find(|s| s["tick"] == *tick).unwrap()["counts"][i].as_u64().unwrap();
+        assert_eq!(at(&z["tick"]), 0);
+        assert!(at(&z["tick_from"]) > 0, "the sample before had creatures: the fall lies between the two");
+    }
+    let x = engine.call("notebook.export", &json!({"world": w})).unwrap();
+    assert_eq!(x["format"], "emerge-notebook/1");
+    assert_eq!(x["entries"].as_array().unwrap().len(), 1);
+    assert!(x["run"]["header"]["source_hash"].is_string());
+}

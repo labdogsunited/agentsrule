@@ -192,11 +192,11 @@
   .lnode.ramp .range { display: flex; gap: 4px; }
   .rampbar { grid-column: 1 / 3; height: 16px; border: 1px solid #222; border-radius: 2px; }
   .lnode .err { grid-column: 1 / 3; color: var(--bad); font: 11px system-ui, sans-serif; white-space: pre-wrap; }
-  #stage-rules, #stage-lineage, #stage-census, #stage-budget, #stage-family, #stage-compare, #stage-region, #stage-flow, #stage-life { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
-  #rulesbar, #lineagebar, #censusbar, #budgetbar, #familybar, #comparebar, #regionbar, #flowbar, #lifebar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #stage-rules, #stage-lineage, #stage-census, #stage-budget, #stage-family, #stage-compare, #stage-region, #stage-flow, #stage-life, #stage-book { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
+  #rulesbar, #lineagebar, #censusbar, #budgetbar, #familybar, #comparebar, #regionbar, #flowbar, #lifebar, #bookbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   #rulesbar label, #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
   #rulesbar input, #lineagebar input { width: auto; margin: 0; }
-  #rulesbody, #lineagebody, #censusbody, #budgetbody, #familybody, #comparebody, #regionbody, #flowbody, #lifebody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
+  #rulesbody, #lineagebody, #censusbody, #budgetbody, #familybody, #comparebody, #regionbody, #flowbody, #lifebody, #bookbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
   .lens-phase { margin: 12px 0 4px; font-weight: 600; letter-spacing: .04em; color: var(--accent); text-transform: uppercase; font-size: 11px; }
   .lens-step { margin: 2px 0 2px 8px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
   .lens-step.placed { border-left-color: var(--accent); }
@@ -242,6 +242,10 @@
   #lifebody input { width: 5em; }
   #lifebody .bar { display: inline-block; width: 7px; background: #89b; margin-right: 1px; vertical-align: bottom; }
   #lifebody svg { width: 100%; height: 150px; display: block; }
+  #bookbody table { border-collapse: collapse; margin: 4px 0 10px; width: 100%; }
+  #bookbody td, #bookbody th { padding: 3px 8px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: left; vertical-align: top; }
+  #bookbody .k-edit td:first-child { border-left: 3px solid #cb6; } #bookbody .k-observation td:first-child { border-left: 3px solid #8ad; } #bookbody .k-bookmark td:first-child { border-left: 3px solid #6a9; }
+  #bookbody input[type=text] { width: 16em; }
   #lineagebody svg { width: 100%; height: 100%; min-height: 160px; display: block; }
   #lineagebody .legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0; }
   #lineagebody .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; }
@@ -396,6 +400,7 @@
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label><label><input type="radio" name="rmode" value="trace"> trace</label></div><div id="rulesbody"></div></main></div>
+  <div class="editor" id="ed-book"><main id="stage-book"><div id="bookbar"><span id="booknote"></span><button id="bookexport">Export notebook (JSON)</button></div><div id="bookbody"></div></main></div>
   <div class="editor" id="ed-life"><main id="stage-life"><div id="lifebar"><span id="lifenote"></span></div><div id="lifebody"></div></main></div>
   <div class="editor" id="ed-flow"><main id="stage-flow"><div id="flowbar"><span id="flownote"></span><label>mode <select id="flowmode"><option value="declared">declared</option><option value="measured">measured</option><option value="blocked">blocked</option></select></label><label>quantity <select id="flowqty"></select></label><button id="flowbase">Measure from now</button></div><div id="flowbody"></div></main></div>
   <div class="editor" id="ed-region"><main id="stage-region"><div id="regionbar"><span id="regionnote"></span></div><div id="regionbody"></div></main></div>
@@ -462,7 +467,7 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
 // screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false, budget: false, family: false, compare: false, region: false, flow: false, life: false };
+const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false, budget: false, family: false, compare: false, region: false, flow: false, life: false, book: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
 const stage = stages.picture;   // the picture's stage: the info picker lives there
@@ -1859,17 +1864,17 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 // Tabs move by dragging (to a leaf's middle, or to one of its edges to split it), a leaf can be maximized
 // for a while, editors can be closed and added back, and desktops are named arrangements. One instance of
 // each editor; the arrangement is kept in this browser and checked before it is used again.
-const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget", family: "Ancestry", compare: "Compare Runs", region: "Region", flow: "Flow Map", life: "Life Histories" };
+const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget", family: "Ancestry", compare: "Compare Runs", region: "Region", flow: "Flow Map", life: "Life Histories", book: "Notebook" };
 const VIEW_OF = { viewport: "picture", network: "graph", genome: "genome" };          // editors with a camera
-const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life" };
+const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life", book: "book" };
 let tree = null, closed = [], maxLeaf = null, focusLeaf = null, leafSeq = 0;
 const mkLeaf = (tabs, active) => ({ t: "leaf", id: `L${++leafSeq}`, tabs, active: active || tabs[0] });
 const mkSplit = (dir, ratio, a, b) => ({ t: "split", dir, ratio, a, b });
 const BUILTIN = {
-  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life"]))),
-  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life"]))),
-  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life"]), mkLeaf(["params"]))),
-  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "family", "compare", "region", "flow", "life", "details", "genome", "network", "look", "params", "source"]))),
+  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]))),
+  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]))),
+  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]), mkLeaf(["params"]))),
+  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "family", "compare", "region", "flow", "life", "book", "details", "genome", "network", "look", "params", "source"]))),
 };
 const leavesOf = (n = tree) => (n.t === "leaf" ? [n] : [...leavesOf(n.a), ...leavesOf(n.b)]);
 const findLeaf = (id) => leavesOf().find((l) => l.id === id);
@@ -1989,7 +1994,7 @@ function resizeSplit(e, n, box, a, b, bar) {
 let prevVis = {};
 function syncVisible() {
   const on = new Set((maxLeaf ? [findLeaf(maxLeaf)] : leavesOf()).filter(Boolean).filter((l) => document.querySelector(`[data-leaf="${l.id}"]`)).map((l) => l.active));
-  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life" };
+  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life", book: "book" };
   for (const [v, ed] of Object.entries(map)) visible[v] = on.has(ed);
   document.body.classList.toggle("graph", visible.graph);
   document.body.classList.toggle("genome", visible.genome);
@@ -2014,6 +2019,7 @@ function syncVisible() {
   if (fresh("region")) loadRegion().catch(oops);
   if (fresh("flow")) loadFlow().catch(oops);
   if (fresh("life")) loadLife().catch(oops);
+  if (fresh("book")) loadBook().catch(oops);
   if (fresh("source")) loadCode().catch(oops);
   prevVis = { ...visible };
   const fl = findLeaf(focusLeaf), v = fl && VIEW_OF[fl.active];
@@ -2589,6 +2595,36 @@ async function loadRules() {
   body.scrollTop = keep;
 }
 
+// Notebook (S5): the run's timeline on one tick axis (edits accepted and rejected kept apart, thresholds as the interval
+// between two samples) and bookmarks that carry copies of their evidence. An edit followed by a change is an
+// association, not a test. Export gives the whole thing as a JSON sidecar.
+async function loadBook() {
+  const w = $("world").value, note = $("booknote"), body = $("bookbody");
+  if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
+  const [ev, list] = await Promise.all([call("notebook.events", { world: w }), call("notebook.list", { world: w })]);
+  if (w !== $("world").value || !visible.book) return;
+  note.textContent = `${w} · ${ev.caution}`;
+  $("bookexport").onclick = async () => { const x = await call("notebook.export", { world: w }); const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(x, null, 2)], { type: "application/json" })); a.download = `${w}-notebook.json`; a.click(); };
+  body.textContent = "";
+  const f = tag("div"), title = tag("input"), q = tag("input"), go = tag("button");
+  title.type = "text"; title.placeholder = "title"; q.type = "text"; q.placeholder = "the question"; go.textContent = "Bookmark now";
+  const boxes = ["source", "stats", "history", "budget", "rules"].map((k) => { const l = tag("label"), c = tag("input"); c.type = "checkbox"; c.checked = k === "source" || k === "stats"; c.dataset.k = k; l.append(c, " " + k + " "); return l; });
+  f.append(title, " ", q, " attach: ", ...boxes, go); body.append(f);
+  go.onclick = async () => {
+    const attach = boxes.map((l) => l.firstChild).filter((c) => c.checked).map((c) => c.dataset.k);
+    try { await call("notebook.add", { world: w, title: title.value || "bookmark", question: q.value, attach }); } catch (e) { note.textContent = e.message || String(e); return; }
+    loadBook().catch(oops);
+  };
+  const t = tag("table");
+  t.innerHTML = "<tr><th>tick</th><th>what</th><th>evidence</th></tr>" + ev.events.map((e) => `<tr class="k-${e.class}"><td>${e.tick_from !== undefined && e.tick_from !== null ? `${e.tick_from} to ${e.tick}` : e.tick}</td><td>${esc(e.kind)}${e.title ? ": " + esc(e.title) : ""}${e.lineage ? " · " + esc(e.lineage) : ""}</td><td>${esc(e.wording || "")}${e.reason ? " · " + esc(e.reason) : ""}${e.why ? " · " + esc(e.why) : ""}</td></tr>`).join("");
+  body.append(t);
+  for (const b of list.entries) {
+    const d = tag("div"), keys = Object.keys(b.evidence);
+    d.textContent = `Bookmark ${b.id}: ${b.title} (tick ${b.tick}, revision ${b.revision}, source ${b.source_hash}) · evidence kept: ${keys.map((k) => k + (b.evidence[k].unavailable ? " (unavailable: " + b.evidence[k].unavailable + ")" : "")).join(", ") || "none"}`;
+    body.append(d);
+  }
+}
+
 // Life Histories (S5): who is alive, by age and by what they carry (every living creature), and one cohort: the
 // creatures born in a span of ticks. Members still alive are censored, never counted as dead; ages beyond what the
 // youngest member has lived are not drawn; offspring so far is not lifetime reproductive success.
@@ -3061,7 +3097,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); if (visible.flow) loadFlow(); if (visible.life) loadLife(); }).catch(oops) };
+$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); if (visible.flow) loadFlow(); if (visible.life) loadLife(); if (visible.book) loadBook(); }).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().then(() => { if (visible.look) return loadLook(); }).catch(oops);
 // Space plays and pauses the active world.
 let runningNow = {};
