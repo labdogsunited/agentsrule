@@ -118,3 +118,40 @@ fn the_genome_graph_lists_every_writer_and_reader_including_self_feedback() {
     }
     assert!(g["modules"].as_array().unwrap().len() >= 2);
 }
+
+/// Node editor H1 (`proposals/houdini-node-system.md` §13): organising the network (positions, notes,
+/// network boxes) is presentation. It changes no revision, adds no journal line, and the run after
+/// it equals the run without it.
+#[test]
+fn organising_the_network_changes_nothing_in_the_run() {
+    let create = |engine: &mut Engine| engine.call("world.create", &json!({"source": small(DISH), "lineages": ["Builder"], "seed": 2})).unwrap()["world"].as_str().unwrap().to_string();
+    let mut engine = Engine::new();
+    let (a, b) = (create(&mut engine), create(&mut engine));
+    let graph = engine.call("world.graph", &json!({"world": a})).unwrap();
+    let id = graph["nodes"][0]["id"].as_str().unwrap().to_string();
+    let rev = graph["revision"].clone();
+    let journal = engine.call("journal.read", &json!({"world": a})).unwrap()["lines"].as_array().unwrap().len();
+
+    engine.call("run.step", &json!({"world": a, "ticks": 30})).unwrap();
+    engine.call("world.layout_set", &json!({"world": a, "positions": {id.clone(): [10.5, 20.0]}, "notes": {"n1": {"x": 1, "y": 2, "text": "supply rules"}}, "frames": {"f1": {"x": 0, "y": 0, "w": 300, "h": 200, "label": "light"}}})).unwrap();
+    engine.call("run.step", &json!({"world": a, "ticks": 30})).unwrap();
+    engine.call("run.step", &json!({"world": b, "ticks": 60})).unwrap();
+    assert_eq!(engine.run(&a).unwrap().digest(), engine.run(&b).unwrap().digest(), "the same state after 60 ticks with and without layout edits");
+
+    let after = engine.call("world.graph", &json!({"world": a})).unwrap();
+    assert_eq!(after["revision"], rev, "no revision advanced");
+    assert_eq!(engine.call("journal.read", &json!({"world": a})).unwrap()["lines"].as_array().unwrap().len(), journal, "no journal line");
+    assert_eq!(after["positions"][&id], json!([10.5, 20.0]));
+    assert_eq!(after["notes"]["n1"]["text"], "supply rules");
+    assert_eq!(after["frames"]["f1"]["label"], "light");
+
+    // Notes and frames are replaced as a whole; a bad one is refused and changes nothing.
+    engine.call("world.layout_set", &json!({"world": a, "notes": {}})).unwrap();
+    assert_eq!(engine.call("world.graph", &json!({"world": a})).unwrap()["notes"], json!({}));
+    for bad in [json!({"notes": {"n": {"x": 1, "text": "no y"}}}), json!({"frames": {"f": {"x": 0, "y": 0, "w": "wide", "h": 1, "label": ""}}}), json!({"positions": {"x": [1]}}), json!({"notes": {"n": {"x": 1, "y": 1, "text": "t".repeat(2001)}}})] {
+        let mut p = bad.clone();
+        p["world"] = json!(a);
+        assert!(engine.call("world.layout_set", &p).is_err(), "{bad}");
+    }
+    assert_eq!(engine.call("world.graph", &json!({"world": a})).unwrap()["frames"]["f1"]["label"], "light");
+}

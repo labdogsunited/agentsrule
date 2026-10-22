@@ -60,6 +60,10 @@ struct Entry {
     running: bool,
     /// Where the node editor's boxes sit, by box id (`world.layout_set`); a sidecar, never part of the source.
     layout: serde_json::Map<String, Value>,
+    /// Sticky notes and network boxes of the node editor (`proposals/houdini-node-system.md` H1): presentation
+    /// only, by id, in the same sidecar as `layout`. Never part of the source, never a revision.
+    notes: serde_json::Map<String, Value>,
+    frames: serde_json::Map<String, Value>,
     /// The graph edits made, newest last, and the ones undone (`world.undo`, `world.redo`).
     undo: Vec<Step>,
     redo: Vec<Step>,
@@ -196,7 +200,7 @@ impl Engine {
                 };
                 let run = Run::create(spec, journal).map_err(|e| rejected(&e))?;
                 let out = json!({"world": id, "revision": 0, "tick": 0, "population": run.population(), "backend": run.device});
-                self.runs.insert(id, Entry { run, running: false, layout: Default::default(), undo: Vec::new(), redo: Vec::new() });
+                self.runs.insert(id, Entry { run, running: false, layout: Default::default(), notes: Default::default(), frames: Default::default(), undo: Vec::new(), redo: Vec::new() });
                 Ok(out)
             }
             "world.validate" => {
@@ -225,6 +229,8 @@ impl Engine {
                     "revision": e.run.revision(),
                     "world": g.world,
                     "positions": e.layout,
+                    "notes": e.notes,
+                    "frames": e.frames,
                     "history": {"undo": e.undo.iter().map(|s| s.what.clone()).collect::<Vec<_>>(), "redo": e.redo.iter().map(|s| s.what.clone()).collect::<Vec<_>>()},
                     "nodes": g.nodes.iter().map(|n| json!({"id": n.id, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "step": n.step, "group": n.group, "line": n.line, "params": n.params})).collect::<Vec<_>>(),
                     "wires": g.wires.iter().map(|w| json!({"from": w.from, "to": w.to, "substance": w.substance})).collect::<Vec<_>>(),
@@ -340,24 +346,61 @@ impl Engine {
                 Ok(r)
             }
             "world.layout_set" => {
-                // Positions of boxes, kept beside the world (and in `<journal dir>/<world>.meta.json`
-                // when the server journals); the caller never names a file.
+                // Presentation metadata of the node editor, kept beside the world (and in
+                // `<journal dir>/<world>.meta.json` when the server journals); the caller never names a
+                // file. `positions` merges box positions by id. `notes` and `frames` each replace the
+                // whole map: a note is {x, y, text}, a frame {x, y, w, h, label}. Nothing here is a
+                // revision or reaches the simulation.
                 let id = text(p, "world")?.to_string();
-                let positions = p["positions"].as_object().ok_or_else(|| bad("`positions` must be an object of id: [x, y]"))?;
+                let nums = |v: &Value, keys: &[&str]| keys.iter().all(|k| v[*k].as_f64().is_some_and(f64::is_finite));
+                let mut positions = serde_json::Map::new();
+                if !p["positions"].is_null() {
+                    for (k, v) in p["positions"].as_object().ok_or_else(|| bad("`positions` must be an object of id: [x, y]"))? {
+                        let ok = v.as_array().is_some_and(|a| a.len() == 2 && a.iter().all(|n| n.as_f64().is_some_and(f64::is_finite)));
+                        if !ok {
+                            return Err(bad(format!("`{k}` must be [x, y]")));
+                        }
+                        positions.insert(k.clone(), v.clone());
+                    }
+                }
+                let checked = |key: &str, keys: &[&str], texts: &[(&str, usize)]| -> Result<Option<serde_json::Map<String, Value>>, Fault> {
+                    if p[key].is_null() {
+                        return Ok(None);
+                    }
+                    let m = p[key].as_object().ok_or_else(|| bad(format!("`{key}` must be an object of id: item")))?;
+                    if m.len() > 500 {
+                        return Err(bad(format!("`{key}` holds at most 500 items")));
+                    }
+                    for (k, v) in m {
+                        if !nums(v, keys) {
+                            return Err(bad(format!("{key} `{k}` needs finite numbers for {}", keys.join(", "))));
+                        }
+                        for (field, max) in texts {
+                            if !v[*field].as_str().is_some_and(|t| t.chars().count() <= *max) {
+                                return Err(bad(format!("{key} `{k}` needs `{field}` as text of at most {max} characters")));
+                            }
+                        }
+                    }
+                    Ok(Some(m.clone()))
+                };
+                let notes = checked("notes", &["x", "y"], &[("text", 2000)])?;
+                let frames = checked("frames", &["x", "y", "w", "h"], &[("label", 200)])?;
                 let dir = self.journal_dir.clone();
                 let e = self.entry(p)?;
                 for (k, v) in positions {
-                    let ok = v.as_array().is_some_and(|a| a.len() == 2 && a.iter().all(|n| n.as_f64().is_some_and(f64::is_finite)));
-                    if !ok {
-                        return Err(bad(format!("`{k}` must be [x, y]")));
-                    }
-                    e.layout.insert(k.clone(), v.clone());
+                    e.layout.insert(k, v);
+                }
+                if let Some(n) = notes {
+                    e.notes = n;
+                }
+                if let Some(f) = frames {
+                    e.frames = f;
                 }
                 if let Some(dir) = dir {
-                    let body = serde_json::to_string_pretty(&json!({"world": id, "positions": e.layout})).unwrap_or_default();
+                    let body = serde_json::to_string_pretty(&json!({"world": id, "positions": e.layout, "notes": e.notes, "frames": e.frames})).unwrap_or_default();
                     std::fs::write(dir.join(format!("{id}.meta.json")), body).map_err(|err| fault(-32603, format!("could not write the layout: {err}")))?;
                 }
-                Ok(json!({"saved": e.layout.len()}))
+                Ok(json!({"saved": e.layout.len(), "notes": e.notes.len(), "frames": e.frames.len()}))
             }
             "world.hotswap" => {
                 let (patch, reason) = (text(p, "patch")?.to_string(), p["reason"].as_str().unwrap_or("").to_string());

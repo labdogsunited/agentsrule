@@ -76,6 +76,19 @@
   .gene.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .gene.off { opacity: 0.45; }
   .gene.nomatch { opacity: 0.18; }
+  #graph .box.nomatch { opacity: 0.2; }
+  #graph .box.msel { box-shadow: 0 0 0 1px var(--accent); border-color: var(--accent); }
+  #netfind { width: 150px; } #netfound { color: var(--muted); font-size: 11px; } .etool .sep { width: 10px; display: inline-block; }
+  #graph .nframe { position: absolute; border: 1px dashed #6b7686; border-radius: 8px; background: rgba(120,140,170,0.07); z-index: 0; }
+  #graph .nframe .nfh { position: absolute; left: 0; right: 0; top: 0; height: 22px; padding: 2px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); cursor: move; white-space: nowrap; overflow: hidden; }
+  #graph .nframe .nfh:focus { outline: 1px solid var(--accent); cursor: text; text-transform: none; }
+  #graph .nframe .nfx, #graph .nnote .nfx { position: absolute; right: 4px; top: 2px; cursor: pointer; color: var(--muted); font-size: 12px; z-index: 2; }
+  #graph .nframe .nfr { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+  #graph .nnote { position: absolute; width: 180px; min-height: 60px; background: #5a5230; border: 1px solid #8a7f48; border-radius: 4px; z-index: 2; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+  #graph .nnote .nnh { height: 14px; cursor: move; background: rgba(0,0,0,.18); }
+  #graph .nnote .nnb { padding: 4px 8px 8px; font: 12px/1.35 system-ui, sans-serif; color: #f3ecc4; min-height: 40px; white-space: pre-wrap; outline: none; }
+  #graph .nnote.pick, #graph .nframe.pick { outline: 1px solid var(--accent); }
+  .bandrect { position: absolute; border: 1px solid var(--accent); background: rgba(230,180,92,0.12); z-index: 20; pointer-events: none; }
   .gene .flags { padding: 0 8px; font: 10px system-ui, sans-serif; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #genome .wire.self { stroke-dasharray: 6 3; }
   .chan { position: absolute; width: 112px; height: 26px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 13px; background: #20252d; color: var(--fg); font: 11px/24px system-ui, sans-serif; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 1; }
@@ -342,7 +355,7 @@
     
 
       </div></div>
-  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network (G)">Grid</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
+  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span></div><div id="rulesbody"></div></main></div>
@@ -520,10 +533,25 @@ function bindStage(view) {
       drag = { wire: box.dataset.id, port };
       port.classList.add("hot");
       e.stopPropagation();
+    } else if (box && e.shiftKey) {
+      // Shift-click adds a box to the selection, or takes it out.
+      const id = box.dataset.id;
+      if (multi.has(id)) multi.delete(id); else multi.add(id);
+      if (!multi.has(selected)) selected = multi.size ? [...multi][multi.size - 1] : null;
+      markSel();
+      return;
+    } else if (box && multi.size > 1 && multi.has(box.dataset.id)) {
+      // A selected box drags every selected box with it.
+      const items = [...multi].map((id) => { const p = placed.get(id); return { id, p, x0: p.x, y0: p.y }; });
+      drag = { group: items, sx: e.clientX, sy: e.clientY, moved: false, box };
     } else if (box) {
       // A box moves with the pointer; a click without a move selects it.
       const p = placed.get(box.dataset.id);
       drag = { box, p, sx: e.clientX, sy: e.clientY, x0: p.x, y0: p.y, moved: false };
+    } else if (view === "graph" && e.shiftKey) {
+      // Shift-drag on empty space draws a rectangle that selects what it touches.
+      const r = stage.getBoundingClientRect();
+      drag = { band: true, sx: e.clientX, sy: e.clientY, moved: false, rect: r, el: null };
     } else {
       // In the genome view a press on a gene that does not move is a click on it.
       const gene = view === "genome" && e.target.closest(".gene");
@@ -567,6 +595,23 @@ function bindStage(view) {
       if (genomeSel != null) selectGene(genomeSel);
       return;
     }
+    if (drag.band) {
+      if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > 3) drag.moved = true;
+      if (!drag.moved) return;
+      if (!drag.el) { drag.el = document.createElement("div"); drag.el.className = "bandrect"; stages.graph.appendChild(drag.el); }
+      const r = drag.rect, x0 = Math.min(drag.sx, e.clientX) - r.left, y0 = Math.min(drag.sy, e.clientY) - r.top, x1 = Math.max(drag.sx, e.clientX) - r.left, y1 = Math.max(drag.sy, e.clientY) - r.top;
+      Object.assign(drag.el.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${y1 - y0}px` });
+      drag.sel = { x0: (x0 - cam.x) / cam.s, y0: (y0 - cam.y) / cam.s, x1: (x1 - cam.x) / cam.s, y1: (y1 - cam.y) / cam.s };
+      return;
+    }
+    if (drag.group) {
+      const dx = (e.clientX - drag.sx) / cam.s, dy = (e.clientY - drag.sy) / cam.s;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      if (!drag.moved) return;
+      for (const it of drag.group) { it.p.x = it.x0 + dx; it.p.y = it.y0 + dy; const b = $("graph").querySelector(`.box[data-id="${CSS.escape(it.id)}"]`); if (b) { b.style.left = `${it.p.x}px`; b.style.top = `${it.p.y}px`; } }
+      drawWires();
+      return;
+    }
     if (drag.box) {
       const dx = (e.clientX - drag.sx) / cam.s, dy = (e.clientY - drag.sy) / cam.s;
       if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
@@ -591,6 +636,17 @@ function bindStage(view) {
       else { const base = gBase.get(drag.gi), x = genomeData.genes.find((z) => z.index === drag.gi); saveGenomeOffset(x, drag.p.x - base.x, drag.p.y - base.y); }
     }
     if (drag && drag.box && !drag.moved) select(drag.box.dataset.id);
+    if (drag && drag.band) {
+      if (drag.el) drag.el.remove();
+      if (drag.moved && drag.sel) {
+        const s = drag.sel, ids = [...placed.keys()].filter((k) => !k.includes("/") && placed.get(k).x + BOX.w >= s.x0 && placed.get(k).x <= s.x1 && placed.get(k).y + BOX.h >= s.y0 && placed.get(k).y <= s.y1 && $("graph").querySelector(`.box[data-id="${CSS.escape(k)}"]`));
+        multi = new Set(ids);
+        selected = ids.length ? ids[ids.length - 1] : null;
+        markSel();
+        renderParm();
+      }
+    }
+    if (drag && drag.group) { if (drag.moved) savePositions(drag.group.map((i) => i.id)); else select(drag.box.dataset.id); }
     if (drag && drag.box && drag.moved) savePosition(drag.box.dataset.id);
     if (drag && drag.wire) {
       drag.port.classList.remove("hot");
@@ -892,6 +948,8 @@ function drawGraph() {
     maxX = Math.max(maxX, p.x + BOX.w + 40);
     maxY = Math.max(maxY, p.y + BOX.h + 40);
   }
+  for (const [id, f] of Object.entries(g.frames || {})) { root.prepend(frameEl(id, f)); maxX = Math.max(maxX, f.x + f.w + 40); maxY = Math.max(maxY, f.y + f.h + 40); }
+  for (const [id, n] of Object.entries(g.notes || {})) { root.appendChild(noteEl(id, n)); maxX = Math.max(maxX, n.x + 220); maxY = Math.max(maxY, n.y + 120); }
   root.style.width = `${maxX}px`;
   root.style.height = `${maxY}px`;
   svg.setAttribute("width", maxX);
@@ -899,13 +957,167 @@ function drawGraph() {
   const cam = cams.graph;
   if (cam.fit || cam.w !== maxX || cam.h !== maxY) { cam.w = maxX; cam.h = maxY; if (cam.fit) fitCam(cam); }
   drawWires();
-  for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === selected);
+  markSel();
+  applyNetFind();
   if (!$("picked").contains(document.activeElement)) renderParm();
   if (isShown("graph")) applyCam(cam);
   const other = g.nodes.filter((n) => !["store", "reaction", "transfer", "react", "diffuse", "signal", "code", "rule"].includes(n.kind));
   $("decls").innerHTML = `<option value="">${other.length} declarations</option>` + other.map((n) => `<option value="${n.id}"></option>`).join("");
   [...$("decls").options].slice(1).forEach((o, i) => { o.textContent = `${other[i].id.split(".").slice(1, 3).join(" ")}`; });
 }
+
+// ---- H1 (proposals/houdini-node-system.md §6): selecting several, framing, finding, notes and network boxes.
+// All of it is presentation: it is kept beside the world with `world.layout_set` and never changes a revision.
+const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName) || !!(document.activeElement && document.activeElement.isContentEditable);
+function boxRect(id) { const p = placed.get(id); return p ? { x0: p.x, y0: p.y, x1: p.x + BOX.w, y1: p.y + BOX.h } : null; }
+function frameRect(view, x0, y0, x1, y1) {
+  const cam = cams[view], r = stages[view].getBoundingClientRect(), pad = 50;
+  if (!r.width) return;
+  cam.s = Math.min(r.width / (x1 - x0 + 2 * pad), r.height / (y1 - y0 + 2 * pad), 1.5);
+  cam.x = (r.width - (x1 - x0) * cam.s) / 2 - x0 * cam.s;
+  cam.y = (r.height - (y1 - y0) * cam.s) / 2 - y0 * cam.s;
+  cam.fit = false;
+  applyCam(cam);
+}
+function frameIds(ids) {
+  const rs = [...ids].map(boxRect).filter(Boolean);
+  if (!rs.length) return false;
+  frameRect("graph", Math.min(...rs.map((r) => r.x0)), Math.min(...rs.map((r) => r.y0)), Math.max(...rs.map((r) => r.x1)), Math.max(...rs.map((r) => r.y1)));
+  return true;
+}
+function frameAll() { const c = cams[visible.genome && mode === "genome" ? "genome" : "graph"]; fitCam(c); applyCam(c); }
+function frameSelection() { if (!frameIds(multi.size ? multi : selected ? [selected] : [])) frameAll(); }
+$("netframeall").onclick = frameAll;
+$("netframesel").onclick = frameSelection;
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || typing() || !isShown("graph") || mode !== "graph") return;
+  const k = e.key.toLowerCase();
+  if (k === "h") { e.preventDefault(); frameAll(); }
+  else if (k === "g") { e.preventDefault(); e.stopImmediatePropagation(); frameSelection(); }
+  else if ((e.key === "Delete" || e.key === "Backspace") && pickedItem) { e.preventDefault(); removeItem(pickedItem); }
+  else if (e.key === "Escape" && multi.size > 1) { select(selected); }
+}, true);
+let findIds = null;
+function applyNetFind() {
+  const q = ($("netfind").value || "").trim().toLowerCase(), g = graphData;
+  findIds = null;
+  if (g && q) {
+    findIds = new Set(g.nodes.filter((n) => `${n.id} ${n.kind} ${n.title} ${n.text} ${n.step || ""} ${n.group || ""} ${JSON.stringify(n.params || "")}`.toLowerCase().includes(q)).map((n) => n.id));
+  }
+  for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("nomatch", !!findIds && !findIds.has(el.dataset.id));
+  $("netfound").textContent = findIds ? `${[...findIds].filter((id) => placed.has(id)).length} found` : "";
+}
+$("netfind").oninput = applyNetFind;
+$("netfind").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { const ids = [...(findIds || [])].filter((id) => placed.has(id)); if (ids.length) { selected = ids[0]; multi = new Set(ids); markSel(); frameIds(ids); renderParm(); } }
+  if (e.key === "Escape") { $("netfind").value = ""; applyNetFind(); $("netfind").blur(); }
+});
+function savePositions(ids) {
+  if (!graphData) return;
+  const positions = {};
+  for (const id of ids) { const p = placed.get(id); if (p) positions[id] = [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10]; }
+  call("world.layout_set", { world: $("world").value, positions }).catch(() => {});
+}
+function saveMeta() {
+  if (!graphData) return Promise.resolve();
+  return call("world.layout_set", { world: $("world").value, notes: graphData.notes || {}, frames: graphData.frames || {} }).catch(oops);
+}
+let pickedItem = null;   // a note or a box being the thing Delete acts on: { kind: "note"|"frame", id }
+function pickItem(kind, id) { pickedItem = { kind, id }; for (const el of $("graph").querySelectorAll(".nframe,.nnote")) el.classList.toggle("pick", el.dataset.kind === kind && el.dataset.id === id); }
+function removeItem(it) {
+  const g = graphData;
+  if (!g) return;
+  delete (it.kind === "note" ? g.notes : g.frames)[it.id];
+  pickedItem = null;
+  drawGraph();
+  saveMeta();
+}
+// Dragging an element of the network by a handle; `moved` is called with the offset in graph units, `done` once at the end.
+function dragHandle(handle, onStart, onMove, onDone) {
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const s = cams.graph.s, sx = e.clientX, sy = e.clientY, st = onStart();
+    handle.setPointerCapture(e.pointerId);
+    const mv = (ev) => onMove(st, (ev.clientX - sx) / s, (ev.clientY - sy) / s);
+    const up = () => { handle.removeEventListener("pointermove", mv); handle.removeEventListener("pointerup", up); onDone(st); };
+    handle.addEventListener("pointermove", mv);
+    handle.addEventListener("pointerup", up);
+  });
+}
+function editable(node, get, set) {
+  node.addEventListener("dblclick", (e) => { e.stopPropagation(); node.contentEditable = "plaintext-only"; node.focus(); });
+  node.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter" && !e.shiftKey && node.classList.contains("nfh")) { e.preventDefault(); node.blur(); } if (e.key === "Escape") { node.textContent = get(); node.blur(); } });
+  node.addEventListener("blur", () => { if (node.contentEditable === "true" || node.contentEditable === "plaintext-only") { node.contentEditable = "false"; const t = node.textContent.slice(0, node.classList.contains("nfh") ? 200 : 2000); if (t !== get()) { set(t); saveMeta(); } } });
+}
+function frameEl(id, f) {
+  const el = document.createElement("div"), hd = document.createElement("div"), x = document.createElement("span"), rz = document.createElement("div");
+  el.className = "nframe"; el.dataset.kind = "frame"; el.dataset.id = id;
+  el.style.cssText = `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px`;
+  hd.className = "nfh"; hd.textContent = f.label; hd.title = "Drag to move the box and what is in it; double-click to rename";
+  x.className = "nfx"; x.textContent = "×"; x.title = "Remove the box (the nodes stay)";
+  x.onpointerdown = (e) => e.stopPropagation();
+  x.onclick = () => removeItem({ kind: "frame", id });
+  rz.className = "nfr";
+  el.append(hd, x, rz);
+  editable(hd, () => f.label, (t) => { f.label = t; });
+  dragHandle(hd, () => {
+    pickItem("frame", id);
+    const inside = [...placed.entries()].filter(([k, p]) => !k.includes("/") && p.x + BOX.w / 2 >= f.x && p.x + BOX.w / 2 <= f.x + f.w && p.y + BOX.h / 2 >= f.y && p.y + BOX.h / 2 <= f.y + f.h).map(([k, p]) => ({ k, p, x0: p.x, y0: p.y }));
+    const uniq = new Map(inside.map((o) => [o.p, o]));
+    return { x0: f.x, y0: f.y, inside: [...uniq.values()], ids: inside.map((o) => o.k) };
+  }, (st, dx, dy) => {
+    f.x = st.x0 + dx; f.y = st.y0 + dy;
+    el.style.left = `${f.x}px`; el.style.top = `${f.y}px`;
+    for (const o of st.inside) o.p.x = o.x0 + dx, o.p.y = o.y0 + dy;
+    for (const b of $("graph").querySelectorAll(".box")) { const q = placed.get(b.dataset.id); b.style.left = `${q.x}px`; b.style.top = `${q.y}px`; }
+    drawWires();
+  }, (st) => { f.x = Math.round(f.x); f.y = Math.round(f.y); saveMeta(); savePositions(st.ids); });
+  dragHandle(rz, () => ({ w0: f.w, h0: f.h }), (st, dx, dy) => { f.w = Math.max(80, st.w0 + dx); f.h = Math.max(50, st.h0 + dy); el.style.width = `${f.w}px`; el.style.height = `${f.h}px`; }, () => { f.w = Math.round(f.w); f.h = Math.round(f.h); saveMeta(); });
+  el.addEventListener("pointerdown", (e) => { if (e.target === el) pickItem("frame", id); });
+  return el;
+}
+function noteEl(id, n) {
+  const el = document.createElement("div"), hd = document.createElement("div"), bd = document.createElement("div"), x = document.createElement("span");
+  el.className = "nnote"; el.dataset.kind = "note"; el.dataset.id = id;
+  el.style.cssText = `left:${n.x}px;top:${n.y}px`;
+  hd.className = "nnh"; hd.title = "Drag to move";
+  bd.className = "nnb"; bd.textContent = n.text; bd.title = "Double-click to edit";
+  x.className = "nfx"; x.textContent = "×"; x.title = "Remove the note";
+  x.onpointerdown = (e) => e.stopPropagation();
+  x.onclick = () => removeItem({ kind: "note", id });
+  el.append(hd, bd, x);
+  editable(bd, () => n.text, (t) => { n.text = t; });
+  dragHandle(hd, () => { pickItem("note", id); return { x0: n.x, y0: n.y }; }, (st, dx, dy) => { n.x = st.x0 + dx; n.y = st.y0 + dy; el.style.left = `${n.x}px`; el.style.top = `${n.y}px`; }, () => { n.x = Math.round(n.x); n.y = Math.round(n.y); saveMeta(); });
+  el.addEventListener("pointerdown", (e) => { e.stopPropagation(); pickItem("note", id); });
+  return el;
+}
+$("netnote").onclick = () => {
+  const g = graphData;
+  if (!g) return;
+  g.notes = g.notes || {};
+  const cam = cams.graph, r = stages.graph.getBoundingClientRect(), id = `note${Date.now().toString(36)}`;
+  g.notes[id] = { x: Math.round((r.width / 2 - cam.x) / cam.s - 90), y: Math.round((r.height / 2 - cam.y) / cam.s - 30), text: "note" };
+  drawGraph();
+  saveMeta();
+  const b = $("graph").querySelector(`.nnote[data-id="${id}"] .nnb`);
+  if (b) { b.contentEditable = "plaintext-only"; b.focus(); document.getSelection().selectAllChildren(b); }
+};
+$("netbox").onclick = () => {
+  const g = graphData, ids = [...multi].filter((id) => placed.has(id));
+  if (!g) return;
+  if (!ids.length) return oops("Select nodes first: Shift-click them, or Shift-drag a rectangle.");
+  oops();
+  const rs = ids.map(boxRect), pad = 24;
+  g.frames = g.frames || {};
+  const id = `box${Date.now().toString(36)}`;
+  g.frames[id] = { x: Math.round(Math.min(...rs.map((r) => r.x0)) - pad), y: Math.round(Math.min(...rs.map((r) => r.y0)) - pad - 14), w: Math.round(Math.max(...rs.map((r) => r.x1)) - Math.min(...rs.map((r) => r.x0)) + 2 * pad), h: Math.round(Math.max(...rs.map((r) => r.y1)) - Math.min(...rs.map((r) => r.y0)) + 2 * pad + 14), label: "box" };
+  drawGraph();
+  saveMeta();
+  const hd = $("graph").querySelector(`.nframe[data-id="${id}"] .nfh`);
+  if (hd) { hd.contentEditable = "plaintext-only"; hd.focus(); document.getSelection().selectAllChildren(hd); }
+};
 
 function drawWires() {
   const g = graphData, svg = $("wires");
@@ -1148,10 +1360,16 @@ function paramFailure(e, name) {
 
 // Parameters follows the selection, or the pinned node.
 function parmTarget() { return pinned || (selection && selection.kind === "node" ? selection : null); }
+// Selection: `selected` is the one Parameters follows; `multi` is the set a move, a frame or a box acts on.
+let multi = new Set();
+function markSel() {
+  for (const el of $("graph").querySelectorAll(".box")) { el.classList.toggle("sel", el.dataset.id === selected); el.classList.toggle("msel", multi.has(el.dataset.id)); }
+}
 function select(id) {
   selected = id;
+  multi = new Set(id ? [id] : []);
   highlightCode(id);
-  for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === id);
+  markSel();
   selection = id ? { world: $("world").value, kind: "node", id } : null;
   renderParm();
 }

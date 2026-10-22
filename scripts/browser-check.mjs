@@ -30,6 +30,7 @@ const page = {
   async eval(js) { const r = await send("Runtime.evaluate", { expression: js, awaitPromise: true, returnByValue: true }); if (r.result.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || "eval failed"); return r.result.result.value; },
   async key(key, opts = {}) { const code = key.length === 1 ? `Key${key.toUpperCase()}` : key; const base = { key, code, windowsVirtualKeyCode: key.length === 1 ? key.toUpperCase().charCodeAt(0) : opts.vk || 0, modifiers: opts.modifiers || 0 }; await send("Input.dispatchKeyEvent", { type: "keyDown", text: key.length === 1 ? key : undefined, ...base }); await send("Input.dispatchKeyEvent", { type: "keyUp", ...base }); },
   async click(x, y) { for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 }); },
+  async shiftMouse(type, x, y, buttons = 1) { await send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons, clickCount: 1, modifiers: 8 }); },
   async mouse(type, x, y, buttons = 1) { await send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons }); },
   async shot(path) { const r = await send("Page.captureScreenshot", { format: "png" }); writeFileSync(path, Buffer.from(r.result.data, "base64")); },
   wait: sleep,
