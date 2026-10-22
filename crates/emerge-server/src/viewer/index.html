@@ -75,6 +75,27 @@
   .gene { position: absolute; width: 200px; height: 60px; background: #1c2027; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; user-select: none; }
   .gene.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .gene.off { opacity: 0.45; }
+  .gene.nomatch { opacity: 0.18; }
+  #graph .box.nomatch { opacity: 0.2; }
+  #graph .box.msel { box-shadow: 0 0 0 1px var(--accent); border-color: var(--accent); }
+  #netfind { width: 150px; } #netfound { color: var(--muted); font-size: 11px; } .etool .sep { width: 10px; display: inline-block; }
+  #graph .nframe { position: absolute; border: 1px dashed #6b7686; border-radius: 8px; background: rgba(120,140,170,0.07); z-index: 0; }
+  #graph .nframe .nfh { position: absolute; left: 0; right: 0; top: 0; height: 22px; padding: 2px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); cursor: move; white-space: nowrap; overflow: hidden; }
+  #graph .nframe .nfh:focus { outline: 1px solid var(--accent); cursor: text; text-transform: none; }
+  #graph .nframe .nfx, #graph .nnote .nfx { position: absolute; right: 4px; top: 2px; cursor: pointer; color: var(--muted); font-size: 12px; z-index: 2; }
+  #graph .nframe .nfr { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+  #graph .nnote { position: absolute; width: 180px; min-height: 60px; background: #5a5230; border: 1px solid #8a7f48; border-radius: 4px; z-index: 2; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+  #graph .nnote .nnh { height: 14px; cursor: move; background: rgba(0,0,0,.18); }
+  #graph .nnote .nnb { padding: 4px 8px 8px; font: 12px/1.35 system-ui, sans-serif; color: #f3ecc4; min-height: 40px; white-space: pre-wrap; outline: none; }
+  #graph .nnote.pick, #graph .nframe.pick { outline: 1px solid var(--accent); }
+  .bandrect { position: absolute; border: 1px solid var(--accent); background: rgba(230,180,92,0.12); z-index: 20; pointer-events: none; }
+  .gene .flags { padding: 0 8px; font: 10px system-ui, sans-serif; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #genome .wire.self { stroke-dasharray: 6 3; }
+  .chan { position: absolute; width: 112px; height: 26px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 13px; background: #20252d; color: var(--fg); font: 11px/24px system-ui, sans-serif; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 1; }
+  .chan.lonely { border-style: dashed; color: var(--muted); }
+  .chan.hot { border-color: var(--accent); }
+  .chan.dim { opacity: 0.25; }
+  #gsearch { width: 190px; }
   .gene .t { padding: 2px 8px; font-size: 12px; font-weight: 600; color: #101318; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 5px 5px 0 0; }
   .gene .b { padding: 4px 8px; font: 11px/1.35 system-ui, sans-serif; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .gene.k-sense .t { background: #6f9bd1; }
@@ -171,6 +192,27 @@
   .lnode.ramp .range { display: flex; gap: 4px; }
   .rampbar { grid-column: 1 / 3; height: 16px; border: 1px solid #222; border-radius: 2px; }
   .lnode .err { grid-column: 1 / 3; color: var(--bad); font: 11px system-ui, sans-serif; white-space: pre-wrap; }
+  #stage-rules, #stage-lineage, #stage-census { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
+  #rulesbar, #lineagebar, #censusbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
+  #lineagebar input { width: auto; margin: 0; }
+  #rulesbody, #lineagebody, #censusbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
+  .lens-phase { margin: 12px 0 4px; font-weight: 600; letter-spacing: .04em; color: var(--accent); text-transform: uppercase; font-size: 11px; }
+  .lens-step { margin: 2px 0 2px 8px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
+  .lens-step.placed { border-left-color: var(--accent); }
+  .lens-step .what { color: var(--muted); }
+  .lens-step .meta { color: var(--muted); font-size: 11px; }
+  .lens-rule { margin: 3px 0 0 14px; font-family: ui-monospace, monospace; }
+  .lens-stmt { margin-left: 14px; cursor: pointer; white-space: pre-wrap; color: var(--fg); }
+  .lens-stmt:hover { background: #454545; }
+  #censusbody table { border-collapse: collapse; margin: 4px 0 10px; }
+  #censusbody td, #censusbody th { padding: 2px 8px; text-align: left; border-bottom: 1px solid var(--line); font-weight: normal; vertical-align: top; }
+  #censusbody .bar { display: inline-block; height: 8px; background: var(--accent, #6aa); vertical-align: middle; margin-right: 4px; }
+  #censusbody .only-a td:first-child { border-left: 3px solid #d98; } #censusbody .only-b td:first-child { border-left: 3px solid #8ad; }
+  #censusbody select { max-width: 220px; }
+  #lineagebody svg { width: 100%; height: 100%; min-height: 160px; display: block; }
+  #lineagebody .legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0; }
+  #lineagebody .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; }
   #stage-details { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
   #detailsbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
   #detailstable { flex: 1; overflow: auto; }
@@ -318,9 +360,12 @@
     
 
       </div></div>
-  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network (G)">Grid</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
-  <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main></div>
+  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
+  <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
+  <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span></div><div id="rulesbody"></div></main></div>
+  <div class="editor" id="ed-census"><main id="stage-census"><div id="censusbar"><span id="censusnote"></span></div><div id="censusbody"></div></main></div>
+  <div class="editor" id="ed-lineage"><main id="stage-lineage"><div id="lineagebar"><span id="lineagenote"></span><label><input type="radio" name="lmode" value="count" checked> counts</label><label><input type="radio" name="lmode" value="share"> share</label></div><div id="lineagebody"></div></main></div>
   <div class="editor" id="ed-details"><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main></div>
   <div class="editor" id="ed-source"><section id="code">
     <div id="codehandle"></div>
@@ -379,7 +424,7 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
 // screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false };
+const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
 const stage = stages.picture;   // the picture's stage: the info picker lives there
@@ -494,14 +539,33 @@ function bindStage(view) {
       drag = { wire: box.dataset.id, port };
       port.classList.add("hot");
       e.stopPropagation();
+    } else if (box && e.shiftKey) {
+      // Shift-click adds a box to the selection, or takes it out.
+      const id = box.dataset.id;
+      if (multi.has(id)) multi.delete(id); else multi.add(id);
+      if (!multi.has(selected)) selected = multi.size ? [...multi][multi.size - 1] : null;
+      markSel();
+      return;
+    } else if (box && multi.size > 1 && multi.has(box.dataset.id)) {
+      // A selected box drags every selected box with it.
+      const items = [...multi].map((id) => { const p = placed.get(id); return { id, p, x0: p.x, y0: p.y }; });
+      drag = { group: items, sx: e.clientX, sy: e.clientY, moved: false, box };
     } else if (box) {
       // A box moves with the pointer; a click without a move selects it.
       const p = placed.get(box.dataset.id);
       drag = { box, p, sx: e.clientX, sy: e.clientY, x0: p.x, y0: p.y, moved: false };
+    } else if (view === "graph" && e.shiftKey) {
+      // Shift-drag on empty space draws a rectangle that selects what it touches.
+      const r = stage.getBoundingClientRect();
+      drag = { band: true, sx: e.clientX, sy: e.clientY, moved: false, rect: r, el: null };
     } else {
       // In the genome view a press on a gene that does not move is a click on it.
       const gene = view === "genome" && e.target.closest(".gene");
-      drag = { x: e.clientX - cam.x, y: e.clientY - cam.y, gene: gene ? +gene.dataset.index : null, sx: e.clientX, sy: e.clientY, moved: false };
+      if (gene && genomeData) {
+        // A card moves with the pointer (presentation only); a click without a move selects it.
+        const i = +gene.dataset.index, p = gplaced.get(i);
+        drag = { gcard: gene, gi: i, p, sx: e.clientX, sy: e.clientY, x0: p.x, y0: p.y, moved: false };
+      } else drag = { x: e.clientX - cam.x, y: e.clientY - cam.y, gene: null, sx: e.clientX, sy: e.clientY, moved: false };
     }
     stage.setPointerCapture(e.pointerId);
     stage.classList.add("dragging");
@@ -525,6 +589,35 @@ function bindStage(view) {
       t.setAttribute("d", `M${x0},${y0} C${x0 + d},${y0} ${gx - d},${gy} ${gx},${gy}`);
       return;
     }
+    if (drag.gcard) {
+      const dx = (e.clientX - drag.sx) / cam.s, dy = (e.clientY - drag.sy) / cam.s;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      if (!drag.moved) return;
+      drag.p.x = drag.x0 + dx;
+      drag.p.y = drag.y0 + dy;
+      drag.gcard.style.left = `${drag.p.x}px`;
+      drag.gcard.style.top = `${drag.p.y}px`;
+      drawGenomeWires();
+      if (genomeSel != null) selectGene(genomeSel);
+      return;
+    }
+    if (drag.band) {
+      if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > 3) drag.moved = true;
+      if (!drag.moved) return;
+      if (!drag.el) { drag.el = document.createElement("div"); drag.el.className = "bandrect"; stages.graph.appendChild(drag.el); }
+      const r = drag.rect, x0 = Math.min(drag.sx, e.clientX) - r.left, y0 = Math.min(drag.sy, e.clientY) - r.top, x1 = Math.max(drag.sx, e.clientX) - r.left, y1 = Math.max(drag.sy, e.clientY) - r.top;
+      Object.assign(drag.el.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${y1 - y0}px` });
+      drag.sel = { x0: (x0 - cam.x) / cam.s, y0: (y0 - cam.y) / cam.s, x1: (x1 - cam.x) / cam.s, y1: (y1 - cam.y) / cam.s };
+      return;
+    }
+    if (drag.group) {
+      const dx = (e.clientX - drag.sx) / cam.s, dy = (e.clientY - drag.sy) / cam.s;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      if (!drag.moved) return;
+      for (const it of drag.group) { it.p.x = it.x0 + dx; it.p.y = it.y0 + dy; const b = $("graph").querySelector(`.box[data-id="${CSS.escape(it.id)}"]`); if (b) { b.style.left = `${it.p.x}px`; b.style.top = `${it.p.y}px`; } }
+      drawWires();
+      return;
+    }
     if (drag.box) {
       const dx = (e.clientX - drag.sx) / cam.s, dy = (e.clientY - drag.sy) / cam.s;
       if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
@@ -544,7 +637,22 @@ function bindStage(view) {
   const drop = (e) => {
     if (drag && !drag.box && !drag.wire && drag.gene == null && !drag.moved && info.on && view === "picture") pinInfo(e);
     if (drag && drag.gene != null && !drag.moved) selectGene(drag.gene);
+    if (drag && drag.gcard) {
+      if (!drag.moved) selectGene(drag.gi);
+      else { const base = gBase.get(drag.gi), x = genomeData.genes.find((z) => z.index === drag.gi); saveGenomeOffset(x, drag.p.x - base.x, drag.p.y - base.y); }
+    }
     if (drag && drag.box && !drag.moved) select(drag.box.dataset.id);
+    if (drag && drag.band) {
+      if (drag.el) drag.el.remove();
+      if (drag.moved && drag.sel) {
+        const s = drag.sel, ids = [...placed.keys()].filter((k) => !k.includes("/") && placed.get(k).x + BOX.w >= s.x0 && placed.get(k).x <= s.x1 && placed.get(k).y + BOX.h >= s.y0 && placed.get(k).y <= s.y1 && $("graph").querySelector(`.box[data-id="${CSS.escape(k)}"]`));
+        multi = new Set(ids);
+        selected = ids.length ? ids[ids.length - 1] : null;
+        markSel();
+        renderParm();
+      }
+    }
+    if (drag && drag.group) { if (drag.moved) savePositions(drag.group.map((i) => i.id)); else select(drag.box.dataset.id); }
     if (drag && drag.box && drag.moved) savePosition(drag.box.dataset.id);
     if (drag && drag.wire) {
       drag.port.classList.remove("hot");
@@ -846,6 +954,8 @@ function drawGraph() {
     maxX = Math.max(maxX, p.x + BOX.w + 40);
     maxY = Math.max(maxY, p.y + BOX.h + 40);
   }
+  for (const [id, f] of Object.entries(g.frames || {})) { root.prepend(frameEl(id, f)); maxX = Math.max(maxX, f.x + f.w + 40); maxY = Math.max(maxY, f.y + f.h + 40); }
+  for (const [id, n] of Object.entries(g.notes || {})) { root.appendChild(noteEl(id, n)); maxX = Math.max(maxX, n.x + 220); maxY = Math.max(maxY, n.y + 120); }
   root.style.width = `${maxX}px`;
   root.style.height = `${maxY}px`;
   svg.setAttribute("width", maxX);
@@ -853,13 +963,167 @@ function drawGraph() {
   const cam = cams.graph;
   if (cam.fit || cam.w !== maxX || cam.h !== maxY) { cam.w = maxX; cam.h = maxY; if (cam.fit) fitCam(cam); }
   drawWires();
-  for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === selected);
+  markSel();
+  applyNetFind();
   if (!$("picked").contains(document.activeElement)) renderParm();
   if (isShown("graph")) applyCam(cam);
   const other = g.nodes.filter((n) => !["store", "reaction", "transfer", "react", "diffuse", "signal", "code", "rule"].includes(n.kind));
   $("decls").innerHTML = `<option value="">${other.length} declarations</option>` + other.map((n) => `<option value="${n.id}"></option>`).join("");
   [...$("decls").options].slice(1).forEach((o, i) => { o.textContent = `${other[i].id.split(".").slice(1, 3).join(" ")}`; });
 }
+
+// ---- H1 (proposals/houdini-node-system.md §6): selecting several, framing, finding, notes and network boxes.
+// All of it is presentation: it is kept beside the world with `world.layout_set` and never changes a revision.
+const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName) || !!(document.activeElement && document.activeElement.isContentEditable);
+function boxRect(id) { const p = placed.get(id); return p ? { x0: p.x, y0: p.y, x1: p.x + BOX.w, y1: p.y + BOX.h } : null; }
+function frameRect(view, x0, y0, x1, y1) {
+  const cam = cams[view], r = stages[view].getBoundingClientRect(), pad = 50;
+  if (!r.width) return;
+  cam.s = Math.min(r.width / (x1 - x0 + 2 * pad), r.height / (y1 - y0 + 2 * pad), 1.5);
+  cam.x = (r.width - (x1 - x0) * cam.s) / 2 - x0 * cam.s;
+  cam.y = (r.height - (y1 - y0) * cam.s) / 2 - y0 * cam.s;
+  cam.fit = false;
+  applyCam(cam);
+}
+function frameIds(ids) {
+  const rs = [...ids].map(boxRect).filter(Boolean);
+  if (!rs.length) return false;
+  frameRect("graph", Math.min(...rs.map((r) => r.x0)), Math.min(...rs.map((r) => r.y0)), Math.max(...rs.map((r) => r.x1)), Math.max(...rs.map((r) => r.y1)));
+  return true;
+}
+function frameAll() { const c = cams[visible.genome && mode === "genome" ? "genome" : "graph"]; fitCam(c); applyCam(c); }
+function frameSelection() { if (!frameIds(multi.size ? multi : selected ? [selected] : [])) frameAll(); }
+$("netframeall").onclick = frameAll;
+$("netframesel").onclick = frameSelection;
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || typing() || !isShown("graph") || mode !== "graph") return;
+  const k = e.key.toLowerCase();
+  if (k === "h") { e.preventDefault(); frameAll(); }
+  else if (k === "g") { e.preventDefault(); e.stopImmediatePropagation(); frameSelection(); }
+  else if ((e.key === "Delete" || e.key === "Backspace") && pickedItem) { e.preventDefault(); removeItem(pickedItem); }
+  else if (e.key === "Escape" && multi.size > 1) { select(selected); }
+}, true);
+let findIds = null;
+function applyNetFind() {
+  const q = ($("netfind").value || "").trim().toLowerCase(), g = graphData;
+  findIds = null;
+  if (g && q) {
+    findIds = new Set(g.nodes.filter((n) => `${n.id} ${n.kind} ${n.title} ${n.text} ${n.step || ""} ${n.group || ""} ${JSON.stringify(n.params || "")}`.toLowerCase().includes(q)).map((n) => n.id));
+  }
+  for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("nomatch", !!findIds && !findIds.has(el.dataset.id));
+  $("netfound").textContent = findIds ? `${[...findIds].filter((id) => placed.has(id)).length} found` : "";
+}
+$("netfind").oninput = applyNetFind;
+$("netfind").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { const ids = [...(findIds || [])].filter((id) => placed.has(id)); if (ids.length) { selected = ids[0]; multi = new Set(ids); markSel(); frameIds(ids); renderParm(); } }
+  if (e.key === "Escape") { $("netfind").value = ""; applyNetFind(); $("netfind").blur(); }
+});
+function savePositions(ids) {
+  if (!graphData) return;
+  const positions = {};
+  for (const id of ids) { const p = placed.get(id); if (p) positions[id] = [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10]; }
+  call("world.layout_set", { world: $("world").value, positions }).catch(() => {});
+}
+function saveMeta() {
+  if (!graphData) return Promise.resolve();
+  return call("world.layout_set", { world: $("world").value, notes: graphData.notes || {}, frames: graphData.frames || {} }).catch(oops);
+}
+let pickedItem = null;   // a note or a box being the thing Delete acts on: { kind: "note"|"frame", id }
+function pickItem(kind, id) { pickedItem = { kind, id }; for (const el of $("graph").querySelectorAll(".nframe,.nnote")) el.classList.toggle("pick", el.dataset.kind === kind && el.dataset.id === id); }
+function removeItem(it) {
+  const g = graphData;
+  if (!g) return;
+  delete (it.kind === "note" ? g.notes : g.frames)[it.id];
+  pickedItem = null;
+  drawGraph();
+  saveMeta();
+}
+// Dragging an element of the network by a handle; `moved` is called with the offset in graph units, `done` once at the end.
+function dragHandle(handle, onStart, onMove, onDone) {
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const s = cams.graph.s, sx = e.clientX, sy = e.clientY, st = onStart();
+    handle.setPointerCapture(e.pointerId);
+    const mv = (ev) => onMove(st, (ev.clientX - sx) / s, (ev.clientY - sy) / s);
+    const up = () => { handle.removeEventListener("pointermove", mv); handle.removeEventListener("pointerup", up); onDone(st); };
+    handle.addEventListener("pointermove", mv);
+    handle.addEventListener("pointerup", up);
+  });
+}
+function editable(node, get, set) {
+  node.addEventListener("dblclick", (e) => { e.stopPropagation(); node.contentEditable = "plaintext-only"; node.focus(); });
+  node.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter" && !e.shiftKey && node.classList.contains("nfh")) { e.preventDefault(); node.blur(); } if (e.key === "Escape") { node.textContent = get(); node.blur(); } });
+  node.addEventListener("blur", () => { if (node.contentEditable === "true" || node.contentEditable === "plaintext-only") { node.contentEditable = "false"; const t = node.textContent.slice(0, node.classList.contains("nfh") ? 200 : 2000); if (t !== get()) { set(t); saveMeta(); } } });
+}
+function frameEl(id, f) {
+  const el = document.createElement("div"), hd = document.createElement("div"), x = document.createElement("span"), rz = document.createElement("div");
+  el.className = "nframe"; el.dataset.kind = "frame"; el.dataset.id = id;
+  el.style.cssText = `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px`;
+  hd.className = "nfh"; hd.textContent = f.label; hd.title = "Drag to move the box and what is in it; double-click to rename";
+  x.className = "nfx"; x.textContent = "×"; x.title = "Remove the box (the nodes stay)";
+  x.onpointerdown = (e) => e.stopPropagation();
+  x.onclick = () => removeItem({ kind: "frame", id });
+  rz.className = "nfr";
+  el.append(hd, x, rz);
+  editable(hd, () => f.label, (t) => { f.label = t; });
+  dragHandle(hd, () => {
+    pickItem("frame", id);
+    const inside = [...placed.entries()].filter(([k, p]) => !k.includes("/") && p.x + BOX.w / 2 >= f.x && p.x + BOX.w / 2 <= f.x + f.w && p.y + BOX.h / 2 >= f.y && p.y + BOX.h / 2 <= f.y + f.h).map(([k, p]) => ({ k, p, x0: p.x, y0: p.y }));
+    const uniq = new Map(inside.map((o) => [o.p, o]));
+    return { x0: f.x, y0: f.y, inside: [...uniq.values()], ids: inside.map((o) => o.k) };
+  }, (st, dx, dy) => {
+    f.x = st.x0 + dx; f.y = st.y0 + dy;
+    el.style.left = `${f.x}px`; el.style.top = `${f.y}px`;
+    for (const o of st.inside) o.p.x = o.x0 + dx, o.p.y = o.y0 + dy;
+    for (const b of $("graph").querySelectorAll(".box")) { const q = placed.get(b.dataset.id); b.style.left = `${q.x}px`; b.style.top = `${q.y}px`; }
+    drawWires();
+  }, (st) => { f.x = Math.round(f.x); f.y = Math.round(f.y); saveMeta(); savePositions(st.ids); });
+  dragHandle(rz, () => ({ w0: f.w, h0: f.h }), (st, dx, dy) => { f.w = Math.max(80, st.w0 + dx); f.h = Math.max(50, st.h0 + dy); el.style.width = `${f.w}px`; el.style.height = `${f.h}px`; }, () => { f.w = Math.round(f.w); f.h = Math.round(f.h); saveMeta(); });
+  el.addEventListener("pointerdown", (e) => { if (e.target === el) pickItem("frame", id); });
+  return el;
+}
+function noteEl(id, n) {
+  const el = document.createElement("div"), hd = document.createElement("div"), bd = document.createElement("div"), x = document.createElement("span");
+  el.className = "nnote"; el.dataset.kind = "note"; el.dataset.id = id;
+  el.style.cssText = `left:${n.x}px;top:${n.y}px`;
+  hd.className = "nnh"; hd.title = "Drag to move";
+  bd.className = "nnb"; bd.textContent = n.text; bd.title = "Double-click to edit";
+  x.className = "nfx"; x.textContent = "×"; x.title = "Remove the note";
+  x.onpointerdown = (e) => e.stopPropagation();
+  x.onclick = () => removeItem({ kind: "note", id });
+  el.append(hd, bd, x);
+  editable(bd, () => n.text, (t) => { n.text = t; });
+  dragHandle(hd, () => { pickItem("note", id); return { x0: n.x, y0: n.y }; }, (st, dx, dy) => { n.x = st.x0 + dx; n.y = st.y0 + dy; el.style.left = `${n.x}px`; el.style.top = `${n.y}px`; }, () => { n.x = Math.round(n.x); n.y = Math.round(n.y); saveMeta(); });
+  el.addEventListener("pointerdown", (e) => { e.stopPropagation(); pickItem("note", id); });
+  return el;
+}
+$("netnote").onclick = () => {
+  const g = graphData;
+  if (!g) return;
+  g.notes = g.notes || {};
+  const cam = cams.graph, r = stages.graph.getBoundingClientRect(), id = `note${Date.now().toString(36)}`;
+  g.notes[id] = { x: Math.round((r.width / 2 - cam.x) / cam.s - 90), y: Math.round((r.height / 2 - cam.y) / cam.s - 30), text: "note" };
+  drawGraph();
+  saveMeta();
+  const b = $("graph").querySelector(`.nnote[data-id="${id}"] .nnb`);
+  if (b) { b.contentEditable = "plaintext-only"; b.focus(); document.getSelection().selectAllChildren(b); }
+};
+$("netbox").onclick = () => {
+  const g = graphData, ids = [...multi].filter((id) => placed.has(id));
+  if (!g) return;
+  if (!ids.length) return oops("Select nodes first: Shift-click them, or Shift-drag a rectangle.");
+  oops();
+  const rs = ids.map(boxRect), pad = 24;
+  g.frames = g.frames || {};
+  const id = `box${Date.now().toString(36)}`;
+  g.frames[id] = { x: Math.round(Math.min(...rs.map((r) => r.x0)) - pad), y: Math.round(Math.min(...rs.map((r) => r.y0)) - pad - 14), w: Math.round(Math.max(...rs.map((r) => r.x1)) - Math.min(...rs.map((r) => r.x0)) + 2 * pad), h: Math.round(Math.max(...rs.map((r) => r.y1)) - Math.min(...rs.map((r) => r.y0)) + 2 * pad + 14), label: "box" };
+  drawGraph();
+  saveMeta();
+  const hd = $("graph").querySelector(`.nframe[data-id="${id}"] .nfh`);
+  if (hd) { hd.contentEditable = "plaintext-only"; hd.focus(); document.getSelection().selectAllChildren(hd); }
+};
 
 function drawWires() {
   const g = graphData, svg = $("wires");
@@ -1102,10 +1366,16 @@ function paramFailure(e, name) {
 
 // Parameters follows the selection, or the pinned node.
 function parmTarget() { return pinned || (selection && selection.kind === "node" ? selection : null); }
+// Selection: `selected` is the one Parameters follows; `multi` is the set a move, a frame or a box acts on.
+let multi = new Set();
+function markSel() {
+  for (const el of $("graph").querySelectorAll(".box")) { el.classList.toggle("sel", el.dataset.id === selected); el.classList.toggle("msel", multi.has(el.dataset.id)); }
+}
 function select(id) {
   selected = id;
+  multi = new Set(id ? [id] : []);
   highlightCode(id);
-  for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === id);
+  markSel();
   selection = id ? { world: $("world").value, kind: "node", id } : null;
   renderParm();
 }
@@ -1374,103 +1644,161 @@ async function loadGenome(quiet) {
   }
 }
 
+// Where a card sits is presentation only: dragging one stores an offset in this browser, keyed by lineage,
+// gene index and kind, and never touches the world (proposals/genome-editor.md G1).
+const gLayout = () => { try { return JSON.parse(localStorage.getItem("emerge.genomelayout") || "{}"); } catch (_) { return {}; } };
+const gKey = (g, x) => `${g.lineage}:${x.index}:${x.title}`;
+function saveGenomeOffset(x, dx, dy) {
+  const all = gLayout();
+  all[gKey(genomeData, x)] = [dx, dy];
+  try { localStorage.setItem("emerge.genomelayout", JSON.stringify(all)); } catch (_) {}
+}
+const CHAN = { w: 112, h: 26 };
+let gBase = new Map(), gChanX = 0;
+
 function drawGenome() {
   const g = genomeData, root = $("genome");
   root.textContent = "";
   gplaced.clear();
+  gBase.clear();
   if (!g) { cams.genome.w = 0; showGenomeMsg(); return; }
   showGenomeMsg();
   const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
   svg.id = "gwires";
   root.appendChild(svg);
+  const saved = gLayout();
   let y = 24, maxX = 0;
   g.modules.forEach((on, m) => {
     const genes = g.genes.filter((x) => x.module === m);
     if (!genes.length) return;
     const rows = [0, 0, 0];
     for (const x of genes) {
-      const c = GCOL[x.kind], k = rows[c]++;
-      gplaced.set(x.index, { x: 44 + c * 250, y: y + 34 + k * 74 });
+      const c = GCOL[x.kind], k = rows[c]++, base = { x: 44 + c * 250, y: y + 34 + k * 74 }, off = saved[gKey(g, x)] || [0, 0];
+      gBase.set(x.index, base);
+      gplaced.set(x.index, { x: base.x + off[0], y: base.y + off[1] });
     }
     const h = 34 + Math.max(...rows) * 74 + 4, frame = document.createElement("div");
     frame.className = `mod${on ? "" : " off"}`;
     frame.style.cssText = `left:24px;top:${y}px;width:${3 * 250 + 16}px;height:${h}px`;
     const t = document.createElement("div");
     t.className = "mt";
-    t.textContent = `module m${m}${on ? "" : " · dormant"}`;
+    t.textContent = `module m${m} · ${on ? "module on" : "module dormant"}`;
     frame.append(t);
     root.appendChild(frame);
     y += h + 24;
     maxX = 24 + 3 * 250 + 40;
   });
+  gChanX = maxX + 30;
+  maxX = gChanX + CHAN.w + 30;
   for (const x of g.genes) {
-    const p = gplaced.get(x.index), el = document.createElement("div"), t = document.createElement("div"), b = document.createElement("div");
+    const p = gplaced.get(x.index), el = document.createElement("div"), t = document.createElement("div"), b = document.createElement("div"), f = document.createElement("div");
     el.className = `gene k-${x.kind}${x.active ? "" : " off"}`;
     el.dataset.index = x.index;
     el.style.left = `${p.x}px`;
     el.style.top = `${p.y}px`;
     t.className = "t";
-    t.textContent = x.title + (x.expressed ? "" : " · dormant");
+    t.textContent = `${x.index} · ${x.title}`;
     b.className = "b";
     b.textContent = x.text;
-    el.append(t, b);
+    // Three separate facts. `active` is only what the two flags allow: it does not say the gene acted.
+    f.className = "flags";
+    f.textContent = `${x.expressed ? "gene on" : "gene off"} · ${g.modules[x.module] ? "module on" : "module off"} · ${x.active ? "active" : "inactive"}`;
+    el.title = `gene ${x.index}: ${x.expressed ? "expressed" : "not expressed"}; module m${x.module} ${g.modules[x.module] ? "expressed" : "not expressed"}; ${x.active ? "active means both flags allow it to take part, not that it acted this tick" : "inactive: a flag keeps it out"}`;
+    el.append(t, b, f);
     if (x.reads.length) { const q = document.createElement("div"); q.className = "port in"; el.append(q); }
     if (x.writes.length) { const q = document.createElement("div"); q.className = "port out"; el.append(q); }
-    el.onclick = () => selectGene(x.index);
     root.appendChild(el);
   }
+  // One channel per signal: writers lead into it, readers leave it. A gene that reads a signal it writes shows both wires.
+  const used = [];
+  for (let k = 0; k < g.keep.length; k++) if (g.genes.some((x) => x.writes.includes(k) || x.reads.includes(k))) used.push(k);
+  used.forEach((k, n) => {
+    const c = document.createElement("div");
+    c.className = "chan";
+    c.dataset.sig = k;
+    c.style.left = `${gChanX}px`;
+    c.style.top = `${24 + n * (CHAN.h + 8)}px`;
+    const wr = g.genes.filter((x) => x.writes.includes(k)).length, rd = g.genes.filter((x) => x.reads.includes(k)).length;
+    c.textContent = `s${k}${g.keep[k] ? ` · keep ${g.keep[k]}` : ""}`;
+    c.title = `signal s${k}: ${wr} writer${wr === 1 ? "" : "s"}, ${rd} reader${rd === 1 ? "" : "s"}${wr === 0 ? " (nothing writes it)" : ""}${rd === 0 ? " (nothing reads it)" : ""}. Readers see the value from the start of each mind step; this is information, not material.`;
+    if (!wr || !rd) c.classList.add("lonely");
+    root.appendChild(c);
+  });
+  y = Math.max(y, 24 + used.length * (CHAN.h + 8) + 24);
   root.style.width = `${maxX}px`;
   root.style.height = `${y}px`;
   svg.setAttribute("width", maxX);
   svg.setAttribute("height", y);
-  // Signals: from each gene that writes one to each gene that reads it.
-  const ends = new Map(), slot = (i, side) => { const k = `${i}${side}`, n = ends.get(k) || 0; ends.set(k, n + 1); return n; };
-  for (let k = 0; k < g.keep.length; k++) {
-    for (const w of g.genes.filter((x) => x.writes.includes(k))) {
-      for (const r of g.genes.filter((x) => x.reads.includes(k) && x.index !== w.index)) {
-        const a = gplaced.get(w.index), b = gplaced.get(r.index);
-        // Left to right where it can: a wire back to an earlier column leaves the writer's left edge and
-        // enters the reader's right edge; within a column it makes a bracket on the right.
-        const back = a.x > b.x, same = a.x === b.x;
-        const x0 = back ? a.x : a.x + BOX.w, x1 = back ? b.x + BOX.w : same ? b.x + BOX.w : b.x;
-        const y0 = a.y + 14 + (slot(w.index, back ? "L" : "R") % 6) * 8, y1 = b.y + 14 + (slot(r.index, back ? "R" : same ? "R" : "L") % 6) * 8;
-        const d = same ? 70 : Math.max(40, Math.abs(x1 - x0) / 2) * (back ? -1 : 1);
-        const path = document.createElementNS(NS, "path");
-        path.setAttribute("class", "wire");
-        path.setAttribute("d", same ? `M${x0},${y0} C${x0 + d},${y0} ${x1 + d},${y1} ${x1},${y1}` : `M${x0},${y0} C${x0 + d},${y0} ${x1 - d},${y1} ${x1},${y1}`);
-        path.setAttribute("stroke", wireColor(`s${k}`));
-        path.dataset.from = w.index;
-        path.dataset.to = r.index;
-        const title = document.createElementNS(NS, "title");
-        title.textContent = `signal s${k}${g.keep[k] ? ` (keeps ${g.keep[k]})` : ""}`;
-        path.append(title);
-        svg.appendChild(path);
-        if (!back && !same) {
-          const tx = document.createElementNS(NS, "text");
-          tx.setAttribute("class", "wlabel");
-          tx.setAttribute("x", x0 + 8);
-          tx.setAttribute("y", y0 - 3);
-          tx.textContent = `s${k}`;
-          svg.appendChild(tx);
-        }
-      }
-    }
-  }
+  drawGenomeWires();
   const cam = cams.genome;
   if (cam.fit || cam.w !== maxX || cam.h !== y) { cam.w = maxX; cam.h = y; if (cam.fit) fitCam(cam); }
   if (isShown("genome")) applyCam(cam);
+  applyGenomeSearch();
   if (genomeSel != null) selectGene(genomeSel);
 }
+
+function drawGenomeWires() {
+  const g = genomeData, svg = $("gwires");
+  if (!g || !svg) return;
+  const NS = "http://www.w3.org/2000/svg";
+  svg.textContent = "";
+  const chans = new Map([...$("genome").querySelectorAll(".chan")].map((c) => [+c.dataset.sig, { x: gChanX, y: parseFloat(c.style.top) }]));
+  const ends = new Map(), slot = (i, side) => { const key = `${i}${side}`, n = ends.get(key) || 0; ends.set(key, n + 1); return n % 6; };
+  const wire = (d, k, gene, role, self) => {
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("class", `wire${self ? " self" : ""}`);
+    path.setAttribute("d", d);
+    path.setAttribute("stroke", wireColor(`s${k}`));
+    path.dataset.gene = gene;
+    path.dataset.sig = k;
+    path.dataset.role = role;
+    const title = document.createElementNS(NS, "title");
+    title.textContent = `signal s${k} ${role === "w" ? "written by" : "read by"} gene ${gene}${self ? " (also reads its own output: feedback)" : ""}`;
+    path.append(title);
+    svg.appendChild(path);
+  };
+  for (const [k, c] of chans) {
+    const cy = c.y + CHAN.h / 2;
+    for (const w of g.genes.filter((x) => x.writes.includes(k))) {
+      const a = gplaced.get(w.index), x0 = a.x + BOX.w, y0 = a.y + 14 + slot(w.index, "R") * 8, d = Math.max(40, (c.x - x0) / 2);
+      wire(`M${x0},${y0} C${x0 + d},${y0} ${c.x - d},${cy} ${c.x},${cy}`, k, w.index, "w", w.reads.includes(k));
+    }
+    for (const r of g.genes.filter((x) => x.reads.includes(k))) {
+      const b = gplaced.get(r.index), x0 = c.x + CHAN.w, x1 = b.x, y1 = b.y + 14 + slot(r.index, "L") * 8;
+      // Back to the left edge of the reader: the curve loops out of the channel and in from the left.
+      wire(`M${x0},${cy} C${x0 + 60},${cy} ${x1 - 60},${y1} ${x1},${y1}`, k, r.index, "r", r.writes.includes(k));
+    }
+  }
+}
+
+// Search the genome by ordinal, kind, label text, substance or signal; what does not match fades, nothing is hidden.
+function applyGenomeSearch() {
+  const g = genomeData, q = ($("gsearch").value || "").trim().toLowerCase();
+  if (!g) return;
+  let n = 0;
+  for (const el of $("genome").querySelectorAll(".gene")) {
+    const x = g.genes.find((z) => z.index === +el.dataset.index);
+    const hay = `${x.index} ${x.kind} ${x.title} ${x.text} m${x.module} ${x.reads.map((k) => `s${k}`).join(" ")} ${x.writes.map((k) => `s${k}`).join(" ")} ${x.active ? "active" : "inactive"} ${x.expressed ? "" : "dormant"}`.toLowerCase();
+    const hit = !q || hay.includes(q);
+    el.classList.toggle("nomatch", !hit);
+    n += hit ? 1 : 0;
+  }
+  $("gfound").textContent = q ? `${n} of ${g.genes.length} match` : "";
+}
+$("gsearch").oninput = applyGenomeSearch;
 
 function selectGene(i) {
   genomeSel = i;
   const g = genomeData, x = g && g.genes.find((q) => q.index === i);
   for (const el of $("genome").querySelectorAll(".gene")) el.classList.toggle("sel", +el.dataset.index === i);
+  const hotSig = new Set();
   for (const p of $("genome").querySelectorAll(".wire")) {
-    const on = x && (+p.dataset.from === i || +p.dataset.to === i);
+    const on = x && +p.dataset.gene === i;
+    if (on) hotSig.add(p.dataset.sig);
     p.classList.toggle("hot", !!on);
     p.classList.toggle("dim", !!x && !on);
   }
+  for (const c of $("genome").querySelectorAll(".chan")) { c.classList.toggle("hot", hotSig.has(c.dataset.sig)); c.classList.toggle("dim", !!x && !hotSig.has(c.dataset.sig)); }
   selection = x ? { world: $("world").value, kind: "gene", entity: g.entity, index: i } : null;
   renderParm();
 }
@@ -1493,16 +1821,17 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 // Tabs move by dragging (to a leaf's middle, or to one of its edges to split it), a leaf can be maximized
 // for a while, editors can be closed and added back, and desktops are named arrangements. One instance of
 // each editor; the arrangement is kept in this browser and checked before it is used again.
-const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source" };
+const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census" };
 const VIEW_OF = { viewport: "picture", network: "graph", genome: "genome" };          // editors with a camera
-const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source" };
+const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census" };
 let tree = null, closed = [], maxLeaf = null, focusLeaf = null, leafSeq = 0;
 const mkLeaf = (tabs, active) => ({ t: "leaf", id: `L${++leafSeq}`, tabs, active: active || tabs[0] });
 const mkSplit = (dir, ratio, a, b) => ({ t: "split", dir, ratio, a, b });
 const BUILTIN = {
-  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source"]))),
-  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome"]))),
-  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source"]), mkLeaf(["params"]))),
+  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census"]))),
+  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census"]))),
+  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census"]), mkLeaf(["params"]))),
+  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "details", "genome", "network", "look", "params", "source"]))),
 };
 const leavesOf = (n = tree) => (n.t === "leaf" ? [n] : [...leavesOf(n.a), ...leavesOf(n.b)]);
 const findLeaf = (id) => leavesOf().find((l) => l.id === id);
@@ -1622,7 +1951,7 @@ function resizeSplit(e, n, box, a, b, bar) {
 let prevVis = {};
 function syncVisible() {
   const on = new Set((maxLeaf ? [findLeaf(maxLeaf)] : leavesOf()).filter(Boolean).filter((l) => document.querySelector(`[data-leaf="${l.id}"]`)).map((l) => l.active));
-  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source" };
+  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census" };
   for (const [v, ed] of Object.entries(map)) visible[v] = on.has(ed);
   document.body.classList.toggle("graph", visible.graph);
   document.body.classList.toggle("genome", visible.genome);
@@ -1638,6 +1967,9 @@ function syncVisible() {
   if (fresh("genome")) loadEntities().then(() => loadGenome()).then(() => { if (cams.genome.fit) fitCam(cams.genome); applyCam(cams.genome); }).catch(oops);
   if (fresh("details")) loadDetails().catch(oops);
   if (fresh("look")) loadLook().catch(oops);
+  if (fresh("rules")) loadRules().catch(oops);
+  if (fresh("lineage")) loadLineage().catch(oops);
+  if (fresh("census")) loadCensus().catch(oops);
   if (fresh("source")) loadCode().catch(oops);
   prevVis = { ...visible };
   const fl = findLeaf(focusLeaf), v = fl && VIEW_OF[fl.active];
@@ -2091,6 +2423,136 @@ function drawDetails() {
   $("detailstable").scrollTop = keep;
 }
 
+// Rule Lens (proposals/science-panels.md §3.1): the checked schedule of the running world, as `emerge order` prints it.
+// Static: it says what can happen in a tick, not what did. Reloads when the revision changes.
+let rulesRev = null;
+async function loadRules() {
+  const w = $("world").value, note = $("rulesnote"), body = $("rulesbody");
+  if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
+  const r = await call("rules.lens", { world: w });
+  if (w !== $("world").value || !visible.rules) return;
+  rulesRev = r.revision;
+  note.textContent = `${w} · checked schedule of revision ${r.revision} (read at tick ${r.tick}) · click a statement to open it in the network`;
+  const keep = body.scrollTop;
+  body.textContent = "";
+  let phase = null;
+  for (const s of r.steps) {
+    if (s.phase !== phase) { phase = s.phase; const ph = el("lens-phase"); ph.textContent = phase; body.append(ph); }
+    const d = el(`lens-step${s.rules.length ? " placed" : ""}`);
+    d.innerHTML = `<b></b> <span class="what"></span><div class="meta"></div>`;
+    d.querySelector("b").textContent = s.name;
+    d.querySelector(".what").textContent = s.what;
+    d.querySelector(".meta").textContent = `reads ${s.reads}; settles: ${s.settles}`;
+    for (const ru of s.rules) {
+      const rd = el("lens-rule");
+      rd.textContent = `rule ${ru.rule} on ${ru.on}`;
+      d.append(rd);
+      for (const st of ru.statements) {
+        const sd = el("lens-stmt");
+        sd.textContent = st.text;
+        sd.title = st.path;
+        sd.onclick = () => { setMode("graph"); loadGraph().then(() => select(st.path)).catch(oops); };
+        d.append(sd);
+      }
+    }
+    if (s.name === "Venting") for (const x of r.waste) { const m = el("lens-rule"); m.textContent = `waste ${x.substance} -> ${x.sink}`; d.append(m); }
+    if (s.name === "Disposal" && r.disposal) { const m = el("lens-rule"); m.textContent = [r.disposal.decompose && `decompose: ${r.disposal.decompose}`, r.disposal.remains && `remains: ${r.disposal.remains}`].filter(Boolean).join("; "); if (m.textContent) d.append(m); }
+    body.append(d);
+  }
+  for (const u of r.unplaced) { const d = el("lens-step"); d.textContent = `rule ${u.rule} on ${u.on}: not placed, ${u.why}`; body.append(d); }
+  body.scrollTop = keep;
+}
+
+// Genome Census (S2): every living creature counted by active genes, and two creatures' genes side by side.
+// The census is exact (the whole population); a comparison matches genes by kind and text.
+const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const tag = (t, cls = "") => el(cls, t);
+let cmpPick = { a: "", b: "" };
+async function loadCensus(keepCompare) {
+  const w = $("world").value, note = $("censusnote"), body = $("censusbody");
+  if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
+  const [c, ents] = await Promise.all([call("genome.census", { world: w }), call("entities.query", { world: w, limit: 200 })]);
+  if (w !== $("world").value || !visible.census) return;
+  note.textContent = `${w} · tick ${c.tick} · ${c.metric}, ${c.coverage}`;
+  const keep = body.scrollTop;
+  const old = keepCompare && body.querySelector(".cmpres");
+  body.textContent = "";
+  const t = tag("table");
+  t.innerHTML = "<tr><th>lineage</th><th>creatures</th><th>active genes (min / median / mean / max)</th><th>distribution</th></tr>";
+  for (const r of c.lineages) {
+    const mx = Math.max(1, ...r.histogram.map((h) => h.count)), a = r.active_genes;
+    const tr = tag("tr");
+    tr.innerHTML = `<td>${esc(r.lineage)}</td><td>${r.count}</td><td>${a ? `${a.min} / ${a.median} / ${a.mean.toFixed(1)} / ${a.max}` : "none alive"}</td><td></td>`;
+    for (const h of r.histogram) { const b = tag("span", "bar"); b.style.width = Math.max(2, 60 * h.count / mx) + "px"; b.title = `${h.count} creature${h.count === 1 ? "" : "s"} with ${h.active_genes} active genes`; tr.lastChild.append(b); }
+    t.append(tr);
+  }
+  body.append(t);
+  const row = tag("div"), mk = (k) => { const s = tag("select"); s.innerHTML = ents.entities.map((e) => `<option value="${e.id}">#${e.id} · ${esc(e.lineage)} · ${e.active_genes} genes</option>`).join(""); if (cmpPick[k] && ents.entities.some((e) => String(e.id) === cmpPick[k])) s.value = cmpPick[k]; s.onchange = () => { cmpPick[k] = s.value; }; return s; };
+  const sa = mk("a"), sb = mk("b");
+  if (!cmpPick.b && ents.entities.length > 1) sb.selectedIndex = ents.entities.length - 1;
+  const go = tag("button"); go.textContent = "Compare"; go.onclick = () => { cmpPick = { a: sa.value, b: sb.value }; compareGenomes(+sa.value, +sb.value).catch(oops); };
+  row.append("Compare ", sa, " with ", sb, " ", go);
+  const sampled = ents.total > ents.entities.length ? ` (the lists show an even sample of ${ents.entities.length} of ${ents.total} creatures)` : "";
+  row.append(sampled);
+  body.append(row);
+  const res = tag("div", "cmpres"); body.append(res);
+  if (old) res.replaceWith(old.cloneNode(true));
+  body.scrollTop = keep;
+}
+async function compareGenomes(a, b) {
+  const w = $("world").value, r = await call("genome.compare", { world: w, a, b });
+  const res = $("censusbody").querySelector(".cmpres"); res.textContent = "";
+  const state = (x) => (x.active ? "active" : x.expressed ? "dormant module" : "dormant gene");
+  const h = tag("div"); h.textContent = `tick ${r.tick} · A = #${r.a.entity} ${r.a.lineage} (${r.a.genes} genes) · B = #${r.b.entity} ${r.b.lineage} (${r.b.genes} genes) · ${r.shared.length} shared, ${r.only_a.length} only in A, ${r.only_b.length} only in B · ${r.matching}`;
+  const t = tag("table");
+  t.innerHTML = "<tr><th>gene</th><th>A</th><th>B</th></tr>";
+  const add = (cls, x, ia, ib) => { const tr = tag("tr", cls); tr.innerHTML = `<td>${esc(x.kind)} · ${esc(x.title)}: ${esc(x.text)}</td><td>${ia ? `#${ia.index} ${state(ia)}` : "—"}</td><td>${ib ? `#${ib.index} ${state(ib)}` : "—"}</td>`; t.append(tr); };
+  for (const x of r.only_a) add("only-a", x, x, null);
+  for (const x of r.only_b) add("only-b", x, null, x);
+  for (const x of r.shared) add("", x, x.a, x.b);
+  res.append(h, t);
+}
+
+// Lineage History (§5): the sampled counts behind the charts, labelled with how they were sampled.
+async function loadLineage() {
+  const w = $("world").value, note = $("lineagenote"), body = $("lineagebody");
+  if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
+  const h = await call("history.query", { world: w });
+  if (w !== $("world").value || !visible.lineage) return;
+  const share = document.querySelector('input[name="lmode"]:checked').value === "share";
+  const S = h.samples, n = h.lineages.length;
+  note.textContent = `${w} · tick ${h.tick} · ${S.length} samples of living creatures by founding lineage, ${h.thinned ? `merged to every ${h.every} ticks (first every ${h.base_every}); births and deaths are summed over merged samples` : `every ${h.every} tick${h.every === 1 ? "" : "s"}`} · not a full census of lineages that arose later`;
+  body.textContent = "";
+  if (!S.length || !n) { body.textContent = "No samples yet."; return; }
+  if (!palettes) palettes = (await call("view.palettes")).palettes;
+  const cols = palStops("categorical").map((c) => `rgb(${c[0]},${c[1]},${c[2]})`);
+  const col = (i) => cols.length ? cols[i % cols.length] : `hsl(${i * 67},60%,60%)`;
+  const lg = el("legend");
+  h.lineages.forEach((name, i) => { const s = document.createElement("span"); s.innerHTML = "<i></i>"; s.firstChild.style.background = col(i); s.append(name); lg.append(s); });
+  body.append(lg);
+  const W = 800, H = 300, L = 44, B = 20, T0 = S[0].tick, T1 = S[S.length - 1].tick || 1;
+  const tot = (s) => s.counts.reduce((a, b) => a + b, 0) || 1;
+  const val = (s, i) => (share ? s.counts[i] / tot(s) : s.counts[i]);
+  const ymax = share ? 1 : Math.max(1, ...S.flatMap((s) => s.counts));
+  const X = (t) => L + ((t - T0) / Math.max(1, T1 - T0)) * (W - L - 6), Y = (v) => H - B - (v / ymax) * (H - B - 8);
+  let g = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><g stroke="#555" fill="#999" font-size="11">`;
+  for (let k = 0; k <= 4; k++) { const v = (ymax * k) / 4; g += `<line x1="${L}" x2="${W - 6}" y1="${Y(v)}" y2="${Y(v)}" stroke-opacity=".35"/><text x="${L - 4}" y="${Y(v) + 4}" text-anchor="end">${share ? Math.round(v * 100) + "%" : Math.round(v)}</text>`; }
+  g += `<text x="${L}" y="${H - 4}">tick ${T0}</text><text x="${W - 6}" y="${H - 4}" text-anchor="end">tick ${T1}</text></g>`;
+  for (let i = 0; i < n; i++) g += `<polyline fill="none" stroke="${col(i)}" stroke-width="1.6" points="${S.map((s) => `${X(s.tick).toFixed(1)},${Y(val(s, i)).toFixed(1)}`).join(" ")}"/>`;
+  g += "</svg>";
+  const wrap = document.createElement("div");
+  wrap.innerHTML = g;
+  wrap.style.height = "320px";
+  const read = el("legend");
+  body.append(wrap, read);
+  wrap.onpointermove = (e) => {
+    const r = wrap.getBoundingClientRect(), t = T0 + ((e.clientX - r.left) / r.width * W - L) / (W - L - 6) * (T1 - T0);
+    const s = S.reduce((a, b) => (Math.abs(b.tick - t) < Math.abs(a.tick - t) ? b : a));
+    read.textContent = `tick ${s.tick} (revision ${s.revision}): ` + h.lineages.map((name, i) => `${name} ${s.counts[i]}`).join(", ") + ` · births ${s.births}, deaths ${s.deaths}`;
+  };
+}
+for (const r of document.querySelectorAll('input[name="lmode"]')) r.onchange = () => loadLineage().catch(oops);
+
 async function refreshWorlds(select) {
   const gen = ++worldGen;
   const { worlds } = await call("world.list");
@@ -2213,6 +2675,9 @@ function connect() {
         if (isShown("graph") && w && w.revision !== graphRev) loadGraph().catch(() => {});
         if (isShown("genome") && ++genomeTick % 3 === 0) loadGenome(true).catch(() => {});
         if (isShown("details") && ++genomeTick % 2 === 0) loadDetails().catch(() => {});
+        if (isShown("rules") && w && w.revision !== rulesRev) loadRules().catch(() => {});
+        if (isShown("lineage") && ++genomeTick % 2 === 0) loadLineage().catch(() => {});
+        if (isShown("census") && ++genomeTick % 4 === 0) loadCensus(true).catch(() => {});
         const cw = ws.find((x) => x.world === codeWorld());
         if (codeOpen() && cw && (cw.world !== codeWorldName || cw.revision !== codeRev)) loadCode().catch(() => {});
       }).catch(() => {});
@@ -2231,7 +2696,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).catch(oops) };
+$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); }).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().then(() => { if (visible.look) return loadLook(); }).catch(oops);
 // Space plays and pauses the active world.
 let runningNow = {};

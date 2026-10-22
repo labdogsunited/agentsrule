@@ -60,6 +60,10 @@ struct Entry {
     running: bool,
     /// Where the node editor's boxes sit, by box id (`world.layout_set`); a sidecar, never part of the source.
     layout: serde_json::Map<String, Value>,
+    /// Sticky notes and network boxes of the node editor (`proposals/houdini-node-system.md` H1): presentation
+    /// only, by id, in the same sidecar as `layout`. Never part of the source, never a revision.
+    notes: serde_json::Map<String, Value>,
+    frames: serde_json::Map<String, Value>,
     /// The graph edits made, newest last, and the ones undone (`world.undo`, `world.redo`).
     undo: Vec<Step>,
     redo: Vec<Step>,
@@ -196,7 +200,7 @@ impl Engine {
                 };
                 let run = Run::create(spec, journal).map_err(|e| rejected(&e))?;
                 let out = json!({"world": id, "revision": 0, "tick": 0, "population": run.population(), "backend": run.device});
-                self.runs.insert(id, Entry { run, running: false, layout: Default::default(), undo: Vec::new(), redo: Vec::new() });
+                self.runs.insert(id, Entry { run, running: false, layout: Default::default(), notes: Default::default(), frames: Default::default(), undo: Vec::new(), redo: Vec::new() });
                 Ok(out)
             }
             "world.validate" => {
@@ -225,9 +229,57 @@ impl Engine {
                     "revision": e.run.revision(),
                     "world": g.world,
                     "positions": e.layout,
+                    "notes": e.notes,
+                    "frames": e.frames,
                     "history": {"undo": e.undo.iter().map(|s| s.what.clone()).collect::<Vec<_>>(), "redo": e.redo.iter().map(|s| s.what.clone()).collect::<Vec<_>>()},
                     "nodes": g.nodes.iter().map(|n| json!({"id": n.id, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "step": n.step, "group": n.group, "line": n.line, "params": n.params})).collect::<Vec<_>>(),
                     "wires": g.wires.iter().map(|w| json!({"from": w.from, "to": w.to, "substance": w.substance})).collect::<Vec<_>>(),
+                }))
+            }
+            "rules.lens" => {
+                // The checked schedule of the running world's source (`proposals/science-panels.md`
+                // §3.1): the steps of one tick in order, each with the rules and statements the
+                // checked IR puts there. Static: it says what can happen, not what did.
+                let e = self.entry(p)?;
+                let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+                let name = file.items.iter().find_map(|i| match &i.node {
+                    emerge_lang::ast::Item::World(w) => Some(w.name.clone()),
+                    _ => None,
+                });
+                let name = name.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+                let prepared = emerge_lang::prepare(&file).map_err(|d| fault(-32005, format!("{}: {}: {}", d.code, d.path, d.message)))?;
+                let sched = emerge_lang::schedule::lower(&prepared, &name).map_err(|m| fault(-32005, m))?;
+                let mut placed = Vec::new();
+                let mut unplaced = Vec::new();
+                for r in &sched.rules {
+                    match r.placements() {
+                        Ok(parts) => placed.extend(parts.into_iter().map(|(slot, stmts)| (slot, r, stmts))),
+                        Err(why) => unplaced.push(json!({"rule": r.name, "on": r.on, "line": r.pos.line, "why": why})),
+                    }
+                }
+                let steps: Vec<Value> = sched.steps.iter().map(|s| {
+                    let rules: Vec<Value> = if s.slot == emerge_lang::schedule::Slot::None { vec![] } else {
+                        placed.iter().filter(|(slot, _, _)| *slot == s.slot).map(|(_, r, stmts)| json!({
+                            "rule": r.name, "on": r.on, "line": r.pos.line,
+                            "statements": stmts.iter().map(|st| json!({"text": st.text, "label": st.label, "line": st.pos.line, "path": match &st.label { Some(_) => r.path(&name, st), None => format!("{name}.rules.{}#{}", r.name, r.stmts.iter().position(|x| std::ptr::eq(x, *st)).unwrap_or(0)) }})).collect::<Vec<_>>(),
+                        })).collect()
+                    };
+                    json!({"id": s.id(), "phase": s.phase.name(), "name": s.name, "what": s.what, "reads": s.reads.text(), "settles": s.settles.text(), "creatures": s.creatures, "rules": rules})
+                }).collect();
+                Ok(json!({"world": name, "revision": e.run.revision(), "tick": e.run.tick(), "creatures": sched.creatures, "steps": steps, "unplaced": unplaced, "waste": sched.waste.iter().map(|(a, b)| json!({"substance": a, "sink": b})).collect::<Vec<_>>(),
+                    "disposal": sched.disposal.as_ref().map(|d| json!({"decompose": d.decompose, "remains": d.remains})), "source": "checked schedule (the one `emerge order` prints)"}))
+            }
+            "history.query" => {
+                // The sampled counts behind the charts, with their labels: what was sampled, how
+                // often, and whether older samples were merged (`proposals/science-panels.md` §5).
+                let e = self.entry(p)?;
+                let h = &e.run.history;
+                Ok(json!({
+                    "tick": e.run.tick(), "revision": e.run.revision(),
+                    "lineages": e.run.spec.lineages,
+                    "every": h.every, "base_every": h.base_every, "thinned": h.every > h.base_every,
+                    "kind": "samples of living creatures by founding lineage; births and deaths are the totals between neighbouring samples",
+                    "samples": h.samples.iter().map(|s| json!({"tick": s.tick, "revision": s.revision, "counts": s.by_lineage, "births": s.births, "deaths": s.deaths, "drift": s.drift.map(|d| d.to_string())})).collect::<Vec<_>>(),
                 }))
             }
             "world.graph_edit" => {
@@ -294,24 +346,61 @@ impl Engine {
                 Ok(r)
             }
             "world.layout_set" => {
-                // Positions of boxes, kept beside the world (and in `<journal dir>/<world>.meta.json`
-                // when the server journals); the caller never names a file.
+                // Presentation metadata of the node editor, kept beside the world (and in
+                // `<journal dir>/<world>.meta.json` when the server journals); the caller never names a
+                // file. `positions` merges box positions by id. `notes` and `frames` each replace the
+                // whole map: a note is {x, y, text}, a frame {x, y, w, h, label}. Nothing here is a
+                // revision or reaches the simulation.
                 let id = text(p, "world")?.to_string();
-                let positions = p["positions"].as_object().ok_or_else(|| bad("`positions` must be an object of id: [x, y]"))?;
+                let nums = |v: &Value, keys: &[&str]| keys.iter().all(|k| v[*k].as_f64().is_some_and(f64::is_finite));
+                let mut positions = serde_json::Map::new();
+                if !p["positions"].is_null() {
+                    for (k, v) in p["positions"].as_object().ok_or_else(|| bad("`positions` must be an object of id: [x, y]"))? {
+                        let ok = v.as_array().is_some_and(|a| a.len() == 2 && a.iter().all(|n| n.as_f64().is_some_and(f64::is_finite)));
+                        if !ok {
+                            return Err(bad(format!("`{k}` must be [x, y]")));
+                        }
+                        positions.insert(k.clone(), v.clone());
+                    }
+                }
+                let checked = |key: &str, keys: &[&str], texts: &[(&str, usize)]| -> Result<Option<serde_json::Map<String, Value>>, Fault> {
+                    if p[key].is_null() {
+                        return Ok(None);
+                    }
+                    let m = p[key].as_object().ok_or_else(|| bad(format!("`{key}` must be an object of id: item")))?;
+                    if m.len() > 500 {
+                        return Err(bad(format!("`{key}` holds at most 500 items")));
+                    }
+                    for (k, v) in m {
+                        if !nums(v, keys) {
+                            return Err(bad(format!("{key} `{k}` needs finite numbers for {}", keys.join(", "))));
+                        }
+                        for (field, max) in texts {
+                            if !v[*field].as_str().is_some_and(|t| t.chars().count() <= *max) {
+                                return Err(bad(format!("{key} `{k}` needs `{field}` as text of at most {max} characters")));
+                            }
+                        }
+                    }
+                    Ok(Some(m.clone()))
+                };
+                let notes = checked("notes", &["x", "y"], &[("text", 2000)])?;
+                let frames = checked("frames", &["x", "y", "w", "h"], &[("label", 200)])?;
                 let dir = self.journal_dir.clone();
                 let e = self.entry(p)?;
                 for (k, v) in positions {
-                    let ok = v.as_array().is_some_and(|a| a.len() == 2 && a.iter().all(|n| n.as_f64().is_some_and(f64::is_finite)));
-                    if !ok {
-                        return Err(bad(format!("`{k}` must be [x, y]")));
-                    }
-                    e.layout.insert(k.clone(), v.clone());
+                    e.layout.insert(k, v);
+                }
+                if let Some(n) = notes {
+                    e.notes = n;
+                }
+                if let Some(f) = frames {
+                    e.frames = f;
                 }
                 if let Some(dir) = dir {
-                    let body = serde_json::to_string_pretty(&json!({"world": id, "positions": e.layout})).unwrap_or_default();
+                    let body = serde_json::to_string_pretty(&json!({"world": id, "positions": e.layout, "notes": e.notes, "frames": e.frames})).unwrap_or_default();
                     std::fs::write(dir.join(format!("{id}.meta.json")), body).map_err(|err| fault(-32603, format!("could not write the layout: {err}")))?;
                 }
-                Ok(json!({"saved": e.layout.len()}))
+                Ok(json!({"saved": e.layout.len(), "notes": e.notes.len(), "frames": e.frames.len()}))
             }
             "world.hotswap" => {
                 let (patch, reason) = (text(p, "patch")?.to_string(), p["reason"].as_str().unwrap_or("").to_string());
@@ -383,6 +472,31 @@ impl Engine {
                     "keep": g.keep,
                     "genes": g.genes.iter().map(|x| json!({"index": x.index, "module": x.module, "kind": x.kind, "title": x.title, "text": x.text, "expressed": x.expressed, "active": x.active, "reads": x.reads, "writes": x.writes})).collect::<Vec<_>>(),
                 }))
+            }
+            "genome.census" => Ok(self.entry(p)?.run.census()),
+            "genome.compare" => {
+                // Two living entities' genes side by side, matched by kind and text; read-only. Genes in
+                // both are listed once with their activity in each.
+                let e = self.entry(p)?;
+                let id = |k: &str| p[k].as_u64().ok_or_else(|| bad(format!("`{k}` must be an entity ID")));
+                let (a, b) = (id("a")?, id("b")?);
+                let (la, _, ga) = e.run.genome_graph(a).map_err(bad)?;
+                let (lb, _, gb) = e.run.genome_graph(b).map_err(bad)?;
+                let key = |g: &emerge_ref::print::GeneBox| format!("{}\u{1}{}", g.kind, g.text);
+                let mut rest: Vec<Option<&emerge_ref::print::GeneBox>> = gb.genes.iter().map(Some).collect();
+                let (mut shared, mut only_a) = (vec![], vec![]);
+                for g in &ga.genes {
+                    match rest.iter().position(|o| o.is_some_and(|o| key(o) == key(g))) {
+                        Some(i) => {
+                            let o = rest[i].take().unwrap();
+                            shared.push(json!({"kind": g.kind, "title": g.title, "text": g.text, "a": {"index": g.index, "expressed": g.expressed, "active": g.active}, "b": {"index": o.index, "expressed": o.expressed, "active": o.active}}));
+                        }
+                        None => only_a.push(json!({"index": g.index, "kind": g.kind, "title": g.title, "text": g.text, "expressed": g.expressed, "active": g.active})),
+                    }
+                }
+                let only_b: Vec<Value> = rest.iter().flatten().map(|g| json!({"index": g.index, "kind": g.kind, "title": g.title, "text": g.text, "expressed": g.expressed, "active": g.active})).collect();
+                Ok(json!({"tick": e.run.tick(), "a": {"entity": a, "lineage": la, "genes": ga.genes.len()}, "b": {"entity": b, "lineage": lb, "genes": gb.genes.len()},
+                    "matching": "genes match when kind and text are equal; repeated genes pair off one to one", "shared": shared, "only_a": only_a, "only_b": only_b}))
             }
             "journal.read" => Ok(json!({"lines": self.entry(p)?.run.journal.lines})),
             "view.palettes" => {

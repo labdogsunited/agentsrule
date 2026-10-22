@@ -454,6 +454,30 @@ impl Run {
         }
     }
 
+    /// The active-gene count of every living entity, by lineage: the whole population, not a sample
+    /// (`genome.census`, `proposals/science-panels.md` S2). Read-only.
+    pub fn census(&self) -> Value {
+        let mut by: Vec<Vec<u64>> = vec![vec![]; self.spec.lineages.len()];
+        match &self.backend {
+            Backend::Cpu => self.live.world.entities.iter().for_each(|e| by[e.lineage].push(e.genome.active_genes() as u64)),
+            Backend::Gpu(r) => r.entity_table().0.chunks(emerge_gpu::pack::ENT).for_each(|e| by[e[11] as usize].push(u64::from(e[5]))),
+        }
+        let rows: Vec<Value> = by
+            .iter_mut()
+            .enumerate()
+            .map(|(i, v)| {
+                v.sort_unstable();
+                let n = v.len();
+                let mut hist = std::collections::BTreeMap::new();
+                v.iter().for_each(|g| *hist.entry(*g).or_insert(0u64) += 1);
+                json!({"lineage": self.spec.lineages[i], "count": n,
+                    "active_genes": if n == 0 { Value::Null } else { json!({"min": v[0], "median": v[n / 2], "max": v[n - 1], "mean": v.iter().sum::<u64>() as f64 / n as f64}) },
+                    "histogram": hist.iter().map(|(g, c)| json!({"active_genes": g, "count": c})).collect::<Vec<_>>()})
+            })
+            .collect();
+        json!({"tick": self.tick(), "coverage": "every living entity (exact counts, no sampling)", "metric": "active genes per entity", "lineages": rows})
+    }
+
     /// Entities, sampled evenly: ID, lineage, age, position, active genes, amounts carried.
     pub fn entities(&self, limit: usize) -> Result<Value, String> {
         let w = &self.live.world;
