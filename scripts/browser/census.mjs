@@ -7,7 +7,7 @@ export default async (page) => {
   await page.eval(`call("run.step", { world: document.getElementById("world").value, ticks: 10 })`);
   await page.eval(`loadDesktop("Science")`);
   await page.wait(500);
-  await page.eval(`[...document.querySelectorAll(".tabs *")].find((e) => e.children.length === 0 && e.textContent.trim() === "Genome Census")?.click()`);
+  await page.eval(`activate("census")`);
   await page.wait(1500);
   const txt = await page.eval(`document.getElementById("censusbody").innerText`);
   ok(/Drifter/.test(txt) && /Builder/.test(txt) && /min \/ median/.test(txt), "census lists both lineages");

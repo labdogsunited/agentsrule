@@ -45,6 +45,17 @@ pub struct Run {
     pub history: emerge_view::frame::History,
     /// Births and deaths at the last sample.
     sampled: (u64, u64),
+    /// Where the resource budget window began (`accounts.start`).
+    acct: Option<AcctStart>,
+}
+
+/// The start of a budget window: tick, revision, and each lineage's creature count and stock of the
+/// upkeep substance (µ) then.
+struct AcctStart {
+    tick: u64,
+    revision: u64,
+    count: Vec<u64>,
+    stock: Vec<u64>,
 }
 
 impl Run {
@@ -72,7 +83,7 @@ impl Run {
         };
         journal.header(&spec, &device);
         let every = if spec.gpu { 10 } else { 1 };
-        let mut run = Run { spec, live, backend, journal, device, last_swap: None, audit: None, made: None, history: emerge_view::frame::History::new(every), sampled: (0, 0) };
+        let mut run = Run { spec, live, backend, journal, device, last_swap: None, audit: None, made: None, history: emerge_view::frame::History::new(every), sampled: (0, 0), acct: None };
         run.sampled = (run.births(), run.deaths());
         run.sample();
         Ok(run)
@@ -452,6 +463,68 @@ impl Run {
                 ent.chunks(emerge_gpu::pack::ENT).next().map(|e| u64::from(e[0]) | (u64::from(e[1]) << 32))
             }
         }
+    }
+
+    /// Starts the resource budget window (`accounts.start`, `proposals/science-panels.md` §8): the
+    /// runtime's own per-lineage accounts of the upkeep substance, counted from now. CPU only.
+    pub fn start_accounts(&mut self) -> Result<Value, String> {
+        if !matches!(self.backend, Backend::Cpu) {
+            return Err("resource accounts exist on the CPU runner only (the GPU has no accounts yet)".into());
+        }
+        if !self.live.world.creatures {
+            return Err("the world has no creatures, so there is no upkeep substance to account for".into());
+        }
+        let w = &mut self.live.world;
+        w.accounts = Some(emerge_ref::world::Accounts::default());
+        let pay = w.upkeep.pay;
+        let n = self.spec.lineages.len();
+        let (mut count, mut stock) = (vec![0u64; n], vec![0u64; n]);
+        for e in &w.entities {
+            count[e.lineage] += 1;
+            stock[e.lineage] += u64::from(e.store.amounts[pay]);
+        }
+        self.acct = Some(AcctStart { tick: w.tick, revision: self.live.revision, count, stock });
+        Ok(json!({"started_at_tick": self.tick(), "substance": self.live.world.chem.substances[pay].name}))
+    }
+
+    /// The budget of each lineage since `start_accounts`: stock then and now, the runtime's account
+    /// columns, and what they leave unexplained.
+    pub fn accounts(&self) -> Result<Value, String> {
+        let (Some(start), Some(a)) = (&self.acct, &self.live.world.accounts) else { return Err("no budget window: start one with accounts.start".into()) };
+        let w = &self.live.world;
+        let pay = w.upkeep.pay;
+        let n = self.spec.lineages.len();
+        let (mut count, mut stock) = (vec![0u64; n], vec![0u64; n]);
+        for e in &w.entities {
+            count[e.lineage] += 1;
+            stock[e.lineage] += u64::from(e.store.amounts[pay]);
+        }
+        let col = |name: &str| emerge_ref::world::ACCOUNT_COLUMNS.iter().position(|c| *c == name).unwrap();
+        let lineages: Vec<Value> = (0..n)
+            .map(|g| {
+                let t = a.totals.get(g).copied().unwrap_or([0; emerge_ref::world::ACCOUNT_COLUMNS.len()]);
+                let get = |name: &str| t[col(name)] as i128;
+                // (label, sign, amount) in the order of the proposal's balance.
+                let lines: Vec<(&str, i128, i128)> = vec![
+                    ("made", 1, get("pay_made_mu")), ("consumed by reactions", -1, get("pay_used_mu")), ("taken", 1, get("pay_taken_mu")),
+                    ("stolen in", 1, get("pay_stolen_in_mu")), ("stolen out", -1, get("pay_stolen_out_mu")), ("gifts in", 1, get("pay_gift_in_mu")),
+                    ("gifts out", -1, get("pay_gift_out_mu")), ("dropped", -1, get("pay_dropped_mu")), ("wasted", -1, get("pay_wasted_mu")),
+                    ("died with", -1, get("pay_died_with_mu")), ("inherited from parent", 1, get("pay_from_parent_mu")), ("passed to children", -1, get("pay_to_child_mu")),
+                    ("upkeep", -1, get("upkeep_mu")), ("action fees", -1, get("fees_mu")),
+                ];
+                let explained: i128 = lines.iter().map(|(_, s, x)| s * x).sum();
+                let change = stock[g] as i128 - start.stock[g] as i128;
+                json!({"lineage": self.spec.lineages[g], "creatures_start": start.count[g], "creatures_now": count[g], "births": get("births"), "starved": get("starved"), "aged": get("aged"),
+                    "stock_start_mu": start.stock[g], "stock_now_mu": stock[g], "change_mu": change,
+                    "lines": lines.iter().map(|(l, s, x)| json!({"name": l, "sign": s, "mu": x})).collect::<Vec<_>>(),
+                    "explained_mu": explained, "unreconciled_mu": change - explained})
+            })
+            .collect();
+        Ok(json!({"substance": w.chem.substances[pay].name, "unit": "µ (millionths of a unit)", "from_tick": start.tick, "to_tick": self.tick(),
+            "revision_start": start.revision, "revision_now": self.live.revision, "crosses_edit": start.revision != self.live.revision,
+            "scope": "each founding lineage as a whole; a creature's stock moves with it, births count in the parent's lineage",
+            "not_counted": "stock that creatures bring in by genesis or injection after the start is not in the account columns and shows as unreconciled",
+            "lineages": lineages}))
     }
 
     /// The active-gene count of every living entity, by lineage: the whole population, not a sample

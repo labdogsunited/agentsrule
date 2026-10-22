@@ -523,6 +523,8 @@ impl Engine {
                     "genes": g.genes.iter().map(|x| json!({"index": x.index, "module": x.module, "kind": x.kind, "title": x.title, "text": x.text, "expressed": x.expressed, "active": x.active, "reads": x.reads, "writes": x.writes})).collect::<Vec<_>>(),
                 }))
             }
+            "accounts.start" => self.entry(p)?.run.start_accounts().map_err(bad),
+            "accounts.query" => self.entry(p)?.run.accounts().map_err(bad),
             "genome.census" => Ok(self.entry(p)?.run.census()),
             "genome.compare" => {
                 // Two living entities' genes side by side, matched by kind and text; read-only. Genes in

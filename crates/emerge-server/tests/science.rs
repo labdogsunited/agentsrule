@@ -225,3 +225,30 @@ fn the_rule_matrix_names_what_each_statement_touches() {
         assert_eq!(k, [&json!(["condition"])], "{row}");
     }
 }
+
+/// Stage S3 (`proposals/science-panels.md` §8): the budget of each lineage reconciles to the
+/// integer µ: stock change equals the sum of the runtime's account lines. Starting and asking change
+/// nothing in the run, and a GPU-less ask says what is missing.
+#[test]
+fn the_resource_budget_reconciles_to_the_integer() {
+    let mut engine = Engine::new();
+    let mk = || json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": true});
+    let w = engine.call("world.create", &mk()).unwrap()["world"].as_str().unwrap().to_string();
+    let twin = engine.call("world.create", &mk()).unwrap()["world"].as_str().unwrap().to_string();
+    assert!(engine.call("accounts.query", &json!({"world": w})).is_err(), "no window yet");
+    engine.call("run.step", &json!({"world": w, "ticks": 5})).unwrap();
+    engine.call("run.step", &json!({"world": twin, "ticks": 5})).unwrap();
+    engine.call("accounts.start", &json!({"world": w})).unwrap();
+    engine.call("run.step", &json!({"world": w, "ticks": 120})).unwrap();
+    engine.call("run.step", &json!({"world": twin, "ticks": 120})).unwrap();
+    let b = engine.call("accounts.query", &json!({"world": w})).unwrap();
+    assert_eq!(b["from_tick"], 5);
+    assert_eq!(b["to_tick"], 125);
+    for l in b["lineages"].as_array().unwrap() {
+        eprintln!("{l}");
+        assert_eq!(l["unreconciled_mu"], 0, "{}: the budget closes", l["lineage"]);
+    }
+    // The digest hashes the whole world, accounts included, so compare what the run did instead.
+    let look = |engine: &mut Engine, x: &str| (engine.call("entities.query", &json!({"world": x, "limit": 1_000_000})).unwrap(), engine.call("stats.query", &json!({"world": x})).unwrap());
+    assert_eq!(look(&mut engine, &w), look(&mut engine, &twin), "keeping accounts does not change the run");
+}

@@ -192,11 +192,11 @@
   .lnode.ramp .range { display: flex; gap: 4px; }
   .rampbar { grid-column: 1 / 3; height: 16px; border: 1px solid #222; border-radius: 2px; }
   .lnode .err { grid-column: 1 / 3; color: var(--bad); font: 11px system-ui, sans-serif; white-space: pre-wrap; }
-  #stage-rules, #stage-lineage, #stage-census { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
-  #rulesbar, #lineagebar, #censusbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #stage-rules, #stage-lineage, #stage-census, #stage-budget { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
+  #rulesbar, #lineagebar, #censusbar, #budgetbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   #rulesbar label, #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
   #rulesbar input, #lineagebar input { width: auto; margin: 0; }
-  #rulesbody, #lineagebody, #censusbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
+  #rulesbody, #lineagebody, #censusbody, #budgetbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
   .lens-phase { margin: 12px 0 4px; font-weight: 600; letter-spacing: .04em; color: var(--accent); text-transform: uppercase; font-size: 11px; }
   .lens-step { margin: 2px 0 2px 8px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
   .lens-step.placed { border-left-color: var(--accent); }
@@ -216,6 +216,12 @@
   #rulesbody .mx th.vcol { writing-mode: vertical-rl; transform: rotate(180deg); cursor: pointer; height: 7em; }
   #rulesbody .mx .on { background: rgba(230, 170, 70, 0.25); }
   #rulesbody .legend { margin-bottom: 6px; color: var(--muted); }
+  #budgetbody table { border-collapse: collapse; margin: 4px 0 12px; }
+  #budgetbody td, #budgetbody th { padding: 2px 8px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: left; }
+  #budgetbody td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  #budgetbody .bar { display: inline-block; height: 8px; vertical-align: middle; }
+  #budgetbody .plus { background: #6a9; } #budgetbody .minus { background: #d98; } #budgetbody .stock { background: #89b; }
+  #budgetbody .bad { color: #e66; }
   #lineagebody svg { width: 100%; height: 100%; min-height: 160px; display: block; }
   #lineagebody .legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0; }
   #lineagebody .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; }
@@ -370,6 +376,7 @@
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label></div><div id="rulesbody"></div></main></div>
+  <div class="editor" id="ed-budget"><main id="stage-budget"><div id="budgetbar"><span id="budgetnote"></span><button id="budgetstart">Start a budget window now</button></div><div id="budgetbody"></div></main></div>
   <div class="editor" id="ed-census"><main id="stage-census"><div id="censusbar"><span id="censusnote"></span></div><div id="censusbody"></div></main></div>
   <div class="editor" id="ed-lineage"><main id="stage-lineage"><div id="lineagebar"><span id="lineagenote"></span><label><input type="radio" name="lmode" value="count" checked> counts</label><label><input type="radio" name="lmode" value="share"> share</label></div><div id="lineagebody"></div></main></div>
   <div class="editor" id="ed-details"><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main></div>
@@ -430,7 +437,7 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
 // screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false };
+const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false, budget: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
 const stage = stages.picture;   // the picture's stage: the info picker lives there
@@ -1827,17 +1834,17 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 // Tabs move by dragging (to a leaf's middle, or to one of its edges to split it), a leaf can be maximized
 // for a while, editors can be closed and added back, and desktops are named arrangements. One instance of
 // each editor; the arrangement is kept in this browser and checked before it is used again.
-const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census" };
+const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget" };
 const VIEW_OF = { viewport: "picture", network: "graph", genome: "genome" };          // editors with a camera
-const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census" };
+const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget" };
 let tree = null, closed = [], maxLeaf = null, focusLeaf = null, leafSeq = 0;
 const mkLeaf = (tabs, active) => ({ t: "leaf", id: `L${++leafSeq}`, tabs, active: active || tabs[0] });
 const mkSplit = (dir, ratio, a, b) => ({ t: "split", dir, ratio, a, b });
 const BUILTIN = {
-  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census"]))),
-  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census"]))),
-  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census"]), mkLeaf(["params"]))),
-  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "details", "genome", "network", "look", "params", "source"]))),
+  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census", "budget"]))),
+  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census", "budget"]))),
+  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census", "budget"]), mkLeaf(["params"]))),
+  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "details", "genome", "network", "look", "params", "source"]))),
 };
 const leavesOf = (n = tree) => (n.t === "leaf" ? [n] : [...leavesOf(n.a), ...leavesOf(n.b)]);
 const findLeaf = (id) => leavesOf().find((l) => l.id === id);
@@ -1957,7 +1964,7 @@ function resizeSplit(e, n, box, a, b, bar) {
 let prevVis = {};
 function syncVisible() {
   const on = new Set((maxLeaf ? [findLeaf(maxLeaf)] : leavesOf()).filter(Boolean).filter((l) => document.querySelector(`[data-leaf="${l.id}"]`)).map((l) => l.active));
-  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census" };
+  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget" };
   for (const [v, ed] of Object.entries(map)) visible[v] = on.has(ed);
   document.body.classList.toggle("graph", visible.graph);
   document.body.classList.toggle("genome", visible.genome);
@@ -1976,6 +1983,7 @@ function syncVisible() {
   if (fresh("rules")) loadRules().catch(oops);
   if (fresh("lineage")) loadLineage().catch(oops);
   if (fresh("census")) loadCensus().catch(oops);
+  if (fresh("budget")) loadBudget().catch(oops);
   if (fresh("source")) loadCode().catch(oops);
   prevVis = { ...visible };
   const fl = findLeaf(focusLeaf), v = fl && VIEW_OF[fl.active];
@@ -2495,6 +2503,29 @@ async function loadRules() {
   body.scrollTop = keep;
 }
 
+// Resource Budget (S3): each lineage's stock of the upkeep substance from the start of a window to now, as
+// the runtime's own account lines. The unreconciled amount is shown, never forced to zero. CPU runs only.
+async function loadBudget() {
+  const w = $("world").value, note = $("budgetnote"), body = $("budgetbody");
+  if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
+  $("budgetstart").onclick = async () => { try { await call("accounts.start", { world: w }); } catch (e) { note.textContent = e.message || String(e); return; } loadBudget().catch(oops); };
+  let b;
+  try { b = await call("accounts.query", { world: w }); } catch (e) { note.textContent = `${w} · ${e.message || e}`; body.textContent = ""; return; }
+  if (w !== $("world").value || !visible.budget) return;
+  note.textContent = `${w} · ${b.substance}, ${b.unit}, ticks ${b.from_tick} to ${b.to_tick}${b.crosses_edit ? ` · crosses an edit (revision ${b.revision_start} to ${b.revision_now})` : ""} · ${b.scope}`;
+  body.textContent = "";
+  for (const l of b.lineages) {
+    const rows = [["stock at tick " + b.from_tick, l.stock_start_mu, "stock"], ...l.lines.filter((x) => x.mu).map((x) => [(x.sign > 0 ? "+ " : "− ") + x.name, x.mu, x.sign > 0 ? "plus" : "minus"]), ["stock now", l.stock_now_mu, "stock"]];
+    const mx = Math.max(1, ...rows.map((r) => r[1]));
+    const t = tag("table");
+    t.innerHTML = `<tr><th colspan="3">${esc(l.lineage)}: ${l.creatures_start} creatures at the start, ${l.creatures_now} now (${l.births} born, ${l.starved} starved, ${l.aged} aged)</th></tr>` +
+      rows.map((r) => `<tr><td>${esc(r[0])}</td><td class="n">${r[1].toLocaleString()}</td><td><span class="bar ${r[2]}" style="width:${Math.max(1, 220 * r[1] / mx)}px"></span></td></tr>`).join("") +
+      `<tr><td>unreconciled</td><td class="n ${l.unreconciled_mu ? "bad" : ""}">${l.unreconciled_mu.toLocaleString()}</td><td>${l.unreconciled_mu ? "the account lines do not explain the change" : "the lines explain the change exactly"}</td></tr>`;
+    body.append(t);
+  }
+  const n = tag("div"); n.textContent = b.not_counted; body.append(n);
+}
+
 // Genome Census (S2): every living creature counted by active genes, and two creatures' genes side by side.
 // The census is exact (the whole population); a comparison matches genes by kind and text.
 const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -2711,6 +2742,7 @@ function connect() {
         if (isShown("rules") && w && w.revision !== rulesRev) loadRules().catch(() => {});
         if (isShown("lineage") && ++genomeTick % 2 === 0) loadLineage().catch(() => {});
         if (isShown("census") && ++genomeTick % 4 === 0) loadCensus(true).catch(() => {});
+        if (isShown("budget") && ++genomeTick % 4 === 0) loadBudget().catch(() => {});
         const cw = ws.find((x) => x.world === codeWorld());
         if (codeOpen() && cw && (cw.world !== codeWorldName || cw.revision !== codeRev)) loadCode().catch(() => {});
       }).catch(() => {});
@@ -2729,7 +2761,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); }).catch(oops) };
+$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); }).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().then(() => { if (visible.look) return loadLook(); }).catch(oops);
 // Space plays and pauses the active world.
 let runningNow = {};
