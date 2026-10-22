@@ -664,6 +664,48 @@ impl Engine {
                 let creatures = p["creatures"].as_bool().unwrap_or(laws.is_none());
                 e.run.start_trace(ticks, cap, laws, creatures).map_err(bad)
             }
+            "flow.blocked_start" => {
+                let e = self.entry(p)?;
+                if !matches!(e.run.device.split(':').next(), Some("cpu")) { return Err(fault(-32005, "blocked outcomes are counted by the CPU runner only".to_string())); }
+                let w = &mut e.run.live.world;
+                w.blocked = Some(vec![Default::default(); w.chem.reactions.len()]);
+                Ok(json!({"started_at_tick": w.tick, "note": "turning this on adds its counters to the state digest; it changes nothing in the run"}))
+            }
+            "reactions.flow" => {
+                // The reactions of the world and what they did (`proposals/science-panels.md` §4): declared (formula, catalyst),
+                // measured (cumulative extent run by creatures' genes, and by each world-rule statement, with the amounts of
+                // each substance and each element that makes), and blocked (if counting was started). Cumulative: a panel
+                // takes the difference of two readings for an interval.
+                let e = self.entry(p)?;
+                let w = &e.run.live.world;
+                let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+                let prepared = emerge_lang::prepare(&file).map_err(|d| fault(-32005, format!("{}: {}: {}", d.code, d.path, d.message)))?;
+                let name = prepared.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) => Some(w.name.clone()), _ => None }).ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+                let paths = law_statements(&prepared, &name).map_err(|m| fault(-32005, m))?;
+                let chem = &w.chem;
+                let side = |v: &[(usize, u32)]| v.iter().map(|(s, c)| json!({"substance": chem.substances[*s].name, "coeff": c})).collect::<Vec<_>>();
+                let elements = |v: &[(usize, u32)], extent: u64| -> serde_json::Map<String, Value> { (0..chem.elements.len()).filter_map(|el| { let x: u64 = v.iter().map(|(s, c)| u64::from(*c) * extent * u64::from(chem.substances[*s].comp[el])).sum(); (x > 0).then(|| (chem.elements[el].clone(), json!(x))) }).collect() };
+                let amounts = |v: &[(usize, u32)], extent: u64| -> serde_json::Map<String, Value> { v.iter().map(|(s, c)| (chem.substances[*s].name.clone(), json!(u64::from(*c) * extent))).collect() };
+                let ticks_world = e.run.tick().saturating_sub(w.law_since);
+                let reactions: Vec<Value> = chem.reactions.iter().enumerate().map(|(r, rx)| {
+                    let mut sources = vec![json!({"by": "creatures' reaction genes", "extent": w.entity_extent[r], "since_tick": 0, "inputs_mu": amounts(&rx.inputs, w.entity_extent[r]), "outputs_mu": amounts(&rx.outputs, w.entity_extent[r]),
+                        "elements_in_mu": elements(&rx.inputs, w.entity_extent[r]), "elements_out_mu": elements(&rx.outputs, w.entity_extent[r])})];
+                    for (li, law) in w.laws.iter().enumerate() {
+                        if let emerge_ref::world::Law::React { reaction, .. } = law.parts().0 { if *reaction == r {
+                            let st = w.law_stats.get(li).cloned().unwrap_or_default();
+                            sources.push(json!({"by": paths.get(li).map(|x| x["path"].clone()).unwrap_or(Value::Null), "extent": st.extent, "cells_reacting": st.ran, "since_tick": w.law_since, "inputs_mu": amounts(&rx.inputs, st.extent), "outputs_mu": amounts(&rx.outputs, st.extent),
+                                "elements_in_mu": elements(&rx.inputs, st.extent), "elements_out_mu": elements(&rx.outputs, st.extent)}));
+                        } }
+                    }
+                    let blocked = w.blocked.as_ref().and_then(|b| b.get(r)).map(|b| json!({"full": b.full, "limited": b.limited, "cap_zero": b.cap_zero, "no_input": b.no_input, "no_room": b.no_room}));
+                    json!({"name": rx.name, "inputs": side(&rx.inputs), "outputs": side(&rx.outputs), "catalyst": rx.catalyst.map(|k| chem.substances[k.s].name.clone()), "measured": sources, "blocked": blocked})
+                }).collect();
+                Ok(json!({"world": name, "revision": e.run.revision(), "tick": e.run.tick(), "world_rules_since": w.law_since, "world_rules_ticks": ticks_world,
+                    "elements": chem.elements, "substances": chem.substances.iter().map(|s| json!({"name": s.name, "comp": s.comp})).collect::<Vec<_>>(), "reactions": reactions,
+                    "blocked_counting": w.blocked.is_some(),
+                    "units": "extent in µ of reaction; amounts in µ; elements in µ of element (composition × amount)",
+                    "meaning": "extent is how far a reaction ran, summed over every cell or creature and tick; multiplied by the coefficients it gives the amount of each substance consumed and made. Gross circulation, not net accumulation: a cycle shows each of its reactions running."}))
+            }
             "genome.census" => Ok(self.entry(p)?.run.census()),
             "genome.compare" => {
                 // Two living entities' genes side by side, matched by kind and text; read-only. Genes in

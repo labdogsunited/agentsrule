@@ -192,11 +192,11 @@
   .lnode.ramp .range { display: flex; gap: 4px; }
   .rampbar { grid-column: 1 / 3; height: 16px; border: 1px solid #222; border-radius: 2px; }
   .lnode .err { grid-column: 1 / 3; color: var(--bad); font: 11px system-ui, sans-serif; white-space: pre-wrap; }
-  #stage-rules, #stage-lineage, #stage-census, #stage-budget, #stage-family, #stage-compare, #stage-region { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
-  #rulesbar, #lineagebar, #censusbar, #budgetbar, #familybar, #comparebar, #regionbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #stage-rules, #stage-lineage, #stage-census, #stage-budget, #stage-family, #stage-compare, #stage-region, #stage-flow { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
+  #rulesbar, #lineagebar, #censusbar, #budgetbar, #familybar, #comparebar, #regionbar, #flowbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   #rulesbar label, #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
   #rulesbar input, #lineagebar input { width: auto; margin: 0; }
-  #rulesbody, #lineagebody, #censusbody, #budgetbody, #familybody, #comparebody, #regionbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
+  #rulesbody, #lineagebody, #censusbody, #budgetbody, #familybody, #comparebody, #regionbody, #flowbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
   .lens-phase { margin: 12px 0 4px; font-weight: 600; letter-spacing: .04em; color: var(--accent); text-transform: uppercase; font-size: 11px; }
   .lens-step { margin: 2px 0 2px 8px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
   .lens-step.placed { border-left-color: var(--accent); }
@@ -233,6 +233,10 @@
   #regionbody table { border-collapse: collapse; margin: 4px 0 10px; }
   #regionbody td, #regionbody th { padding: 2px 8px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: left; }
   #regionbody input { width: 5em; }
+  #flowbody svg { width: 100%; height: 420px; display: block; }
+  #flowbody table { border-collapse: collapse; margin: 6px 0; }
+  #flowbody td, #flowbody th { padding: 2px 8px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: left; }
+  #flowbar select, #flowbar button { margin-left: 6px; }
   #lineagebody svg { width: 100%; height: 100%; min-height: 160px; display: block; }
   #lineagebody .legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0; }
   #lineagebody .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; }
@@ -387,6 +391,7 @@
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label><label><input type="radio" name="rmode" value="trace"> trace</label></div><div id="rulesbody"></div></main></div>
+  <div class="editor" id="ed-flow"><main id="stage-flow"><div id="flowbar"><span id="flownote"></span><label>mode <select id="flowmode"><option value="declared">declared</option><option value="measured">measured</option><option value="blocked">blocked</option></select></label><label>quantity <select id="flowqty"></select></label><button id="flowbase">Measure from now</button></div><div id="flowbody"></div></main></div>
   <div class="editor" id="ed-region"><main id="stage-region"><div id="regionbar"><span id="regionnote"></span></div><div id="regionbody"></div></main></div>
   <div class="editor" id="ed-compare"><main id="stage-compare"><div id="comparebar"><span id="comparenote"></span></div><div id="comparebody"></div></main></div>
   <div class="editor" id="ed-family"><main id="stage-family"><div id="familybar"><span id="familynote"></span></div><div id="familybody"></div></main></div>
@@ -451,7 +456,7 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
 // screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false, budget: false, family: false, compare: false, region: false };
+const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false, budget: false, family: false, compare: false, region: false, flow: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
 const stage = stages.picture;   // the picture's stage: the info picker lives there
@@ -1848,17 +1853,17 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 // Tabs move by dragging (to a leaf's middle, or to one of its edges to split it), a leaf can be maximized
 // for a while, editors can be closed and added back, and desktops are named arrangements. One instance of
 // each editor; the arrangement is kept in this browser and checked before it is used again.
-const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget", family: "Ancestry", compare: "Compare Runs", region: "Region" };
+const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget", family: "Ancestry", compare: "Compare Runs", region: "Region", flow: "Flow Map" };
 const VIEW_OF = { viewport: "picture", network: "graph", genome: "genome" };          // editors with a camera
-const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region" };
+const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow" };
 let tree = null, closed = [], maxLeaf = null, focusLeaf = null, leafSeq = 0;
 const mkLeaf = (tabs, active) => ({ t: "leaf", id: `L${++leafSeq}`, tabs, active: active || tabs[0] });
 const mkSplit = (dir, ratio, a, b) => ({ t: "split", dir, ratio, a, b });
 const BUILTIN = {
-  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region"]))),
-  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census", "budget", "family", "compare", "region"]))),
-  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region"]), mkLeaf(["params"]))),
-  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "family", "compare", "region", "details", "genome", "network", "look", "params", "source"]))),
+  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow"]))),
+  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow"]))),
+  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow"]), mkLeaf(["params"]))),
+  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "family", "compare", "region", "flow", "details", "genome", "network", "look", "params", "source"]))),
 };
 const leavesOf = (n = tree) => (n.t === "leaf" ? [n] : [...leavesOf(n.a), ...leavesOf(n.b)]);
 const findLeaf = (id) => leavesOf().find((l) => l.id === id);
@@ -1978,7 +1983,7 @@ function resizeSplit(e, n, box, a, b, bar) {
 let prevVis = {};
 function syncVisible() {
   const on = new Set((maxLeaf ? [findLeaf(maxLeaf)] : leavesOf()).filter(Boolean).filter((l) => document.querySelector(`[data-leaf="${l.id}"]`)).map((l) => l.active));
-  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region" };
+  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow" };
   for (const [v, ed] of Object.entries(map)) visible[v] = on.has(ed);
   document.body.classList.toggle("graph", visible.graph);
   document.body.classList.toggle("genome", visible.genome);
@@ -2001,6 +2006,7 @@ function syncVisible() {
   if (fresh("family")) loadFamily().catch(oops);
   if (fresh("compare")) loadCompare().catch(oops);
   if (fresh("region")) loadRegion().catch(oops);
+  if (fresh("flow")) loadFlow().catch(oops);
   if (fresh("source")) loadCode().catch(oops);
   prevVis = { ...visible };
   const fl = findLeaf(focusLeaf), v = fl && VIEW_OF[fl.active];
@@ -2576,6 +2582,60 @@ async function loadRules() {
   body.scrollTop = keep;
 }
 
+// Flow Map (S3/S4): substances and reactions as two kinds of node, so a reaction with several inputs is one node,
+// not several conversions. Declared: the formulas. Measured: edge width is the chosen quantity over the interval since
+// "Measure from now" (differences of cumulative extents). Blocked: the recorded limiting outcomes per reaction.
+let flowBase = null;
+async function loadFlow() {
+  const w = $("world").value, note = $("flownote"), body = $("flowbody"), mode = $("flowmode").value;
+  if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
+  let f;
+  try { f = await call("reactions.flow", { world: w }); } catch (e) { note.textContent = e.message || String(e); body.textContent = ""; return; }
+  if (w !== $("world").value || !visible.flow) return;
+  const q = $("flowqty"), want = q.value;
+  const opts = ["extent", "substance amounts", ...f.elements.map((x) => "element " + x)];
+  if (q.options.length !== opts.length) { q.innerHTML = opts.map((o) => `<option>${esc(o)}</option>`).join(""); }
+  q.value = opts.includes(want) ? want : "substance amounts"; q.onchange = () => loadFlow().catch(oops); $("flowmode").onchange = () => loadFlow().catch(oops);
+  $("flowbase").onclick = () => { flowBase = { world: w, tick: f.tick, rev: f.revision, ext: Object.fromEntries(f.reactions.flatMap((r) => r.measured.map((m) => [r.name + "|" + m.by, m.extent]))) }; loadFlow().catch(oops); };
+  const base = flowBase && flowBase.world === w && flowBase.rev === f.revision ? flowBase : null;
+  const qty = q.value, el = f.elements.indexOf(qty.replace("element ", ""));
+  note.textContent = `${w} · tick ${f.tick} · ` + (mode === "measured" ? (base ? `interval ticks ${base.tick} to ${f.tick}` : `cumulative: creatures since tick 0, world rules since tick ${f.world_rules_since}`) + ` · ${f.units}` : mode === "blocked" ? (f.blocked_counting ? "blocked outcomes of creatures' reaction genes, since counting started" : "not counting") : "possible reactions, as declared");
+  body.textContent = "";
+  const subs = f.substances, R = f.reactions;
+  const delta = (r, m) => Math.max(0, m.extent - (base && base.ext[r.name + "|" + m.by] !== undefined ? base.ext[r.name + "|" + m.by] : 0));
+  const comp = (s) => (el >= 0 ? subs.find((x) => x.name === s).comp[el] / 1 : 1);
+  const edgeW = (r, s, coeff) => (mode !== "measured" ? 1 : r.measured.reduce((a, m) => a + delta(r, m), 0) * (qty === "extent" ? 1 : coeff * (el >= 0 ? comp(s) : 1)));
+  const Wd = 900, Hh = 420, cx = Wd / 2, cy = Hh / 2, rad = Math.min(cx, cy) - 40;
+  const pos = {}; subs.forEach((s, i) => { const a = (2 * Math.PI * i) / subs.length - Math.PI / 2; pos["s:" + s.name] = [cx + rad * Math.cos(a), cy + rad * 0.85 * Math.sin(a)]; });
+  R.forEach((r, i) => { const ids = [...r.inputs, ...r.outputs].map((x) => pos["s:" + x.substance]); const mx = ids.reduce((a, p) => a + p[0], 0) / ids.length, my = ids.reduce((a, p) => a + p[1], 0) / ids.length; pos["r:" + r.name] = [cx + (mx - cx) * 0.45 + (i % 3 - 1) * 14, cy + (my - cy) * 0.45 + (Math.floor(i / 3) % 3 - 1) * 14]; });
+  const ws = R.flatMap((r) => [...r.inputs, ...r.outputs].map((x) => edgeW(r, x.substance, x.coeff))), wmax = Math.max(1, ...ws);
+  let g = `<svg viewBox="0 0 ${Wd} ${Hh}"><defs><marker id="ah" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#999"/></marker></defs>`;
+  for (const r of R) {
+    const rp = pos["r:" + r.name];
+    for (const [side, list] of [["in", r.inputs], ["out", r.outputs]]) for (const x of list) {
+      const sp = pos["s:" + x.substance], v = edgeW(r, x.substance, x.coeff), wd = mode === "measured" ? 0.6 + 9 * v / wmax : 1.4;
+      const [a, b] = side === "in" ? [sp, rp] : [rp, sp];
+      g += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${mode === "measured" && v === 0 ? "#555" : side === "in" ? "#d98" : "#6a9"}" stroke-width="${wd}" stroke-opacity=".75" marker-end="url(#ah)"><title>${side === "in" ? "consumes" : "makes"} ${esc(x.substance)}: coefficient ${x.coeff}${mode === "measured" ? `, ${Math.round(v).toLocaleString()}` : ""}</title></line>`;
+    }
+    if (r.catalyst) { const sp = pos["s:" + r.catalyst]; g += `<line x1="${sp[0]}" y1="${sp[1]}" x2="${rp[0]}" y2="${rp[1]}" stroke="#89b" stroke-dasharray="4 3"><title>${esc(r.catalyst)} speeds ${esc(r.name)} up (not consumed)</title></line>`; }
+  }
+  for (const s of subs) { const p = pos["s:" + s.name]; g += `<circle cx="${p[0]}" cy="${p[1]}" r="6" fill="#89b"/><text x="${p[0] + 9}" y="${p[1] + 4}" font-size="12" fill="currentColor">${esc(s.name)}</text>`; }
+  for (const r of R) { const p = pos["r:" + r.name]; g += `<rect x="${p[0] - 5}" y="${p[1] - 5}" width="10" height="10" fill="#cb6"/><text x="${p[0] + 8}" y="${p[1] + 4}" font-size="11" fill="#cb6">${esc(r.name)}</text>`; }
+  body.innerHTML = g + "</svg>";
+  const t = tag("table");
+  if (mode === "blocked") {
+    t.innerHTML = "<tr><th>reaction</th><th>ran at its cap</th><th>ran, limited</th><th>cap zero</th><th>missing an input</th><th>no room for outputs</th></tr>" + R.map((r) => r.blocked ? `<tr><td>${esc(r.name)}</td><td>${r.blocked.full}</td><td>${r.blocked.limited}</td><td>${r.blocked.cap_zero}</td><td>${r.blocked.no_input.reduce((a, b) => a + b, 0)}</td><td>${r.blocked.no_room}</td></tr>` : `<tr><td>${esc(r.name)}</td><td colspan="5">not counting</td></tr>`).join("");
+    const b = tag("button"); b.textContent = "Start counting blocked outcomes"; b.onclick = async () => { await call("flow.blocked_start", { world: w }).catch((e) => oops(e)); loadFlow().catch(oops); };
+    body.append(t, b, Object.assign(tag("div"), { textContent: "Counting adds its counters to the state digest; it changes nothing in the run. Carrying a matching gene shows possible machinery, not that the pathway ran." }));
+  } else {
+    t.innerHTML = `<tr><th>reaction</th><th>formula</th>${mode === "measured" ? "<th>source</th><th>extent (µ)</th><th>elements (µ)</th>" : "<th>catalyst</th>"}</tr>` + R.flatMap((r) => {
+      const formula = `${r.inputs.map((x) => (x.coeff > 1 ? x.coeff + " " : "") + x.substance).join(" + ")} → ${r.outputs.map((x) => (x.coeff > 1 ? x.coeff + " " : "") + x.substance).join(" + ")}`;
+      return mode === "measured" ? r.measured.map((m) => `<tr><td>${esc(r.name)}</td><td>${esc(formula)}</td><td>${esc(m.by)}</td><td>${Math.round(delta(r, m)).toLocaleString()}</td><td>${esc(Object.entries(m.elements_out_mu).map(([k, v]) => k + " " + v.toLocaleString()).join(", ") || "–")}</td></tr>`) : [`<tr><td>${esc(r.name)}</td><td>${esc(formula)}</td><td>${esc(r.catalyst || "–")}</td></tr>`];
+    }).join("");
+    body.append(t, Object.assign(tag("div"), { textContent: mode === "measured" ? f.meaning : "Declared: what can happen. A reaction node keeps all of its inputs together; a dashed edge is a catalyst, not consumed." }));
+  }
+}
+
 // Region (S4): totals over a rectangle of the world, in one reading so cells and creatures are of one tick.
 // A range that starts past its end runs across the edge of a wrapping world.
 let regionBox = null;
@@ -2962,7 +3022,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); }).catch(oops) };
+$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); if (visible.flow) loadFlow(); }).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().then(() => { if (visible.look) return loadLook(); }).catch(oops);
 // Space plays and pauses the active world.
 let runningNow = {};

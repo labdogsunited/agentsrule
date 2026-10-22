@@ -497,3 +497,35 @@ fn a_bounded_recording_keeps_what_it_says_and_counts_what_it_drops() {
     engine.call("run.step", &json!({"world": twin, "ticks": 6})).unwrap();
     assert_eq!(engine.run(&w).unwrap().digest(), engine.run(&twin).unwrap().digest(), "recording does not change the run");
 }
+
+/// Stage S3 (`proposals/science-panels.md` §4): the flow data follows the formula. Each reaction's source reports
+/// amounts equal to extent times coefficients, elements balance between inputs and outputs, and two world rules
+/// that run the same reaction stay two separate sources.
+#[test]
+fn reaction_flows_follow_the_formula_and_keep_operations_apart() {
+    let mut engine = Engine::new();
+    let src = small(NIGHT).replace("    rule spread on cells {", "    rule rotting_again on cells {\n        react(rot, rate: 10bp) @react_rot_again;\n    }\n\n    rule spread on cells {");
+    let w = engine.call("world.create", &json!({"source": src, "lineages": ["Builder"], "seed": 1, "mutation": false})).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 30})).unwrap();
+    let f = engine.call("reactions.flow", &json!({"world": w})).unwrap();
+    let rot = f["reactions"].as_array().unwrap().iter().find(|r| r["name"] == "rot").unwrap();
+    let world_sources: Vec<&Value> = rot["measured"].as_array().unwrap().iter().filter(|m| m["by"].is_string() && m["by"] != "creatures' reaction genes").collect();
+    assert_eq!(world_sources.len(), 2, "two statements run `rot` and stay two sources");
+    assert_ne!(world_sources[0]["by"], world_sources[1]["by"]);
+    for r in f["reactions"].as_array().unwrap() {
+        for m in r["measured"].as_array().unwrap() {
+            let extent = m["extent"].as_u64().unwrap();
+            for i in r["inputs"].as_array().unwrap() {
+                assert_eq!(m["inputs_mu"][i["substance"].as_str().unwrap()].as_u64().unwrap(), extent * i["coeff"].as_u64().unwrap(), "amount = extent × coefficient");
+            }
+            let (ein, eout) = (&m["elements_in_mu"], &m["elements_out_mu"]);
+            assert_eq!(ein, eout, "{}: elements balance across a reaction", r["name"]);
+        }
+    }
+    assert!(world_sources.iter().all(|m| m["extent"].as_u64().unwrap() > 0), "both ran: there is body to rot");
+    assert_eq!(f["blocked_counting"], false);
+    engine.call("flow.blocked_start", &json!({"world": w})).unwrap();
+    engine.call("run.step", &json!({"world": w, "ticks": 3})).unwrap();
+    let g = engine.call("reactions.flow", &json!({"world": w})).unwrap();
+    assert!(g["reactions"].as_array().unwrap().iter().any(|r| r["blocked"].is_object()));
+}
