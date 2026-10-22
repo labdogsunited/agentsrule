@@ -396,3 +396,24 @@ fn an_accounts_file_imports_as_the_live_budget() {
     assert!(engine.call("accounts.import", &json!({"csv": "tick,group\n1,a"})).is_err(), "a file with another catalogue is refused");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Stage S3 (`proposals/science-panels.md` §8): a changing group closes too. A clade (a creature and its
+/// descendants) against everyone else reconciles to the integer, with the stock that passes between the
+/// two (a child of a member joins the clade at birth) counted as lines and not as error.
+#[test]
+fn a_clade_budget_reconciles_as_members_are_born_and_die() {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": true})).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 60})).unwrap();
+    let all = engine.call("entities.query", &json!({"world": w, "limit": 1_000_000})).unwrap();
+    let root = all["entities"].as_array().unwrap().iter().find(|e| engine.call("ancestry.query", &json!({"world": w, "entity": e["id"]})).unwrap()["descendants"]["alive_now"].as_u64().unwrap() > 0).expect("a creature with descendants")["id"].clone();
+    assert!(engine.call("accounts.start", &json!({"world": w, "clade": 999_999_999u64})).is_err());
+    engine.call("accounts.start", &json!({"world": w, "clade": root})).unwrap();
+    engine.call("run.step", &json!({"world": w, "ticks": 80})).unwrap();
+    let b = engine.call("accounts.query", &json!({"world": w})).unwrap();
+    let g = b["lineages"].as_array().unwrap();
+    assert_eq!(g.len(), 2);
+    assert!(g[1]["lineage"].as_str().unwrap().starts_with("clade of #"));
+    for x in g { assert_eq!(x["unreconciled_mu"], 0, "{}: closes", x["lineage"]); }
+    assert!(g[1]["creatures_start"].as_u64().unwrap() >= 2, "the clade began with the creature and its descendants");
+}

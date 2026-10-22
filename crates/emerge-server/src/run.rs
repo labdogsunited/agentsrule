@@ -54,6 +54,8 @@ pub struct Run {
 struct AcctStart {
     tick: u64,
     revision: u64,
+    /// The groups: founding lineages, or `everyone else` and one clade.
+    names: Vec<String>,
     count: Vec<u64>,
     stock: Vec<u64>,
 }
@@ -467,23 +469,29 @@ impl Run {
 
     /// Starts the resource budget window (`accounts.start`, `proposals/science-panels.md` §8): the
     /// runtime's own per-lineage accounts of the upkeep substance, counted from now. CPU only.
-    pub fn start_accounts(&mut self) -> Result<Value, String> {
+    pub fn start_accounts(&mut self, clade: Option<u64>) -> Result<Value, String> {
         if !matches!(self.backend, Backend::Cpu) {
             return Err("resource accounts exist on the CPU runner only (the GPU has no accounts yet)".into());
         }
         if !self.live.world.creatures {
             return Err("the world has no creatures, so there is no upkeep substance to account for".into());
         }
-        let w = &mut self.live.world;
-        w.accounts = Some(emerge_ref::world::Accounts::default());
-        let pay = w.upkeep.pay;
-        let n = self.spec.lineages.len();
-        let (mut count, mut stock) = (vec![0u64; n], vec![0u64; n]);
-        for e in &w.entities {
-            count[e.lineage] += 1;
-            stock[e.lineage] += u64::from(e.store.amounts[pay]);
+        let members = match clade { Some(id) => Some(self.clade_of(id)?), None => None };
+        if let Some(id) = clade {
+            if !self.live.world.entities.iter().any(|e| e.id == id) { return Err(format!("entity {id} is not alive: a clade starts from a living creature")); }
         }
-        self.acct = Some(AcctStart { tick: w.tick, revision: self.live.revision, count, stock });
+        let w = &mut self.live.world;
+        w.accounts = Some(emerge_ref::world::Accounts { clade: members, ..Default::default() });
+        let pay = w.upkeep.pay;
+        let names: Vec<String> = match clade { Some(id) => vec!["everyone else".into(), format!("clade of #{id}")], None => self.spec.lineages.clone() };
+        let (mut count, mut stock) = (vec![0u64; names.len()], vec![0u64; names.len()]);
+        let acc = w.accounts.as_ref().unwrap();
+        for e in &w.entities {
+            let g = acc.group_of(&w.chem, e);
+            count[g] += 1;
+            stock[g] += u64::from(e.store.amounts[pay]);
+        }
+        self.acct = Some(AcctStart { tick: w.tick, revision: self.live.revision, names, count, stock });
         Ok(json!({"started_at_tick": self.tick(), "substance": self.live.world.chem.substances[pay].name}))
     }
 
@@ -493,11 +501,12 @@ impl Run {
         let (Some(start), Some(a)) = (&self.acct, &self.live.world.accounts) else { return Err("no budget window: start one with accounts.start".into()) };
         let w = &self.live.world;
         let pay = w.upkeep.pay;
-        let n = self.spec.lineages.len();
+        let n = start.names.len();
         let (mut count, mut stock) = (vec![0u64; n], vec![0u64; n]);
         for e in &w.entities {
-            count[e.lineage] += 1;
-            stock[e.lineage] += u64::from(e.store.amounts[pay]);
+            let g = a.group_of(&w.chem, e);
+            count[g] += 1;
+            stock[g] += u64::from(e.store.amounts[pay]);
         }
         let col = |name: &str| emerge_ref::world::ACCOUNT_COLUMNS.iter().position(|c| *c == name).unwrap();
         let lineages: Vec<Value> = (0..n)
@@ -507,7 +516,7 @@ impl Run {
                 let get = |name: &str| t[col(name)] as i128;
                 let explained: i128 = lines.iter().map(|(_, s, x)| s * x).sum();
                 let change = stock[g] as i128 - start.stock[g] as i128;
-                json!({"lineage": self.spec.lineages[g], "creatures_start": start.count[g], "creatures_now": count[g], "births": get("births"), "starved": get("starved"), "aged": get("aged"),
+                json!({"lineage": start.names[g], "creatures_start": start.count[g], "creatures_now": count[g], "births": get("births"), "starved": get("starved"), "aged": get("aged"),
                     "stock_start_mu": start.stock[g], "stock_now_mu": stock[g], "change_mu": change,
                     "lines": lines.iter().map(|(l, s, x)| json!({"name": l, "sign": s, "mu": x})).collect::<Vec<_>>(),
                     "explained_mu": explained, "unreconciled_mu": change - explained})
@@ -515,7 +524,7 @@ impl Run {
             .collect();
         Ok(json!({"substance": w.chem.substances[pay].name, "unit": "µ (millionths of a unit)", "from_tick": start.tick, "to_tick": self.tick(),
             "revision_start": start.revision, "revision_now": self.live.revision, "crosses_edit": start.revision != self.live.revision,
-            "scope": "each founding lineage as a whole; a creature's stock moves with it, births count in the parent's lineage",
+            "scope": if a.clade.is_some() { "a clade (the creature and every descendant, children join at birth) against everyone else; stock moving between the two is a line, not an error" } else { "each founding lineage as a whole; a creature's stock moves with it, births count in the parent's lineage" },
             "not_counted": "stock that creatures bring in by genesis or injection after the start is not in the account columns and shows as unreconciled",
             "lineages": lineages}))
     }

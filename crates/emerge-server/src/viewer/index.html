@@ -386,7 +386,7 @@
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label></div><div id="rulesbody"></div></main></div>
   <div class="editor" id="ed-compare"><main id="stage-compare"><div id="comparebar"><span id="comparenote"></span></div><div id="comparebody"></div></main></div>
   <div class="editor" id="ed-family"><main id="stage-family"><div id="familybar"><span id="familynote"></span></div><div id="familybody"></div></main></div>
-  <div class="editor" id="ed-budget"><main id="stage-budget"><div id="budgetbar"><span id="budgetnote"></span><button id="budgetstart">Start a budget window now</button><label>or import an accounts file <input type="file" id="budgetfile" accept=".csv,text/csv,text/plain"></label></div><div id="budgetbody"></div></main></div>
+  <div class="editor" id="ed-budget"><main id="stage-budget"><div id="budgetbar"><span id="budgetnote"></span><button id="budgetstart">Start a budget window now</button><label>or follow the clade of creature # <input type="number" id="budgetclade" style="width:6em"></label><button id="budgetcladego">Start</button><label>or import an accounts file <input type="file" id="budgetfile" accept=".csv,text/csv,text/plain"></label></div><div id="budgetbody"></div></main></div>
   <div class="editor" id="ed-census"><main id="stage-census"><div id="censusbar"><span id="censusnote"></span></div><div id="censusbody"></div></main></div>
   <div class="editor" id="ed-lineage"><main id="stage-lineage"><div id="lineagebar"><span id="lineagenote"></span><label><input type="radio" name="lmode" value="count" checked> counts</label><label><input type="radio" name="lmode" value="share"> share</label></div><div id="lineagebody"></div></main></div>
   <div class="editor" id="ed-details"><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main></div>
@@ -2582,6 +2582,7 @@ async function loadBudget() {
   const w = $("world").value, note = $("budgetnote"), body = $("budgetbody");
   if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
   $("budgetstart").onclick = async () => { try { await call("accounts.start", { world: w }); } catch (e) { note.textContent = e.message || String(e); return; } loadBudget().catch(oops); };
+  $("budgetcladego").onclick = async () => { try { await call("accounts.start", { world: w, clade: +$("budgetclade").value }); } catch (e) { note.textContent = e.message || String(e); return; } loadBudget().catch(oops); };
   let b;
   try { b = await call("accounts.query", { world: w }); } catch (e) { note.textContent = `${w} · ${e.message || e}`; body.textContent = ""; return; }
   if (w !== $("world").value || !visible.budget) return;
