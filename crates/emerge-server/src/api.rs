@@ -377,6 +377,16 @@ impl Engine {
                 }))
             }
             "journal.read" => Ok(json!({"lines": self.entry(p)?.run.journal.lines})),
+            "view.palettes" => {
+                // The palettes a view may name, each as 17 colours sampled along it (a categorical one
+                // as its own colours), so a page can draw a ramp without knowing the renderer's tables.
+                use emerge_lang::view::PaletteKind;
+                let list: Vec<Value> = emerge_lang::view::PALETTES.iter().map(|(name, kind)| {
+                    let colours: Vec<[u8; 3]> = if *kind == PaletteKind::Categorical { (0..10).map(emerge_view::palette::category).collect() } else { (0..17).map(|i| emerge_view::palette::sample(name, i as f64 / 16.0)).collect() };
+                    json!({"name": name, "kind": format!("{kind:?}").to_lowercase(), "colours": colours})
+                }).collect();
+                Ok(json!({"palettes": list}))
+            }
             "docs.query" => Ok(docs(p["query"].as_str().unwrap_or(""))),
             "docs.examples" => Ok(json!({"examples": [
                 {"id": "dish", "name": "Reference dish", "about": "chemistry, a conserved field, world rules, menus and two lineages (Drifter, Builder)", "source": EXAMPLE, "views": EXAMPLE_VIEWS, "lineages": ["Drifter", "Builder"], "resizable": true},

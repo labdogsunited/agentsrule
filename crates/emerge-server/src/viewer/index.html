@@ -162,6 +162,27 @@
   .tabbody { flex: 1; position: relative; min-height: 0; }
   .tabbody > main { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: grab; display: none; }
   .tabbody > main.vis { display: block; }
+  #stage-look { cursor: default; display: none; flex-direction: column; background: var(--bg); }
+  #stage-look.vis { display: flex; }
+  #lookbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; }
+  #lookbar button { padding: 2px 8px; }
+  #lookbody { flex: 1; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px;
+    background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 20px 20px; }
+  body.nogrid #lookbody { background-image: none; }
+  .lrow { display: flex; align-items: center; }
+  .lnode { background: #494949; border: 1px solid #222; border-radius: 3px; min-width: 120px; }
+  .lnode .t { padding: 2px 8px; font: 600 12px system-ui, sans-serif; color: #1a1a1a; border-radius: 2px 2px 0 0; }
+  .lnode .b { padding: 6px 8px; font: 12px ui-monospace, monospace; color: var(--ink); }
+  .lnode.layer .t { background: #6f9bd1; } .lnode.ramp .t { background: #e0a050; } .lnode.out .t { background: #8cc06a; } .lnode.custom .t { background: #9aa1ad; }
+  .lwire { flex: none; width: 34px; height: 2px; background: #b0b0b0; position: relative; }
+  .lwire::before, .lwire::after { content: ""; position: absolute; top: -3px; width: 7px; height: 7px; border-radius: 50%; background: #2b313b; border: 2px solid #8b93a1; box-sizing: border-box; }
+  .lwire::before { left: -4px; } .lwire::after { right: -4px; }
+  .lnode.ramp { width: 270px; }
+  .lnode.ramp .b { display: grid; grid-template-columns: 56px 1fr; gap: 4px 8px; align-items: center; white-space: normal; }
+  .lnode.ramp select, .lnode.ramp input { padding: 2px 4px; font: 12px ui-monospace, monospace; }
+  .lnode.ramp .range { display: flex; gap: 4px; }
+  .rampbar { grid-column: 1 / 3; height: 16px; border: 1px solid #222; border-radius: 2px; }
+  .lnode .err { grid-column: 1 / 3; color: var(--bad); font: 11px system-ui, sans-serif; white-space: pre-wrap; }
   #stage-details { cursor: default; display: none; flex-direction: column; background: var(--bg); }
   #stage-details.vis { display: flex; }
   #detailsbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
@@ -283,8 +304,8 @@
     </section>
     <div class="divider h" id="dh" title="Drag to resize"></div>
     <section class="pane" id="pane-net">
-      <div class="phead"><button class="ptab on" id="t-graph">Network</button><button class="ptab" id="t-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button class="ptab" id="t-details" title="A table of the creatures: id, lineage, age, position, what they carry">Details</button><button class="ptab" id="codebtn" title="Show the complete source of the world">Code</button><span style="flex:1"></span><button class="ptab" id="netgrid" title="Show the dotted grid behind the network (G)">Grid</button></div>
-      <div class="tabbody"><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main><section id="code">
+      <div class="phead"><button class="ptab on" id="t-graph">Network</button><button class="ptab" id="t-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button class="ptab" id="t-look" title="The colour ramps of the current view, as nodes">Look</button><button class="ptab" id="t-details" title="A table of the creatures: id, lineage, age, position, what they carry">Details</button><button class="ptab" id="codebtn" title="Show the complete source of the world">Code</button><span style="flex:1"></span><button class="ptab" id="netgrid" title="Show the dotted grid behind the network (G)">Grid</button></div>
+      <div class="tabbody"><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main><section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
     <div id="codebody"><span style="padding:10px;color:var(--muted)">Create a world, or pick one.</span></div>
@@ -341,7 +362,7 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
 // screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-const visible = { picture: true, graph: true, genome: false, details: false };
+const visible = { picture: true, graph: true, genome: false, details: false, look: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
 const stage = stages.picture;   // the picture's stage: the info picker lives there
@@ -1399,6 +1420,9 @@ function setMode(m) {
   visible.graph = m === "graph";
   visible.genome = m === "genome";
   visible.details = m === "details";
+  visible.look = m === "look";
+  $("t-look").classList.toggle("on", visible.look);
+  $("stage-look").classList.toggle("vis", visible.look);
   $("t-graph").classList.toggle("on", visible.graph);
   $("t-genome").classList.toggle("on", visible.genome);
   $("t-details").classList.toggle("on", visible.details);
@@ -1417,6 +1441,7 @@ function setMode(m) {
   if (visible.genome) loadEntities().then(() => loadGenome()).then(() => { if (cams.genome.fit) fitCam(cams.genome); applyCam(cams.genome); }).catch(oops);
   if (cams[m]) applyCam(cams[m]);
   if (visible.details) loadDetails().catch(oops);
+  if (visible.look) loadLook().catch(oops);
 }
 try {
   const saved = JSON.parse(localStorage.getItem("layout2") || "{}");
@@ -1426,6 +1451,7 @@ try {
 $("t-graph").onclick = () => setMode("graph");
 $("t-genome").onclick = () => setMode("genome");
 $("t-details").onclick = () => setMode("details");
+$("t-look").onclick = () => setMode("look");
 $("frame").style.display = "none";
 $("pane-picture").classList.add("focus");
 $("stage-graph").classList.add("vis");
@@ -1598,6 +1624,130 @@ const viewNames = (src) => [...src.matchAll(/^view\s+(\w+)\s+for\s+\w+/gm)].map(
 // A list that was asked for before a newer one is dropped when it arrives, so a slow poll cannot put
 // the selection back on an older world.
 let worldGen = 0;
+// ---- Look: the colour ramps of the current view as nodes. A layer's `color: SRC |> scale(KIND, range: LO..HI)
+// |> palette(NAME);` becomes layer -> ramp -> colour; changing the ramp rewrites that line of the view text
+// and subscribes again. The view text is presentation: nothing changes in the world. A view that is part of
+// the world's own source is shown read-only, with a button to edit a copy.
+const viewOverrides = {};          // view name -> text of its (edited) block
+let palettes = null, lookOwn = {}; // palettes from the server; the world's own views by name
+function viewBlock(src, name) {
+  const m = new RegExp(`(^|\\n)\\s*view\\s+${name}\\s+for\\s+\\w+\\s*\\{`).exec(src);
+  if (!m) return null;
+  const start = m.index + (m[1] ? m[1].length : 0), open = src.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}" && --depth === 0) return { start, end: i + 1, text: src.slice(start, i + 1) }; }
+  return null;
+}
+function viewsText() {
+  let t = example.views || "";
+  for (const [name, text] of Object.entries(viewOverrides)) {
+    const b = viewBlock(t, name);
+    t = b ? t.slice(0, b.start) + text + t.slice(b.end) : t + "\n" + text + "\n";
+  }
+  return t;
+}
+const currentViewText = (name) => viewOverrides[name] || (viewBlock(example.views || "", name) || {}).text || null;
+// The layers of a view block and their colour entry, when it is the ramp form.
+function parseLayers(text) {
+  const out = [];
+  const re = /layer\s+(\w+)\s*=\s*([^{]+?)\s*\{/g;
+  let m;
+  while ((m = re.exec(text))) {
+    let depth = 1, i = re.lastIndex;
+    for (; i < text.length && depth; i++) { if (text[i] === "{") depth++; else if (text[i] === "}") depth--; }
+    const body = text.slice(re.lastIndex, i - 1);
+    const c = /(^|\n)(\s*)color:\s*([^;]+);/.exec(body);
+    const layer = { name: m[1], kind: m[2].replace(/\s+/g, " "), entry: c ? c[3].trim() : null, at: c ? re.lastIndex + c.index + c[1].length + c[2].length : -1, len: c ? c[0].length - c[1].length - c[2].length : 0, base: m.index };
+    if (c) {
+      const parts = layer.entry.split("|>").map((x) => x.trim());
+      const pal = /^palette\((\w+)\)$/.exec(parts[parts.length - 1] || "");
+      const sc = parts.length >= 3 ? /^scale\((\w+),\s*range:\s*(-?[\d_.e]+)\s*\.\.\s*(-?[\d_.e]+)\)$/.exec(parts[parts.length - 2]) : null;
+      if (pal && (parts.length === 2 || sc)) { layer.src = parts[0]; layer.palette = pal[1]; layer.scale = sc ? { kind: sc[1], lo: sc[2], hi: sc[3] } : null; }
+    }
+    out.push(layer);
+    re.lastIndex = i;
+  }
+  return out;
+}
+const lit = (v) => { v = v.trim(); return /^-?[\d_]+$/.test(v) ? `${v}.0` : v; };
+async function loadLook() {
+  const w = $("world").value, name = $("view").value;
+  const bar = $("looknote"), body = $("lookbody");
+  body.textContent = "";
+  if (!w || !name) { bar.textContent = "Create a world, or pick one."; return; }
+  if (!palettes) palettes = (await call("view.palettes")).palettes;
+  const src = (await call("world.source", { world: w })).source;
+  lookOwn = {};
+  for (const n of viewNames(src)) lookOwn[n] = true;
+  const own = !!lookOwn[name] && !viewOverrides[name];
+  const text = own ? (viewBlock(src, name) || {}).text : currentViewText(name);
+  bar.textContent = "";
+  const lab = document.createElement("span");
+  lab.textContent = `View ${name}${own ? " · part of the world's source: read-only here" : ""}`;
+  bar.append(lab);
+  if (own) {
+    const b = document.createElement("button");
+    b.textContent = "Edit a copy";
+    b.title = "Make an editable copy of this view next to it";
+    b.onclick = () => { const copy = `${name}_look`; viewOverrides[copy] = text.replace(new RegExp(`view\\s+${name}\\b`), `view ${copy}`); example.views = (example.views || "") + "\n"; refreshViews().then(() => { $("view").value = copy; return subscribe(); }).then(loadLook).catch(oops); };
+    bar.append(b);
+  }
+  if (!text) { body.textContent = "This view's text is not available."; return; }
+  for (const layer of parseLayers(text)) body.append(lookRow(name, text, layer, own));
+}
+function palStops(n) { const p = palettes.find((x) => x.name === n); return p ? p.colours : []; }
+function barStyle(n) {
+  const p = palettes.find((x) => x.name === n);
+  if (!p) return "";
+  const css = p.colours.map((c) => `rgb(${c[0]},${c[1]},${c[2]})`);
+  if (p.kind === "categorical") return `linear-gradient(to right, ${css.map((c, i) => `${c} ${i * 10}% ${(i + 1) * 10}%`).join(", ")})`;
+  return `linear-gradient(to right, ${css.join(", ")})`;
+}
+function lookRow(viewName, text, layer, ro) {
+  const row = document.createElement("div"), mk = (cls, title, body) => { const n = document.createElement("div"); n.className = `lnode ${cls}`; const t = document.createElement("div"), b = document.createElement("div"); t.className = "t"; t.textContent = title; b.className = "b"; if (typeof body === "string") b.textContent = body; else b.append(...body); n.append(t, b); return n; };
+  const wire = () => { const w = document.createElement("div"); w.className = "lwire"; return w; };
+  row.className = "lrow";
+  const lay = mk("layer", `layer ${layer.name}`, layer.kind);
+  if (layer.palette === undefined) {
+    row.append(lay, wire(), mk("custom", "colour (code)", layer.entry || "no colour entry: the layer's body sets it"));
+    return row;
+  }
+  const state = { ...layer.scale ? layer.scale : { kind: null, lo: "0.0", hi: "1.0" }, scaled: !!layer.scale, palette: layer.palette };
+  const err = document.createElement("div");
+  err.className = "err";
+  const bar = document.createElement("div"), pal = document.createElement("select"), kind = document.createElement("select"), lo = document.createElement("input"), hi = document.createElement("input"), rng = document.createElement("div");
+  bar.className = "rampbar";
+  bar.style.background = barStyle(state.palette);
+  for (const p of palettes) pal.append(new Option(p.name, p.name));
+  pal.value = state.palette;
+  for (const k of ["linear", "log"]) kind.append(new Option(k, k));
+  kind.value = state.kind || "linear";
+  lo.value = state.lo; hi.value = state.hi;
+  lo.size = hi.size = 7;
+  rng.className = "range";
+  rng.append(lo, hi);
+  const lab = (t) => { const l = document.createElement("span"); l.textContent = t; l.style.color = "var(--muted)"; return l; };
+  const items = [bar, lab("palette"), pal];
+  if (state.scaled) items.push(lab("scale"), kind, lab("range"), rng);
+  else { const note = document.createElement("div"); note.style.cssText = "grid-column:1/3;color:var(--muted);font:11px system-ui"; note.textContent = "No scale: the source is already between 0 and 1."; items.push(note); }
+  items.push(err);
+  for (const el of [pal, kind, lo, hi]) el.disabled = ro;
+  const apply = async () => {
+    const scale = state.scaled ? ` |> scale(${kind.value}, range: ${lit(lo.value)}..${lit(hi.value)})` : "";
+    const entry = `${layer.src}${scale} |> palette(${pal.value})`;
+    const next = text.slice(0, layer.at) + `color: ${entry};` + text.slice(layer.at + layer.len);
+    bar.style.background = barStyle(pal.value);
+    const before = viewOverrides[viewName];
+    viewOverrides[viewName] = next;
+    err.textContent = "";
+    try { await subscribe(); text = next; layer.len = `color: ${entry};`.length; layer.entry = entry; }
+    catch (e) { err.textContent = String(e.message || e); if (before === undefined) delete viewOverrides[viewName]; else viewOverrides[viewName] = before; await subscribe().catch(() => {}); }
+  };
+  pal.onchange = kind.onchange = lo.onchange = hi.onchange = apply;
+  row.append(lay, wire(), mk("ramp", "ramp", items), wire(), mk("out", "colour", state.scaled ? `${kind.value}\n${lo.value} .. ${hi.value}` : "0 .. 1"));
+  return row;
+}
+
 // ---- Details: a table of the creatures (what the runner holds for each), sortable; a click inspects one.
 let detailsSort = { key: "id", dir: 1 }, detailsRows = [], detailsSubs = [];
 async function loadDetails() {
@@ -1672,7 +1822,7 @@ async function subscribe() {
   if (!world || !view) return;
   if (sub) { await call("view.unsubscribe", { subscription: sub }).catch(() => {}); sub = null; }
   const charts = $("charts").checked ? ["default"] : [];
-  const r = await call("view.subscribe", { world, view, views: example.views, charts, every: +$("every").value || 1, max_fps: +$("fps").value || 8 });
+  const r = await call("view.subscribe", { world, view, views: viewsText(), charts, every: +$("every").value || 1, max_fps: +$("fps").value || 8 });
   sub = r.subscription;
 }
 
