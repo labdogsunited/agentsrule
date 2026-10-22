@@ -525,6 +525,14 @@ impl Engine {
             }
             "accounts.start" => self.entry(p)?.run.start_accounts().map_err(bad),
             "accounts.query" => self.entry(p)?.run.accounts().map_err(bad),
+            "ancestry.query" => {
+                let id = match &p["entity"] {
+                    Value::Null => self.entry(p)?.run.first_entity().ok_or_else(|| bad("the world is empty"))?,
+                    v => v.as_u64().ok_or_else(|| bad("`entity` must be an entity ID"))?,
+                };
+                let limit = p["limit"].as_u64().unwrap_or(200).min(5000) as usize;
+                self.entry(p)?.run.ancestry(id, limit).map_err(bad)
+            }
             "genome.census" => Ok(self.entry(p)?.run.census()),
             "genome.compare" => {
                 // Two living entities' genes side by side, matched by kind and text; read-only. Genes in

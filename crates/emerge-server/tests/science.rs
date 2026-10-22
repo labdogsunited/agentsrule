@@ -252,3 +252,37 @@ fn the_resource_budget_reconciles_to_the_integer() {
     let look = |engine: &mut Engine, x: &str| (engine.call("entities.query", &json!({"world": x, "limit": 1_000_000})).unwrap(), engine.call("stats.query", &json!({"world": x})).unwrap());
     assert_eq!(look(&mut engine, &w), look(&mut engine, &twin), "keeping accounts does not change the run");
 }
+
+/// Stage S5 (`proposals/science-panels.md` §6): a creature's ancestors follow the recorded births back
+/// to a founder, each link is the child of the one before, and the descendants of a founder add up.
+#[test]
+fn ancestry_follows_recorded_births_to_a_founder() {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": true})).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 150})).unwrap();
+    let all = engine.call("entities.query", &json!({"world": w, "limit": 1_000_000})).unwrap();
+    // The youngest living creature has the longest ancestry.
+    let young = all["entities"].as_array().unwrap().iter().min_by_key(|e| e["age"].as_u64().unwrap()).unwrap()["id"].as_u64().unwrap();
+    let a = engine.call("ancestry.query", &json!({"world": w, "entity": young})).unwrap();
+    assert!(a["ancestors_complete"].as_bool().unwrap());
+    let chain = a["ancestors"].as_array().unwrap();
+    assert!(!chain.is_empty(), "a late birth has ancestors");
+    let mut child = a["entity"].clone();
+    for up in chain {
+        assert_eq!(child["parent"], up["id"], "each link is the parent of the one before");
+        assert!(up["born"].is_null() || up["born"].as_u64() <= child["born"].as_u64(), "parents are born first");
+        child = up.clone();
+    }
+    assert!(child["parent"].is_null(), "the chain ends at a founder, who has no recorded parent");
+    assert_eq!(a["founder"], child["id"]);
+    // Descendants: counted from the same events; the children are a part of them, and the living are a part of the ever.
+    let mut with_kids = 0;
+    for e in all["entities"].as_array().unwrap() {
+        let a = engine.call("ancestry.query", &json!({"world": w, "entity": e["id"]})).unwrap();
+        let d = &a["descendants"];
+        assert!(d["ever"].as_u64() >= a["entity"]["children"].as_u64() && d["alive_now"].as_u64() <= d["ever"].as_u64());
+        with_kids += usize::from(d["ever"].as_u64().unwrap() > 0);
+    }
+    assert!(with_kids > 0, "some creature has had descendants after 150 ticks");
+    assert!(engine.call("ancestry.query", &json!({"world": w, "entity": 999_999_999u64})).is_err(), "a dead or unknown creature is refused, not invented");
+}

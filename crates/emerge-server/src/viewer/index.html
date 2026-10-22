@@ -192,11 +192,11 @@
   .lnode.ramp .range { display: flex; gap: 4px; }
   .rampbar { grid-column: 1 / 3; height: 16px; border: 1px solid #222; border-radius: 2px; }
   .lnode .err { grid-column: 1 / 3; color: var(--bad); font: 11px system-ui, sans-serif; white-space: pre-wrap; }
-  #stage-rules, #stage-lineage, #stage-census, #stage-budget { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
-  #rulesbar, #lineagebar, #censusbar, #budgetbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #stage-rules, #stage-lineage, #stage-census, #stage-budget, #stage-family { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
+  #rulesbar, #lineagebar, #censusbar, #budgetbar, #familybar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   #rulesbar label, #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
   #rulesbar input, #lineagebar input { width: auto; margin: 0; }
-  #rulesbody, #lineagebody, #censusbody, #budgetbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
+  #rulesbody, #lineagebody, #censusbody, #budgetbody, #familybody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
   .lens-phase { margin: 12px 0 4px; font-weight: 600; letter-spacing: .04em; color: var(--accent); text-transform: uppercase; font-size: 11px; }
   .lens-step { margin: 2px 0 2px 8px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
   .lens-step.placed { border-left-color: var(--accent); }
@@ -222,6 +222,10 @@
   #budgetbody .bar { display: inline-block; height: 8px; vertical-align: middle; }
   #budgetbody .plus { background: #6a9; } #budgetbody .minus { background: #d98; } #budgetbody .stock { background: #89b; }
   #budgetbody .bad { color: #e66; }
+  #familybody table { border-collapse: collapse; margin: 4px 0 12px; }
+  #familybody td, #familybody th { padding: 2px 8px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: left; }
+  #familybody tr.focal td { background: rgba(230, 170, 70, 0.2); }
+  #familybody .dead { color: var(--muted); }
   #lineagebody svg { width: 100%; height: 100%; min-height: 160px; display: block; }
   #lineagebody .legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0; }
   #lineagebody .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; }
@@ -376,6 +380,7 @@
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label></div><div id="rulesbody"></div></main></div>
+  <div class="editor" id="ed-family"><main id="stage-family"><div id="familybar"><span id="familynote"></span></div><div id="familybody"></div></main></div>
   <div class="editor" id="ed-budget"><main id="stage-budget"><div id="budgetbar"><span id="budgetnote"></span><button id="budgetstart">Start a budget window now</button></div><div id="budgetbody"></div></main></div>
   <div class="editor" id="ed-census"><main id="stage-census"><div id="censusbar"><span id="censusnote"></span></div><div id="censusbody"></div></main></div>
   <div class="editor" id="ed-lineage"><main id="stage-lineage"><div id="lineagebar"><span id="lineagenote"></span><label><input type="radio" name="lmode" value="count" checked> counts</label><label><input type="radio" name="lmode" value="share"> share</label></div><div id="lineagebody"></div></main></div>
@@ -437,7 +442,7 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
 // screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false, budget: false };
+const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false, budget: false, family: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
 const stage = stages.picture;   // the picture's stage: the info picker lives there
@@ -1834,17 +1839,17 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 // Tabs move by dragging (to a leaf's middle, or to one of its edges to split it), a leaf can be maximized
 // for a while, editors can be closed and added back, and desktops are named arrangements. One instance of
 // each editor; the arrangement is kept in this browser and checked before it is used again.
-const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget" };
+const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget", family: "Ancestry" };
 const VIEW_OF = { viewport: "picture", network: "graph", genome: "genome" };          // editors with a camera
-const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget" };
+const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family" };
 let tree = null, closed = [], maxLeaf = null, focusLeaf = null, leafSeq = 0;
 const mkLeaf = (tabs, active) => ({ t: "leaf", id: `L${++leafSeq}`, tabs, active: active || tabs[0] });
 const mkSplit = (dir, ratio, a, b) => ({ t: "split", dir, ratio, a, b });
 const BUILTIN = {
-  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census", "budget"]))),
-  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census", "budget"]))),
-  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census", "budget"]), mkLeaf(["params"]))),
-  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "details", "genome", "network", "look", "params", "source"]))),
+  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census", "budget", "family"]))),
+  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census", "budget", "family"]))),
+  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census", "budget", "family"]), mkLeaf(["params"]))),
+  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "family", "details", "genome", "network", "look", "params", "source"]))),
 };
 const leavesOf = (n = tree) => (n.t === "leaf" ? [n] : [...leavesOf(n.a), ...leavesOf(n.b)]);
 const findLeaf = (id) => leavesOf().find((l) => l.id === id);
@@ -1964,7 +1969,7 @@ function resizeSplit(e, n, box, a, b, bar) {
 let prevVis = {};
 function syncVisible() {
   const on = new Set((maxLeaf ? [findLeaf(maxLeaf)] : leavesOf()).filter(Boolean).filter((l) => document.querySelector(`[data-leaf="${l.id}"]`)).map((l) => l.active));
-  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget" };
+  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family" };
   for (const [v, ed] of Object.entries(map)) visible[v] = on.has(ed);
   document.body.classList.toggle("graph", visible.graph);
   document.body.classList.toggle("genome", visible.genome);
@@ -1984,6 +1989,7 @@ function syncVisible() {
   if (fresh("lineage")) loadLineage().catch(oops);
   if (fresh("census")) loadCensus().catch(oops);
   if (fresh("budget")) loadBudget().catch(oops);
+  if (fresh("family")) loadFamily().catch(oops);
   if (fresh("source")) loadCode().catch(oops);
   prevVis = { ...visible };
   const fl = findLeaf(focusLeaf), v = fl && VIEW_OF[fl.active];
@@ -2503,6 +2509,34 @@ async function loadRules() {
   body.scrollTop = keep;
 }
 
+// Ancestry (S5): one living creature's ancestors back to a founder, from the CPU runner's recorded births,
+// and how many descendants it has had. Dead ancestors are listed as dead, with their cause.
+let familyPick = "";
+async function loadFamily() {
+  const w = $("world").value, note = $("familynote"), body = $("familybody");
+  if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
+  const ents = await call("entities.query", { world: w, limit: 200 });
+  if (w !== $("world").value || !visible.family) return;
+  body.textContent = "";
+  const sel = tag("select");
+  sel.innerHTML = ents.entities.map((e) => `<option value="${e.id}">#${e.id} · ${esc(e.lineage)} · age ${e.age}</option>`).join("");
+  if (familyPick && ents.entities.some((e) => String(e.id) === familyPick)) sel.value = familyPick;
+  sel.onchange = () => { familyPick = sel.value; loadFamily().catch(oops); };
+  const head = tag("div"); head.append("Creature ", sel, ents.total > ents.entities.length ? ` (an even sample of ${ents.entities.length} of ${ents.total})` : "");
+  body.append(head);
+  let a;
+  try { a = await call("ancestry.query", { world: w, entity: +sel.value }); } catch (e) { note.textContent = `${w} · ${e.message || e}`; return; }
+  note.textContent = `${w} · tick ${a.tick} · ${a.source}`;
+  const t = tag("table");
+  const state = (x) => (x.alive ? "alive" : x.died ? `died at tick ${x.died.tick} (${x.died.cause})` : "gone");
+  t.innerHTML = "<tr><th>generation</th><th>creature</th><th>born</th><th>state</th><th>children</th></tr>" +
+    [a.entity, ...a.ancestors].map((x, i) => `<tr class="${i === 0 ? "focal" : x.alive ? "" : "dead"}"><td>${i === 0 ? "this creature" : `${i} up`}</td><td>#${x.id}</td><td>${x.born === null ? "genesis" : "tick " + x.born}</td><td>${esc(state(x))}</td><td>${x.children}</td></tr>`).join("");
+  body.append(t);
+  const d = a.descendants, n = tag("div");
+  n.textContent = `${a.ancestors_complete ? `The line reaches founder #${a.founder}.` : `Showing the nearest ${a.ancestor_limit} ancestors; the line goes further back.`} Descendants: ${d.ever} ever born, ${d.alive_now} alive now, ${d.generations} generations deep. ${a.not_recorded}.`;
+  body.append(n);
+}
+
 // Resource Budget (S3): each lineage's stock of the upkeep substance from the start of a window to now, as
 // the runtime's own account lines. The unreconciled amount is shown, never forced to zero. CPU runs only.
 async function loadBudget() {
@@ -2761,7 +2795,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); }).catch(oops) };
+$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); }).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().then(() => { if (visible.look) return loadLook(); }).catch(oops);
 // Space plays and pauses the active world.
 let runningNow = {};

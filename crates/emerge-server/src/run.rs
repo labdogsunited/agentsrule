@@ -527,6 +527,62 @@ impl Run {
             "lineages": lineages}))
     }
 
+    /// One creature's family (`ancestry.query`, `proposals/science-panels.md` §6) from the birth and
+    /// death events the CPU runner keeps: its ancestors back to a founder, and the descendants it
+    /// has had (ever, and alive now). CPU only; a GPU run keeps no events.
+    pub fn ancestry(&self, id: u64, max_ancestors: usize) -> Result<Value, String> {
+        if !matches!(self.backend, Backend::Cpu) {
+            return Err("family trees come from the CPU runner's birth events; the GPU keeps none".into());
+        }
+        use emerge_ref::world::Event;
+        let w = &self.live.world;
+        let me = w.entities.iter().find(|e| e.id == id).ok_or_else(|| format!("entity {id} is not alive (ancestry starts from a living creature)"))?;
+        let mut parent: std::collections::HashMap<u64, (u64, u64)> = Default::default();
+        let mut children: std::collections::HashMap<u64, Vec<u64>> = Default::default();
+        let mut died: std::collections::HashMap<u64, (u64, &'static str)> = Default::default();
+        for ev in &w.events {
+            match ev {
+                Event::Born { tick, parent: p, child } => {
+                    parent.insert(*child, (*p, *tick));
+                    children.entry(*p).or_default().push(*child);
+                }
+                Event::Died { tick, id, cause } => {
+                    died.insert(*id, (*tick, if *cause == emerge_ref::Cause::Starved { "starved" } else { "aged" }));
+                }
+            }
+        }
+        let alive: std::collections::HashSet<u64> = w.entities.iter().map(|e| e.id).collect();
+        let row = |x: u64| -> Value {
+            let (born, par) = match parent.get(&x) { Some((p, t)) => (json!(t), json!(p)), None => (Value::Null, Value::Null) };
+            json!({"id": x, "parent": par, "born": born, "alive": alive.contains(&x), "died": died.get(&x).map(|(t, c)| json!({"tick": t, "cause": c})),
+                "children": children.get(&x).map_or(0, Vec::len)})
+        };
+        let mut up = vec![];
+        let mut at = id;
+        let mut reached_founder = false;
+        while up.len() < max_ancestors {
+            match parent.get(&at) {
+                Some((p, _)) => { up.push(row(*p)); at = *p; }
+                None => { reached_founder = true; break; }
+            }
+        }
+        // Descendants, breadth first.
+        let (mut ever, mut living, mut frontier) = (0u64, 0u64, vec![id]);
+        let mut deepest = 0;
+        while !frontier.is_empty() {
+            let mut next = vec![];
+            for x in &frontier { for c in children.get(x).into_iter().flatten() { ever += 1; living += u64::from(alive.contains(c)); next.push(*c); } }
+            if !next.is_empty() { deepest += 1; }
+            frontier = next;
+        }
+        Ok(json!({"entity": row(id), "lineage": self.spec.lineages[me.lineage], "tick": self.tick(),
+            "ancestors": up, "ancestors_complete": reached_founder, "ancestor_limit": max_ancestors,
+            "founder": if reached_founder { json!(at) } else { Value::Null },
+            "descendants": {"ever": ever, "alive_now": living, "generations": deepest},
+            "source": "birth and death events kept by the CPU runner since tick 0; a genesis creature has no recorded parent",
+            "not_recorded": "genome differences between parent and child are not kept unless recorded at birth"}))
+    }
+
     /// The active-gene count of every living entity, by lineage: the whole population, not a sample
     /// (`genome.census`, `proposals/science-panels.md` S2). Read-only.
     pub fn census(&self) -> Value {
