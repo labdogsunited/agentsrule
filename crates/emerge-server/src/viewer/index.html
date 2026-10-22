@@ -162,6 +162,22 @@
   .tabbody { flex: 1; position: relative; min-height: 0; }
   .tabbody > main { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: grab; display: none; }
   .tabbody > main.vis { display: block; }
+  #stage-details { cursor: default; display: none; flex-direction: column; background: var(--bg); }
+  #stage-details.vis { display: flex; }
+  #detailsbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  #detailstable { flex: 1; overflow: auto; }
+  #detailstable table { border-collapse: collapse; width: 100%; font: 12px ui-monospace, monospace; }
+  #detailstable th { position: sticky; top: 0; background: var(--panel); text-align: right; padding: 4px 10px; border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap; color: var(--muted); }
+  #detailstable th.l, #detailstable td.l { text-align: left; }
+  #detailstable th.sorted { color: var(--accent); }
+  #detailstable td { text-align: right; padding: 2px 10px; white-space: nowrap; border-bottom: 1px solid #343434; }
+  #detailstable tr:hover td { background: #454545; }
+  #detailstable tr.sel td { background: #4d4636; }
+  #picwrap { position: absolute; left: 0; top: 0; right: 0; bottom: var(--chartsH, 0px); overflow: hidden; }
+  #chartstrip { position: absolute; left: 0; right: 0; bottom: 0; height: var(--chartsH, 0px); background-repeat: no-repeat; background-color: #0d0f12; pointer-events: none; }
+  #gridov { position: absolute; left: 0; top: 0; transform-origin: 0 0; display: none; pointer-events: none; }
+  body.nogrid #graph, body.nogrid #genome { background-image: none; }
+  #netgrid.on { color: var(--ink); } #netgrid:not(.on) { text-decoration: line-through; }
   main.dragging { cursor: grabbing; }
   .strip { flex: none; width: 34px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 0; background: var(--panel); }
   #lstrip { border-right: 1px solid var(--line); }
@@ -231,11 +247,12 @@
       <div class="pbody">
         <div class="strip" id="lstrip">
           <button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button>
+          <button id="gridbtn" title="Show the cell grid (G)">&#9638;</button>
           <button id="zin" title="Zoom in">+</button>
           <button id="zout" title="Zoom out">&minus;</button>
           <button id="fit" title="Fit the view to the pane (double-click does it too)">&#10530;</button>
         </div>
-        <main id="stage-picture" data-view="picture"><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.<br><button id="newbtn2" class="primary">New world…</button></span><div id="pickmark"></div><div id="infopanel"></div></main>
+        <main id="stage-picture" data-view="picture"><div id="picwrap"><img id="frame" alt="the current frame" draggable="false"><div id="gridov"></div></div><div id="chartstrip"></div><span id="empty">Create a world, or pick one.<br><button id="newbtn2" class="primary">New world…</button></span><div id="pickmark"></div><div id="infopanel"></div></main>
         <div class="strip" id="rstrip">
           <button id="chartsbtn" class="on" title="Charts under the picture">&#9636;</button>
           <button id="gear" title="Update rate">&#9881;</button>
@@ -266,8 +283,8 @@
     </section>
     <div class="divider h" id="dh" title="Drag to resize"></div>
     <section class="pane" id="pane-net">
-      <div class="phead"><button class="ptab on" id="t-graph">Network</button><button class="ptab" id="t-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button class="ptab" id="codebtn" title="Show the complete source of the world">Code</button></div>
-      <div class="tabbody"><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main><section id="code">
+      <div class="phead"><button class="ptab on" id="t-graph">Network</button><button class="ptab" id="t-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button class="ptab" id="t-details" title="A table of the creatures: id, lineage, age, position, what they carry">Details</button><button class="ptab" id="codebtn" title="Show the complete source of the world">Code</button><span style="flex:1"></span><button class="ptab" id="netgrid" title="Show the dotted grid behind the network (G)">Grid</button></div>
+      <div class="tabbody"><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main><section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
     <div id="codebody"><span style="padding:10px;color:var(--muted)">Create a world, or pick one.</span></div>
@@ -324,33 +341,74 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
 // screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-const visible = { picture: true, graph: true, genome: false };
+const visible = { picture: true, graph: true, genome: false, details: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
 const stage = stages.picture;   // the picture's stage: the info picker lives there
 const viewOf = (cam) => Object.keys(cams).find((k) => cams[k] === cam);
+// The charts under the picture are part of the server's PNG, but they do not belong to the camera: the
+// picture is clipped to the map and moves with the camera, the strip is shown at the foot of the pane at
+// its own scale, and the picture's area is what is left above it.
+let chartsH = 0, lastImg = null;
+function layoutCharts() {
+  const st = stages.picture, strip = $("chartstrip");
+  const m = lastImg && lastImg.map, r = st.getBoundingClientRect();
+  if (!lastImg || !m || lastImg.nh <= m.h || !r.width) { chartsH = 0; strip.style.backgroundImage = "none"; st.style.setProperty("--chartsH", "0px"); $("frame").style.clipPath = ""; return; }
+  const rows = lastImg.nh - m.h;
+  const k = Math.min(r.width / lastImg.nw, (r.height * 0.4) / rows);
+  chartsH = Math.round(rows * k);
+  strip.style.backgroundImage = `url(${lastImg.url})`;
+  strip.style.backgroundSize = `${lastImg.nw * k}px ${lastImg.nh * k}px`;
+  strip.style.backgroundPosition = `${(r.width - lastImg.nw * k) / 2}px ${-m.h * k}px`;
+  st.style.setProperty("--chartsH", `${chartsH}px`);
+  $("frame").style.clipPath = `inset(0 0 ${rows}px 0)`;
+}
+// The cell grid over the picture (G): one line per cell, only where a cell is wide enough to see.
+let showGrid = false;
+try { showGrid = localStorage.getItem("emerge.grid") === "1"; } catch (_) {}
+function placeGrid() {
+  const g = $("gridov"), m = lastImg && lastImg.map, cam = cams.picture;
+  const k = m && m.grid_w ? m.w / m.grid_w : 0;
+  if (!showGrid || !k || k * cam.s < 5) { g.style.display = "none"; return; }
+  g.style.display = "block";
+  g.style.width = `${m.w}px`;
+  g.style.height = `${m.h}px`;
+  g.style.backgroundImage = "linear-gradient(to right, rgba(255,255,255,0.22) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.22) 1px, transparent 1px)";
+  g.style.backgroundSize = `${k}px ${k}px`;
+  g.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
+}
+$("gridbtn").classList.toggle("on", showGrid);
+$("gridbtn").onclick = () => { showGrid = !showGrid; $("gridbtn").classList.toggle("on", showGrid); try { localStorage.setItem("emerge.grid", showGrid ? "1" : "0"); } catch (_) {} placeGrid(); };
+let netGrid = true;
+try { netGrid = localStorage.getItem("emerge.netgrid") !== "0"; } catch (_) {}
+const setNetGrid = (on) => { netGrid = on; document.body.classList.toggle("nogrid", !on); $("netgrid").classList.toggle("on", on); try { localStorage.setItem("emerge.netgrid", on ? "1" : "0"); } catch (_) {} };
+setNetGrid(netGrid);
+$("netgrid").onclick = () => setNetGrid(!netGrid);
 function fitCam(cam = cams[mode]) {
+  if (!cam) return;
   const r = stages[viewOf(cam)].getBoundingClientRect();
-  if (!cam.w || !cam.h || !r.width || !r.height) return;
-  cam.s = Math.min(r.width / cam.w, r.height / cam.h);
+  const H = r.height - (cam === cams.picture ? chartsH : 0);
+  if (!cam.w || !cam.h || !r.width || H <= 0) return;
+  cam.s = Math.min(r.width / cam.w, H / cam.h);
   if (cam !== cams.picture) cam.s = Math.min(cam.s, 1.5);
   cam.x = (r.width - cam.w * cam.s) / 2;
-  cam.y = (r.height - cam.h * cam.s) / 2;
+  cam.y = (H - cam.h * cam.s) / 2;
   cam.fit = true;
 }
 function applyCam(cam = cams[mode]) {
+  if (!cam) return;
   const el = cam === cams.graph ? $("graph") : cam === cams.genome ? $("genome") : $("frame");
   el.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
   // Exact cells when enlarged; smooth when shrunk, so the legend's text stays readable.
   if (cam === cams.picture) el.classList.toggle("enlarged", cam.s > 1);
-  if (cam === cams.picture) placeMark();
+  if (cam === cams.picture) { placeGrid(); placeMark(); }
   if (cam === cams[mode]) $("zoom").textContent = `${Math.round(cam.s * 100)}%`;
 }
 // A view that is on screen fits its stage again when the stage changes size (a divider, a tab, the window).
 function refitAll() {
   for (const v of Object.keys(cams)) if (visible[v] && cams[v].fit) { fitCam(cams[v]); applyCam(cams[v]); }
 }
-for (const v of Object.keys(stages)) new ResizeObserver(() => { if (visible[v] && cams[v].fit) { fitCam(cams[v]); applyCam(cams[v]); } }).observe(stages[v]);
+for (const v of Object.keys(stages)) new ResizeObserver(() => { if (v === "picture") layoutCharts(); if (visible[v] && cams[v].fit) { fitCam(cams[v]); applyCam(cams[v]); } }).observe(stages[v]);
 function focusView(v) {
   if (mode === v) return;
   mode = v;
@@ -359,8 +417,9 @@ function focusView(v) {
   applyCam(cams[v]);
 }
 function zoomBy(f) {
-  const cam = cams[mode], r = stages[mode].getBoundingClientRect();
-  if (!cam.w) return;
+  const cam = cams[mode];
+  if (!cam || !cam.w) return;
+  const r = stages[mode].getBoundingClientRect();
   const s = Math.min(64, Math.max(0.05, cam.s * f)), px = r.width / 2, py = r.height / 2;
   cam.x = px - (px - cam.x) * (s / cam.s);
   cam.y = py - (py - cam.y) * (s / cam.s);
@@ -1339,8 +1398,11 @@ function setMode(m) {
   if (document.body.classList.contains("code-open")) $("codebtn").click();
   visible.graph = m === "graph";
   visible.genome = m === "genome";
+  visible.details = m === "details";
   $("t-graph").classList.toggle("on", visible.graph);
   $("t-genome").classList.toggle("on", visible.genome);
+  $("t-details").classList.toggle("on", visible.details);
+  $("stage-details").classList.toggle("vis", visible.details);
   $("stage-graph").classList.toggle("vis", visible.graph);
   $("stage-genome").classList.toggle("vis", visible.genome);
   $("graph").style.display = visible.graph ? "block" : "none";
@@ -1353,7 +1415,8 @@ function setMode(m) {
   showGenomeMsg();
   if (visible.graph) loadGraph().then(() => { if (cams.graph.fit) fitCam(cams.graph); applyCam(cams.graph); }).catch(oops);
   if (visible.genome) loadEntities().then(() => loadGenome()).then(() => { if (cams.genome.fit) fitCam(cams.genome); applyCam(cams.genome); }).catch(oops);
-  applyCam(cams[m]);
+  if (cams[m]) applyCam(cams[m]);
+  if (visible.details) loadDetails().catch(oops);
 }
 try {
   const saved = JSON.parse(localStorage.getItem("layout2") || "{}");
@@ -1362,6 +1425,7 @@ try {
 } catch (e) {}
 $("t-graph").onclick = () => setMode("graph");
 $("t-genome").onclick = () => setMode("genome");
+$("t-details").onclick = () => setMode("details");
 $("frame").style.display = "none";
 $("pane-picture").classList.add("focus");
 $("stage-graph").classList.add("vis");
@@ -1495,6 +1559,8 @@ $("infobtn").onclick = toggleInfo;
 window.addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
   if (e.key === "i" || e.key === "I") { e.preventDefault(); toggleInfo(); }
+  else if (e.key === " " && !/^(BUTTON|A)$/.test(document.activeElement && document.activeElement.tagName)) { e.preventDefault(); if (!e.repeat) toggleRun(); }
+  else if (e.key === "g" || e.key === "G") { e.preventDefault(); if (mode === "picture") $("gridbtn").click(); else setNetGrid(!netGrid); }
   else if (e.key === "Escape" && info.on) { if (info.pin) { info.pin = null; $("infopanel").style.display = "none"; placeMark(); } else infoOff(); }
 });
 // A pinned point follows the running world.
@@ -1512,7 +1578,10 @@ function onFrame(buf) {
     shown = url;
     // A new picture size (another world or view) fits the window again; the same size keeps the camera.
     const cam = cams.picture;
-    if (cam.fit || cam.w !== img.naturalWidth || cam.h !== img.naturalHeight) { cam.w = img.naturalWidth; cam.h = img.naturalHeight; fitCam(cam); }
+    lastImg = { url, nw: img.naturalWidth, nh: img.naturalHeight, map: info.map };
+    layoutCharts();
+    const ph = lastImg.map && lastImg.nh > lastImg.map.h ? lastImg.map.h : img.naturalHeight;   // the picture without the charts
+    if (cam.fit || cam.w !== img.naturalWidth || cam.h !== ph) { cam.w = img.naturalWidth; cam.h = ph; fitCam(cam); }
     applyCam(cam);
   };
   img.src = url;
@@ -1529,9 +1598,53 @@ const viewNames = (src) => [...src.matchAll(/^view\s+(\w+)\s+for\s+\w+/gm)].map(
 // A list that was asked for before a newer one is dropped when it arrives, so a slow poll cannot put
 // the selection back on an older world.
 let worldGen = 0;
+// ---- Details: a table of the creatures (what the runner holds for each), sortable; a click inspects one.
+let detailsSort = { key: "id", dir: 1 }, detailsRows = [], detailsSubs = [];
+async function loadDetails() {
+  const w = $("world").value;
+  if (!w) { $("detailsnote").textContent = "Create a world, or pick one."; $("detailstable").textContent = ""; return; }
+  const r = await call("entities.query", { world: w, limit: 400 });
+  if (w !== $("world").value || !visible.details) return;
+  detailsRows = r.entities;
+  detailsSubs = [...new Set(r.entities.flatMap((e) => Object.keys(e.carried_mu || {})))].sort();
+  $("detailsnote").textContent = `${w} · tick ${r.tick} · ${r.entities.length} of ${r.total} creatures (an even sample when there are more) · amounts in µ · click a row to open its genome`;
+  drawDetails();
+}
+function drawDetails() {
+  const cols = [["id", "id"], ["lineage", "lineage", true], ["age", "age"], ["active_genes", "genes"], ["x", "x"], ["y", "y"], ...detailsSubs.map((s) => [`c:${s}`, s])];
+  const val = (e, k) => (k.startsWith("c:") ? (e.carried_mu || {})[k.slice(2)] || 0 : e[k]);
+  const rows = [...detailsRows].sort((a, b) => { const x = val(a, detailsSort.key), y = val(b, detailsSort.key); return (x < y ? -1 : x > y ? 1 : 0) * detailsSort.dir; });
+  const t = document.createElement("table"), head = document.createElement("tr");
+  for (const [k, name, left] of cols) {
+    const th = document.createElement("th");
+    th.textContent = name + (detailsSort.key === k ? (detailsSort.dir > 0 ? " \u25B2" : " \u25BC") : "");
+    th.className = (left ? "l " : "") + (detailsSort.key === k ? "sorted" : "");
+    th.onclick = () => { detailsSort = { key: k, dir: detailsSort.key === k ? -detailsSort.dir : 1 }; drawDetails(); };
+    head.append(th);
+  }
+  t.append(head);
+  for (const e of rows) {
+    const tr = document.createElement("tr");
+    if (e.id === wantEntity) tr.className = "sel";
+    for (const [k, , left] of cols) {
+      const td = document.createElement("td"), v = val(e, k);
+      td.textContent = typeof v === "number" && !Number.isInteger(v) ? v.toFixed(1) : v;
+      if (left) td.className = "l";
+      tr.append(td);
+    }
+    tr.onclick = () => { wantEntity = e.id; setMode("genome"); };
+    t.append(tr);
+  }
+  const keep = $("detailstable").scrollTop;
+  $("detailstable").textContent = "";
+  $("detailstable").append(t);
+  $("detailstable").scrollTop = keep;
+}
+
 async function refreshWorlds(select) {
   const gen = ++worldGen;
   const { worlds } = await call("world.list");
+  runningNow = Object.fromEntries(worlds.map((w) => [w.world, !!w.running]));
   if (gen !== worldGen) return worlds;
   const sel = $("world"), keep = select || sel.value;
   const cwPrev = $("code-world").value;
@@ -1649,6 +1762,7 @@ function connect() {
         const w = ws.find((x) => x.world === $("world").value);
         if (isShown("graph") && w && w.revision !== graphRev) loadGraph().catch(() => {});
         if (isShown("genome") && ++genomeTick % 3 === 0) loadGenome(true).catch(() => {});
+        if (isShown("details") && ++genomeTick % 2 === 0) loadDetails().catch(() => {});
         const cw = ws.find((x) => x.world === codeWorld());
         if (codeOpen() && cw && (cw.world !== codeWorldName || cw.revision !== codeRev)) loadCode().catch(() => {});
       }).catch(() => {});
@@ -1669,6 +1783,13 @@ function connect() {
 $("create").onclick = () => create().catch(oops);
 $("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().catch(oops);
+// Space plays and pauses the active world.
+let runningNow = {};
+function toggleRun() {
+  const w = $("world").value;
+  if (!w) return;
+  call(runningNow[w] ? "run.pause" : "run.resume", { world: w }).then(() => refreshWorlds()).catch(oops);
+}
 $("play").onclick = () => call("run.resume", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
 $("pause").onclick = () => call("run.pause", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
 $("step").onclick = () => call("run.step", { world: $("world").value, ticks: +$("steps").value || 1 }).then(stats).catch(oops);
