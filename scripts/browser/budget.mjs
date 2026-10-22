@@ -16,5 +16,6 @@ export default async (page) => {
   const txt = await page.eval(`document.getElementById("budgetbody").innerText`);
   ok(/Drifter/.test(txt) && /upkeep/.test(txt) && /unreconciled/.test(txt), "budget lists lineages and account lines");
   ok(/the lines explain the change exactly/.test(txt), "reconciles exactly");
+  ok(await page.eval(`document.querySelectorAll("#budgetbody svg rect").length > 4`), "a waterfall is drawn");
   await page.shot(S + "budget.png");
 };

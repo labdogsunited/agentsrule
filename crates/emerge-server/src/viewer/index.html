@@ -386,7 +386,7 @@
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label></div><div id="rulesbody"></div></main></div>
   <div class="editor" id="ed-compare"><main id="stage-compare"><div id="comparebar"><span id="comparenote"></span></div><div id="comparebody"></div></main></div>
   <div class="editor" id="ed-family"><main id="stage-family"><div id="familybar"><span id="familynote"></span></div><div id="familybody"></div></main></div>
-  <div class="editor" id="ed-budget"><main id="stage-budget"><div id="budgetbar"><span id="budgetnote"></span><button id="budgetstart">Start a budget window now</button></div><div id="budgetbody"></div></main></div>
+  <div class="editor" id="ed-budget"><main id="stage-budget"><div id="budgetbar"><span id="budgetnote"></span><button id="budgetstart">Start a budget window now</button><label>or import an accounts file <input type="file" id="budgetfile" accept=".csv,text/csv,text/plain"></label></div><div id="budgetbody"></div></main></div>
   <div class="editor" id="ed-census"><main id="stage-census"><div id="censusbar"><span id="censusnote"></span></div><div id="censusbody"></div></main></div>
   <div class="editor" id="ed-lineage"><main id="stage-lineage"><div id="lineagebar"><span id="lineagenote"></span><label><input type="radio" name="lmode" value="count" checked> counts</label><label><input type="radio" name="lmode" value="share"> share</label></div><div id="lineagebody"></div></main></div>
   <div class="editor" id="ed-details"><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main></div>
@@ -2594,10 +2594,38 @@ async function loadBudget() {
     t.innerHTML = `<tr><th colspan="3">${esc(l.lineage)}: ${l.creatures_start} creatures at the start, ${l.creatures_now} now (${l.births} born, ${l.starved} starved, ${l.aged} aged)</th></tr>` +
       rows.map((r) => `<tr><td>${esc(r[0])}</td><td class="n">${r[1].toLocaleString()}</td><td><span class="bar ${r[2]}" style="width:${Math.max(1, 220 * r[1] / mx)}px"></span></td></tr>`).join("") +
       `<tr><td>unreconciled</td><td class="n ${l.unreconciled_mu ? "bad" : ""}">${l.unreconciled_mu.toLocaleString()}</td><td>${l.unreconciled_mu ? "the account lines do not explain the change" : "the lines explain the change exactly"}</td></tr>`;
-    body.append(t);
+    body.append(waterfall(l, b.from_tick), t);
   }
   const n = tag("div"); n.textContent = b.not_counted; body.append(n);
 }
+// A waterfall from the starting stock through each account line to the stock now: a bar floats from where the
+// running total was to where it is after the line; the last bar is the stock now.
+function waterfall(l, from) {
+  const steps = [["start", l.stock_start_mu, 0, l.stock_start_mu], ...l.lines.filter((x) => x.mu).map((x) => [x.name, null, 0, x.sign * x.mu]), ["now", l.stock_now_mu, 0, l.stock_now_mu]];
+  let run = 0; const bars = [];
+  for (const st of steps) { if (st[1] !== null) { bars.push({ name: st[0], a: 0, b: st[1], total: true }); run = st[1]; } else { bars.push({ name: st[0], a: run, b: run + st[3] }); run += st[3]; } }
+  const hi = Math.max(1, ...bars.flatMap((x) => [x.a, x.b])), lo = Math.min(0, ...bars.flatMap((x) => [x.a, x.b]));
+  const W = 760, H = 150, bw = W / bars.length, Y = (v) => 10 + (1 - (v - lo) / (hi - lo)) * (H - 40);
+  let g = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:150px">`;
+  bars.forEach((x, i) => { const y1 = Y(Math.max(x.a, x.b)), y2 = Y(Math.min(x.a, x.b)), fill = x.total ? "#89b" : x.b >= x.a ? "#6a9" : "#d98";
+    g += `<rect x="${i * bw + 3}" y="${y1}" width="${bw - 6}" height="${Math.max(1, y2 - y1)}" fill="${fill}"><title>${esc(x.name)}: ${Math.round(x.b - x.a).toLocaleString()}</title></rect><text x="${i * bw + bw / 2}" y="${H - 4}" font-size="8" fill="#999" text-anchor="middle">${esc(x.name.length > 11 ? x.name.slice(0, 10) + "…" : x.name)}</text>`; });
+  const d = tag("div"); d.innerHTML = g + "</svg>"; return d;
+}
+$("budgetfile").onchange = async (ev) => {
+  const f = ev.target.files[0]; if (!f) return;
+  const note = $("budgetnote"), body = $("budgetbody");
+  try {
+    const r = await call("accounts.import", { csv: await f.text() });
+    note.textContent = `${f.name} · ${r.manifest} · ticks ${r.from_tick} to ${r.to_tick} · ${r.unreconciled}`;
+    body.textContent = "";
+    for (const g of r.groups) {
+      const t = tag("table");
+      t.innerHTML = `<tr><th colspan="2">${esc(g.group)}: ${g.entities_at_last_window} entities at the last window (${g.births} born, ${g.starved} starved, ${g.aged} aged), ${g.windows} windows</th></tr>` + g.lines.filter((x) => x.mu).map((x) => `<tr><td>${x.sign > 0 ? "+" : "−"} ${esc(x.name)}</td><td class="n">${x.mu.toLocaleString()}</td></tr>`).join("") + `<tr><td>explained change</td><td class="n">${g.explained_mu.toLocaleString()}</td></tr>`;
+      body.append(t);
+    }
+  } catch (e) { note.textContent = e.message || String(e); }
+  ev.target.value = "";
+};
 
 // Genome Census (S2): every living creature counted by active genes, and two creatures' genes side by side.
 // The census is exact (the whole population); a comparison matches genes by kind and text.

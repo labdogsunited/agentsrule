@@ -366,3 +366,33 @@ fn the_atlas_counts_carriers_by_lineage_and_clade() {
     assert_eq!(g[0]["creatures"].as_u64().unwrap(), alive + 1, "the clade is the creature and its living descendants");
     assert_eq!(g[0]["creatures"].as_u64().unwrap() + g[1]["creatures"].as_u64().unwrap(), census["lineages"].as_array().unwrap().iter().map(|l| l["count"].as_u64().unwrap()).sum::<u64>());
 }
+
+/// Stage S3 (`proposals/science-panels.md` §8): a `--accounts` file of the CLI imports as the same budget the live
+/// panel gives for the same world: every account line equal. Needs the CLI built (`cargo build --release -p emerge-ref`).
+#[test]
+fn an_accounts_file_imports_as_the_live_budget() {
+    let target = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../target").to_string());
+    let cli = std::path::Path::new(&target).join("release/emerge");
+    assert!(cli.exists(), "build the CLI first: cargo build --release -p emerge-ref");
+    let dir = std::env::temp_dir().join(format!("emerge-accounts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (src, out) = (dir.join("dish.em"), dir.join("accounts.csv"));
+    std::fs::write(&src, small(DISH)).unwrap();
+    let st = std::process::Command::new(&cli).args(["run", src.to_str().unwrap(), "--partial", "--lineages", "Drifter,Builder", "--seed", "1", "--ticks", "100", "--every", "10", "--accounts", out.to_str().unwrap()]).output().unwrap();
+    assert!(st.status.success(), "{}", String::from_utf8_lossy(&st.stderr));
+    let csv = std::fs::read_to_string(&out).unwrap();
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": true})).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("accounts.start", &json!({"world": w})).unwrap();
+    engine.call("run.step", &json!({"world": w, "ticks": 100})).unwrap();
+    let live = engine.call("accounts.query", &json!({"world": w})).unwrap();
+    let file = engine.call("accounts.import", &json!({"csv": csv})).unwrap();
+    assert!(file["manifest"].as_str().unwrap().contains("binary="), "the file's manifest is kept");
+    for l in live["lineages"].as_array().unwrap() {
+        let g = file["groups"].as_array().unwrap().iter().find(|g| g["group"] == l["lineage"]).unwrap_or_else(|| panic!("no group {}", l["lineage"]));
+        assert_eq!(g["lines"], l["lines"], "{}: same account lines", l["lineage"]);
+        assert_eq!(g["explained_mu"], l["explained_mu"]);
+    }
+    assert!(engine.call("accounts.import", &json!({"csv": "tick,group\n1,a"})).is_err(), "a file with another catalogue is refused");
+    std::fs::remove_dir_all(&dir).ok();
+}

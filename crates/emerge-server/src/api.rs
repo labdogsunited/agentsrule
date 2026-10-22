@@ -580,6 +580,44 @@ impl Engine {
                 let clade = match &p["clade"] { Value::Null => None, v => Some(v.as_u64().ok_or_else(|| bad("`clade` must be an entity ID"))?) };
                 self.entry(p)?.run.atlas(clade).map_err(bad)
             }
+            "accounts.import" => {
+                // A `--accounts` file of the CPU runner, read as the same budget the live panel shows: the file's
+                // manifest, then every group's account lines summed over the windows from `from` to `to`.
+                // The file holds no stocks, so nothing can be reconciled; the explained change is all it gives.
+                let csv = text(p, "csv")?;
+                let (from, to) = (p["from"].as_u64().unwrap_or(0), p["to"].as_u64().unwrap_or(u64::MAX));
+                let mut manifest = String::new();
+                let mut head: Option<Vec<usize>> = None;
+                let (mut groups, mut order): (std::collections::HashMap<String, ([u64; emerge_ref::world::ACCOUNT_COLUMNS.len()], u64, u64, u64)>, Vec<String>) = Default::default();
+                let (mut first, mut last) = (u64::MAX, 0);
+                for line in csv.lines() {
+                    if let Some(c) = line.strip_prefix("# ") { if manifest.is_empty() { manifest = c.to_string(); } continue; }
+                    let cells: Vec<&str> = line.split(',').collect();
+                    if head.is_none() {
+                        if cells.len() < 3 || cells[0] != "tick" { return Err(bad("not an accounts file: the header must begin `tick,group,entities`")); }
+                        let idx: Option<Vec<usize>> = emerge_ref::world::ACCOUNT_COLUMNS.iter().map(|c| cells.iter().position(|h| h == c)).collect();
+                        head = Some(idx.ok_or_else(|| bad(format!("the file's columns are not this build's account catalogue: {}", cells[3..].join(","))))?);
+                        continue;
+                    }
+                    let idx = head.as_ref().unwrap();
+                    let tick: u64 = cells.first().and_then(|t| t.parse().ok()).ok_or_else(|| bad(format!("bad row: {line}")))?;
+                    if tick < from || tick > to || cells.len() != idx.len() + 3 { if cells.len() != idx.len() + 3 { return Err(bad(format!("a row has {} values, the header {}", cells.len(), idx.len() + 3))); } continue; }
+                    first = first.min(tick); last = last.max(tick);
+                    let g = cells[1].to_string();
+                    if !groups.contains_key(&g) { order.push(g.clone()); }
+                    let e = groups.entry(g).or_insert(([0; emerge_ref::world::ACCOUNT_COLUMNS.len()], 0, 0, 0));
+                    for (k, &i) in idx.iter().enumerate() { e.0[k] += cells[i].parse::<u64>().map_err(|_| bad(format!("bad number `{}`", cells[i])))?; }
+                    e.1 = cells[2].parse().unwrap_or(0);
+                    e.2 += 1;
+                    e.3 = tick;
+                }
+                if head.is_none() { return Err(bad("the file has no header")); }
+                let list: Vec<Value> = order.iter().map(|g| { let (t, n, windows, _) = &groups[g]; let lines = crate::run::budget_lines(t);
+                    json!({"group": g, "entities_at_last_window": n, "windows": windows, "lines": lines.iter().map(|(l, s, x)| json!({"name": l, "sign": s, "mu": x})).collect::<Vec<_>>(),
+                        "explained_mu": lines.iter().map(|(_, s, x)| s * x).sum::<i128>(), "births": t[0], "starved": t[1], "aged": t[2]}) }).collect();
+                Ok(json!({"manifest": manifest, "from_tick": if first == u64::MAX { Value::Null } else { json!(first) }, "to_tick": last, "unit": "µ", "groups": list,
+                    "unreconciled": "not available: the file holds counters only, not the stocks at the ends of the interval"}))
+            }
             "genome.census" => Ok(self.entry(p)?.run.census()),
             "genome.compare" => {
                 // Two living entities' genes side by side, matched by kind and text; read-only. Genes in

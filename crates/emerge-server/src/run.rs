@@ -503,15 +503,8 @@ impl Run {
         let lineages: Vec<Value> = (0..n)
             .map(|g| {
                 let t = a.totals.get(g).copied().unwrap_or([0; emerge_ref::world::ACCOUNT_COLUMNS.len()]);
+                let lines = budget_lines(&t);
                 let get = |name: &str| t[col(name)] as i128;
-                // (label, sign, amount) in the order of the proposal's balance.
-                let lines: Vec<(&str, i128, i128)> = vec![
-                    ("made", 1, get("pay_made_mu")), ("consumed by reactions", -1, get("pay_used_mu")), ("taken", 1, get("pay_taken_mu")),
-                    ("stolen in", 1, get("pay_stolen_in_mu")), ("stolen out", -1, get("pay_stolen_out_mu")), ("gifts in", 1, get("pay_gift_in_mu")),
-                    ("gifts out", -1, get("pay_gift_out_mu")), ("dropped", -1, get("pay_dropped_mu")), ("wasted", -1, get("pay_wasted_mu")),
-                    ("died with", -1, get("pay_died_with_mu")), ("inherited from parent", 1, get("pay_from_parent_mu")), ("passed to children", -1, get("pay_to_child_mu")),
-                    ("upkeep", -1, get("upkeep_mu")), ("action fees", -1, get("fees_mu")),
-                ];
                 let explained: i128 = lines.iter().map(|(_, s, x)| s * x).sum();
                 let change = stock[g] as i128 - start.stock[g] as i128;
                 json!({"lineage": self.spec.lineages[g], "creatures_start": start.count[g], "creatures_now": count[g], "births": get("births"), "starved": get("starved"), "aged": get("aged"),
@@ -748,4 +741,16 @@ impl Run {
             .collect();
         Ok(json!({"tick": self.tick(), "total": rows.len(), "entities": list}))
     }
+}
+
+/// The account lines of the upkeep substance in the order of the proposal's balance: name, sign, µ.
+pub fn budget_lines(t: &[u64; emerge_ref::world::ACCOUNT_COLUMNS.len()]) -> Vec<(&'static str, i128, i128)> {
+    let get = |name: &str| t[emerge_ref::world::ACCOUNT_COLUMNS.iter().position(|c| *c == name).unwrap()] as i128;
+    vec![
+        ("made", 1, get("pay_made_mu")), ("consumed by reactions", -1, get("pay_used_mu")), ("taken", 1, get("pay_taken_mu")),
+        ("stolen in", 1, get("pay_stolen_in_mu")), ("stolen out", -1, get("pay_stolen_out_mu")), ("gifts in", 1, get("pay_gift_in_mu")),
+        ("gifts out", -1, get("pay_gift_out_mu")), ("dropped", -1, get("pay_dropped_mu")), ("wasted", -1, get("pay_wasted_mu")),
+        ("died with", -1, get("pay_died_with_mu")), ("inherited from parent", 1, get("pay_from_parent_mu")), ("passed to children", -1, get("pay_to_child_mu")),
+        ("upkeep", -1, get("upkeep_mu")), ("action fees", -1, get("fees_mu")),
+    ]
 }
