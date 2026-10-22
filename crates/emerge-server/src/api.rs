@@ -176,6 +176,20 @@ impl Engine {
 
     /// One method call.
     pub fn call(&mut self, method: &str, p: &Value) -> Result<Value, Fault> {
+        let mut out = self.call_inner(method, p)?;
+        // Every science answer says which run, revision and tick it was read at, so a panel can tell that two answers
+        // belong together (same token) or do not (`proposals/science-panels.md` §14).
+        const OBSERVATIONS: [&str; 17] = ["rules.lens", "rules.matrix", "rules.activity", "history.query", "genome.census", "genome.atlas", "genome.compare", "accounts.query", "region.query", "ancestry.query", "life.query", "reactions.flow", "trace.query", "stats.query", "genome.graph", "notebook.events", "entities.query"];
+        if OBSERVATIONS.contains(&method) && out.is_object() {
+            if let Some(e) = p["world"].as_str().and_then(|w| self.runs.get(w)) {
+                let (tick, rev) = (e.run.tick(), e.run.revision());
+                out["observation"] = json!({"token": format!("{}@{rev}:{tick}", p["world"].as_str().unwrap_or("")), "world": p["world"], "tick": tick, "revision": rev, "backend": e.run.device});
+            }
+        }
+        Ok(out)
+    }
+
+    fn call_inner(&mut self, method: &str, p: &Value) -> Result<Value, Fault> {
         match method {
             "world.create" => {
                 let lineages: Vec<String> = p["lineages"].as_array().ok_or_else(|| bad("`lineages` must be a list of names"))?.iter().filter_map(|l| l.as_str().map(String::from)).collect();

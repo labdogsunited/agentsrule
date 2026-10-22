@@ -402,7 +402,9 @@ fn a_gpu_worlds_creatures_and_genomes_read_like_the_cpus() {
     assert_eq!(a["total"], b["total"]);
     assert_eq!(a["entities"], b["entities"], "the same entities on both");
     let id = a["entities"][0]["id"].as_u64().unwrap();
-    assert_eq!(c.ok("genome.graph", json!({"world": cpu, "entity": id})), c.ok("genome.graph", json!({"world": gpu, "entity": id})));
+    // The answers differ only in the observation stamp (which world, which backend), as they should.
+    let graph = |c: &mut Client, w: &str| { let mut g = c.ok("genome.graph", json!({"world": w, "entity": id})); g.as_object_mut().unwrap().remove("observation"); g };
+    assert_eq!(graph(&mut c, &cpu), graph(&mut c, &gpu));
     assert_eq!(c.ok("genome.explain", json!({"world": cpu, "entity": id})), c.ok("genome.explain", json!({"world": gpu, "entity": id})));
     // No entity named: the first one, on both.
     assert!(c.call("genome.graph", json!({"world": gpu})).get("error").is_none());

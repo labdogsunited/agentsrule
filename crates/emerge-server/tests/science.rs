@@ -249,7 +249,13 @@ fn the_resource_budget_reconciles_to_the_integer() {
         assert_eq!(l["unreconciled_mu"], 0, "{}: the budget closes", l["lineage"]);
     }
     // The digest hashes the whole world, accounts included, so compare what the run did instead.
-    let look = |engine: &mut Engine, x: &str| (engine.call("entities.query", &json!({"world": x, "limit": 1_000_000})).unwrap(), engine.call("stats.query", &json!({"world": x})).unwrap());
+    let look = |engine: &mut Engine, x: &str| {
+        let mut r = (engine.call("entities.query", &json!({"world": x, "limit": 1_000_000})).unwrap(), engine.call("stats.query", &json!({"world": x})).unwrap());
+        // The observation stamp names the world, which differs between the twins by design.
+        r.0.as_object_mut().unwrap().remove("observation");
+        r.1.as_object_mut().unwrap().remove("observation");
+        r
+    };
     assert_eq!(look(&mut engine, &w), look(&mut engine, &twin), "keeping accounts does not change the run");
 }
 
@@ -622,4 +628,20 @@ fn the_outcome_grid_keeps_every_trial_and_pairs_are_only_declared() {
     let p = engine.call("export.provenance", &json!({"world": ids[0]})).unwrap();
     assert_eq!(p["tick"], 200);
     assert!(p["source_hash"].as_str().unwrap().len() == 16 && p["engine"].as_str().unwrap().starts_with("emerge-server"));
+}
+
+/// Stage S1 to S6 (`proposals/science-panels.md` §14): science answers carry the run, revision and tick they were read at.
+/// Two answers read between the same two steps share a token; after a step the token is new.
+#[test]
+fn answers_carry_an_observation_token_that_changes_when_the_world_does() {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": false})).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 4})).unwrap();
+    let a = engine.call("genome.census", &json!({"world": w})).unwrap();
+    let b = engine.call("rules.lens", &json!({"world": w})).unwrap();
+    assert_eq!(a["observation"]["token"], b["observation"]["token"], "read at the same tick, one observation");
+    assert_eq!(a["observation"]["tick"], 4);
+    engine.call("run.step", &json!({"world": w, "ticks": 1})).unwrap();
+    let c = engine.call("genome.census", &json!({"world": w})).unwrap();
+    assert_ne!(a["observation"]["token"], c["observation"]["token"]);
 }
