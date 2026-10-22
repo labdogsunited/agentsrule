@@ -383,7 +383,7 @@
   <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
-  <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label></div><div id="rulesbody"></div></main></div>
+  <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label><label><input type="radio" name="rmode" value="trace"> trace</label></div><div id="rulesbody"></div></main></div>
   <div class="editor" id="ed-compare"><main id="stage-compare"><div id="comparebar"><span id="comparenote"></span></div><div id="comparebody"></div></main></div>
   <div class="editor" id="ed-family"><main id="stage-family"><div id="familybar"><span id="familynote"></span></div><div id="familybody"></div></main></div>
   <div class="editor" id="ed-budget"><main id="stage-budget"><div id="budgetbar"><span id="budgetnote"></span><button id="budgetstart">Start a budget window now</button><label>or follow the clade of creature # <input type="number" id="budgetclade" style="width:6em"></label><button id="budgetcladego">Start</button><label>or import an accounts file <input type="file" id="budgetfile" accept=".csv,text/csv,text/plain"></label></div><div id="budgetbody"></div></main></div>
@@ -2455,7 +2455,39 @@ let rulesRev = null;
 // Read/write matrix (S4): rows are the checked statements in schedule order, columns the declarations they
 // name. A blank cell means none found by name, not none exist (the note says so). Clicking a column marks it.
 const MX = { condition: "?", transfer: "T", from: "←", to: "→", overflow: "⌀", react: "R", consumes: "−", produces: "+", diffuse: "~", mentions: "·" };
-let mxCol = null;
+let mxCol = null, traceSel = "";
+// Trace (S4): a bounded recording of transfer requests over the next ticks, of one statement or of creatures'
+// own actions. It says how many it kept, how many the cap dropped, and whether it is complete.
+async function loadTrace(w) {
+  const body = $("rulesbody"), note = $("rulesnote");
+  const act = await call("rules.activity", { world: w }).catch(() => null);
+  if (w !== $("world").value || !visible.rules) return;
+  body.textContent = "";
+  const stm = (act ? act.rows : []).filter((x) => x.call === "transfer" || x.call === "diffuse_conserved");
+  const sel = tag("select"); sel.innerHTML = '<option value="*">every request (rules and creatures)</option><option value="creatures">creatures\' own actions only</option>' + stm.map((x) => `<option value="${esc(x.path)}">${esc(x.text.length > 70 ? x.text.slice(0, 70) + "…" : x.text)}</option>`).join("");
+  sel.value = traceSel || "*"; sel.onchange = () => { traceSel = sel.value; };
+  const ticks = tag("input"); ticks.type = "number"; ticks.value = 20; ticks.style.width = "5em";
+  const cap = tag("input"); cap.type = "number"; cap.value = 2000; cap.style.width = "6em";
+  const go = tag("button"); go.textContent = "Record from now";
+  const bar = tag("div"); bar.append("Record ", sel, " for ", ticks, " ticks, keeping at most ", cap, " requests ", go); body.append(bar);
+  go.onclick = async () => {
+    const v = sel.value, arg = { world: w, ticks: +ticks.value, cap: +cap.value };
+    if (v === "creatures") { arg.rules = []; arg.creatures = true; } else if (v !== "*") arg.rules = [v];
+    try { await call("trace.start", arg); } catch (e) { note.textContent = e.message || String(e); return; }
+    loadTrace(w).catch(oops);
+  };
+  let t;
+  try { t = await call("trace.query", { world: w, limit: 300 }); } catch (e) { note.textContent = `${w} · ${e.message || e}`; return; }
+  note.textContent = `${w} · ticks ${t.from_tick} to ${t.until_tick}, now ${t.tick_now} · ${t.scope}`;
+  const sum = tag("div"); sum.textContent = `${t.requests_matching.toLocaleString()} requests matched, ${t.kept.toLocaleString()} kept, ${t.dropped.toLocaleString()} dropped by the cap of ${t.cap.toLocaleString()} · ${t.complete ? "complete" : t.open ? "still recording" : "INCOMPLETE: records were dropped"} · ${t.meaning}`;
+  body.append(sum);
+  if (t.interactions.length) {
+    const it = tag("table", "mx"); it.innerHTML = "<tr><th>from</th><th>to</th><th>substance</th><th>kind</th><th>asked (µ)</th><th>delivered (µ)</th></tr>" + t.interactions.map((x) => `<tr><td>${esc(x.from)}</td><td>${esc(x.to)}</td><td>${esc(x.substance)}</td><td>${x.kind}</td><td>${x.requested_mu}</td><td>${x.delivered_mu}</td></tr>`).join(""); body.append(it);
+  }
+  const rt = tag("table", "mx"); rt.innerHTML = "<tr><th>tick</th><th>by</th><th>from</th><th>to</th><th>substance</th><th>asked (µ)</th><th>delivered (µ)</th></tr>" + t.records.map((x) => `<tr><td>${x.tick}</td><td>${esc(x.by)}</td><td>${esc(x.from)}</td><td>${esc(x.to)}</td><td>${esc(x.substance)}</td><td>${x.requested_mu}</td><td>${x.delivered_mu}</td></tr>`).join("");
+  const more = tag("div"); more.textContent = t.kept > t.records.length ? `showing the first ${t.records.length} of ${t.kept.toLocaleString()} kept records` : "";
+  body.append(rt, more);
+}
 // Activity (S4): what each world-rule statement did since the rules last changed, counted by the runner. Rates
 // divide by the ticks counted; a transfer's delivered share is of what it asked for.
 async function loadActivity(w) {
@@ -2504,6 +2536,7 @@ async function loadRules() {
   const rmode = document.querySelector('input[name="rmode"]:checked').value;
   if (rmode === "matrix") return loadMatrix(w);
   if (rmode === "activity") return loadActivity(w);
+  if (rmode === "trace") return loadTrace(w);
   const r = await call("rules.lens", { world: w });
   if (w !== $("world").value || !visible.rules) return;
   rulesRev = r.revision;

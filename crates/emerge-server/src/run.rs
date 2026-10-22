@@ -47,6 +47,35 @@ pub struct Run {
     sampled: (u64, u64),
     /// Where the resource budget window began (`accounts.start`).
     acct: Option<AcctStart>,
+    /// A bounded recording of transfer requests (`trace.start`).
+    trace: Option<Trace>,
+}
+
+/// One recorded transfer request: the tick, who asked (a rule's statement, or a creature), the two ends, and what happened.
+struct TraceRec {
+    tick: u64,
+    law: Option<u32>,
+    origin: String,
+    dest: String,
+    steal: bool,
+    substance: usize,
+    requested: u32,
+    delivered: u32,
+    overflowed: u32,
+}
+
+/// A recording window: the ticks it covers, what it keeps, and how much it had to drop.
+struct Trace {
+    from: u64,
+    until: u64,
+    cap: usize,
+    /// `Some`: only these laws' requests; and `creatures` whether creature actions are kept.
+    laws: Option<Vec<u32>>,
+    creatures: bool,
+    records: Vec<TraceRec>,
+    seen: u64,
+    dropped: u64,
+    last_tick: u64,
 }
 
 /// The start of a budget window: tick, revision, and each lineage's creature count and stock of the
@@ -85,7 +114,7 @@ impl Run {
         };
         journal.header(&spec, &device);
         let every = if spec.gpu { 10 } else { 1 };
-        let mut run = Run { spec, live, backend, journal, device, last_swap: None, audit: None, made: None, history: emerge_view::frame::History::new(every), sampled: (0, 0), acct: None };
+        let mut run = Run { spec, live, backend, journal, device, last_swap: None, audit: None, made: None, history: emerge_view::frame::History::new(every), sampled: (0, 0), acct: None, trace: None };
         run.sampled = (run.births(), run.deaths());
         run.sample();
         Ok(run)
@@ -122,6 +151,7 @@ impl Run {
             match &mut self.backend {
                 Backend::Cpu => {
                     self.live.world.run_tick();
+                    self.capture_trace();
                     if let Some((ticks, off)) = &mut self.audit {
                         *ticks += 1;
                         *off += u64::from(self.live.world.audit().is_err());
@@ -678,6 +708,54 @@ impl Run {
             "traits": traits[i].iter().map(|((k, t, x), (a, d))| json!({"kind": k, "title": t, "text": x, "active": a, "dormant": d})).collect::<Vec<_>>()})).collect();
         Ok(json!({"tick": self.tick(), "coverage": if every == 1 { "every living creature".to_string() } else { format!("an even sample, every {every}th of {} creatures", w.entities.len()) },
             "trait": "a gene (kind, name and plain-words text); a creature may carry the same gene more than once (counted each time)", "groups": rows}))
+    }
+
+    /// Keeps the tick's transfer requests that the open recording wants, up to its cap.
+    fn capture_trace(&mut self) {
+        let Some(t) = &mut self.trace else { return };
+        let w = &self.live.world;
+        let tick = w.tick;
+        if tick <= t.from || tick > t.until { return; }
+        t.last_tick = tick;
+        let end = |e: &emerge_ref::world::End, id: Option<u64>| -> String { use emerge_ref::world::End::*; match e { Cell(c) => format!("cell {c}"), Entity(_) => format!("creature #{}", id.unwrap_or(0)), Source(s) => format!("source {s}"), Sink(s) => format!("sink {s}") } };
+        for (x, m) in w.last_transfers.iter().zip(&w.last_transfer_meta) {
+            let wanted = match m.law { Some(l) => t.laws.as_ref().is_none_or(|ls| ls.contains(&l)), None => t.creatures };
+            if !wanted { continue; }
+            t.seen += 1;
+            if t.records.len() >= t.cap { t.dropped += 1; continue; }
+            t.records.push(TraceRec { tick, law: m.law, origin: end(&x.origin, m.origin_id), dest: end(&x.dest, m.dest_id), steal: m.steal, substance: x.s, requested: x.requested, delivered: x.delivered, overflowed: x.overflowed });
+        }
+    }
+
+    /// Starts a bounded recording of transfer requests over the next `ticks` ticks (`trace.start`,
+    /// `proposals/science-panels.md` §4): all of them, or only some rules' statements (`laws`) and/or creatures'
+    /// own actions. It keeps at most `cap` records and counts the rest as dropped. CPU only.
+    pub fn start_trace(&mut self, ticks: u64, cap: usize, laws: Option<Vec<u32>>, creatures: bool) -> Result<Value, String> {
+        if !matches!(self.backend, Backend::Cpu) { return Err("transfers are recorded by the CPU runner only".into()); }
+        let from = self.live.world.tick;
+        self.trace = Some(Trace { from, until: from + ticks, cap, laws, creatures, records: vec![], seen: 0, dropped: 0, last_tick: from });
+        Ok(json!({"from_tick": from, "until_tick": from + ticks, "cap": cap}))
+    }
+
+    /// The recording so far, with what it kept and what it dropped, and who gave to or took from whom
+    /// (`trace.query`).
+    pub fn trace(&self, laws: &[String], limit: usize) -> Result<Value, String> {
+        let t = self.trace.as_ref().ok_or("no recording: start one with trace.start")?;
+        let w = &self.live.world;
+        let sub = |s: usize| w.chem.substances[s].name.clone();
+        let who = |l: Option<u32>| match l { Some(l) => laws.get(l as usize).cloned().unwrap_or_else(|| format!("law {l}")), None => "a creature's action".to_string() };
+        let mut pairs: std::collections::BTreeMap<(String, String, String, bool), (u64, u64)> = Default::default();
+        for r in t.records.iter().filter(|r| r.law.is_none() && r.origin.starts_with("creature") && r.dest.starts_with("creature")) {
+            let e = pairs.entry((r.origin.clone(), r.dest.clone(), sub(r.substance), r.steal)).or_default();
+            e.0 += r.requested as u64; e.1 += r.delivered as u64;
+        }
+        Ok(json!({"from_tick": t.from, "until_tick": t.until, "last_tick_seen": t.last_tick, "tick_now": self.tick(), "open": self.tick() < t.until,
+            "requests_matching": t.seen, "kept": t.records.len(), "dropped": t.dropped, "cap": t.cap,
+            "complete": t.dropped == 0 && self.tick() >= t.until,
+            "records": t.records.iter().take(limit).map(|r| json!({"tick": r.tick, "by": who(r.law), "from": r.origin, "to": r.dest, "kind": if r.steal { "steal" } else if r.law.is_none() { "creature" } else { "rule" }, "substance": sub(r.substance), "requested_mu": r.requested, "delivered_mu": r.delivered, "overflowed_mu": r.overflowed})).collect::<Vec<_>>(),
+            "interactions": pairs.iter().map(|((a, b, s, steal), (req, del))| json!({"from": a, "to": b, "substance": s, "kind": if *steal { "steal" } else { "give" }, "requested_mu": req, "delivered_mu": del})).collect::<Vec<_>>(),
+            "meaning": "a request is what a rule or creature asked to move; delivered is what arbitration let arrive. Interactions are creature-to-creature give and steal requests among the kept records.",
+            "scope": "only requests of the ticks after the start, within the cap; nothing before the start can be recovered"}))
     }
 
     /// The active-gene count of every living entity, by lineage: the whole population, not a sample

@@ -280,24 +280,7 @@ impl Engine {
                 let prepared = emerge_lang::prepare(&file).map_err(|d| fault(-32005, format!("{}: {}: {}", d.code, d.path, d.message)))?;
                 let name = prepared.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) => Some(w.name.clone()), _ => None }).ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
                 let world = prepared.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) if w.name == name => Some(w), _ => None }).unwrap();
-                fn walk(block: &emerge_lang::ast::Block, top: usize, rule: &str, on: &str, out: &mut Vec<Value>, name: &str) {
-                    let nested = top != usize::MAX;
-                    use emerge_lang::ast::Stmt;
-                    for (k, st) in block.iter().enumerate() {
-                        let top = if top == usize::MAX { k } else { top };
-                        match &st.node {
-                            // The path is the lens's: a labelled top-level call by its label, anything else by the top-level position.
-                            Stmt::Call { call, label } => out.push(json!({"rule": rule, "on": on, "line": st.pos.line, "call": call.name, "text": emerge_lang::fmt::stmt_text(&st.node),
-                                "path": match (label, nested) { (Some(l), false) => format!("{name}.rules.{rule}@{l}"), _ => format!("{name}.rules.{rule}#{top}") }})),
-                            Stmt::When { then, otherwise, .. } => { walk(then, top, rule, on, out, name); if let Some(o) = otherwise { walk(o, top, rule, on, out, name); } }
-                            _ => {}
-                        }
-                    }
-                }
-                let mut named: Vec<Value> = vec![];
-                for d in &world.decls {
-                    if let emerge_lang::ast::WDecl::Rule { name: rn, on, body } = &d.node { walk(body, usize::MAX, rn, on, &mut named, &name); }
-                }
+                let named = law_statements(&prepared, &name).map_err(|m| fault(-32005, m))?;
                 let w = &e.run.live.world;
                 if named.len() != w.laws.len() { return Err(fault(-32005, format!("the runner has {} laws but the source has {} effect statements: the counters cannot be tied to statements", w.laws.len(), named.len()))); }
                 let ticks = e.run.tick().saturating_sub(w.law_since);
@@ -660,6 +643,27 @@ impl Engine {
                 Ok(json!({"manifest": manifest, "from_tick": if first == u64::MAX { Value::Null } else { json!(first) }, "to_tick": last, "unit": "µ", "groups": list,
                     "unreconciled": "not available: the file holds counters only, not the stocks at the ends of the interval"}))
             }
+            "trace.start" | "trace.query" => {
+                let e = self.entry(p)?;
+                let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+                let prepared = emerge_lang::prepare(&file).map_err(|d| fault(-32005, format!("{}: {}: {}", d.code, d.path, d.message)))?;
+                let name = prepared.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) => Some(w.name.clone()), _ => None }).ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+                let paths: Vec<String> = law_statements(&prepared, &name).map_err(|m| fault(-32005, m))?.iter().map(|x| x["path"].as_str().unwrap_or("").to_string()).collect();
+                if method == "trace.query" { return e.run.trace(&paths, p["limit"].as_u64().unwrap_or(200).min(5000) as usize).map_err(bad); }
+                let ticks = p["ticks"].as_u64().unwrap_or(50).clamp(1, 2000);
+                let cap = p["cap"].as_u64().unwrap_or(2000).clamp(1, 100_000) as usize;
+                // Rules named: only those statements (and creatures only if asked for); none named: everything.
+                let laws = match p["rules"].as_array() {
+                    None => None,
+                    Some(list) => {
+                        let mut ix = vec![];
+                        for want in list { let want = want.as_str().ok_or_else(|| bad("`rules` must be statement paths"))?; let hits: Vec<u32> = paths.iter().enumerate().filter(|(_, x)| *x == want).map(|(i, _)| i as u32).collect(); if hits.is_empty() { return Err(bad(format!("no statement `{want}`"))); } ix.extend(hits); }
+                        Some(ix)
+                    }
+                };
+                let creatures = p["creatures"].as_bool().unwrap_or(laws.is_none());
+                e.run.start_trace(ticks, cap, laws, creatures).map_err(bad)
+            }
             "genome.census" => Ok(self.entry(p)?.run.census()),
             "genome.compare" => {
                 // Two living entities' genes side by side, matched by kind and text; read-only. Genes in
@@ -849,4 +853,29 @@ fn stmt_cells(text: &str, col_of: &dyn Fn(&str) -> Option<usize>, formulas: &std
         match by.iter_mut().find(|(n, _)| *n == cols[c].0) { Some((_, v)) => v.push(k), None => by.push((cols[c].0.clone(), vec![k])) }
     }
     by
+}
+
+/// The world-rule statements that make the runner's laws, in the order it builds them (one per effect call, a
+/// `when`'s then-block before its else-block), with the paths the Rule Lens gives them.
+pub fn law_statements(prepared: &emerge_lang::ast::File, name: &str) -> Result<Vec<Value>, String> {
+    let world = prepared.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) if w.name == name => Some(w), _ => None }).ok_or("no world")?;
+    fn walk(block: &emerge_lang::ast::Block, top: usize, rule: &str, on: &str, out: &mut Vec<Value>, name: &str) {
+        use emerge_lang::ast::Stmt;
+        let nested = top != usize::MAX;
+        for (k, st) in block.iter().enumerate() {
+            let top = if top == usize::MAX { k } else { top };
+            match &st.node {
+                // The path is the lens's: a labelled top-level call by its label, anything else by the top-level position.
+                Stmt::Call { call, label } => out.push(json!({"rule": rule, "on": on, "line": st.pos.line, "call": call.name, "text": emerge_lang::fmt::stmt_text(&st.node),
+                    "path": match (label, nested) { (Some(l), false) => format!("{name}.rules.{rule}@{l}"), _ => format!("{name}.rules.{rule}#{top}") }})),
+                Stmt::When { then, otherwise, .. } => { walk(then, top, rule, on, out, name); if let Some(o) = otherwise { walk(o, top, rule, on, out, name); } }
+                _ => {}
+            }
+        }
+    }
+    let mut named: Vec<Value> = vec![];
+    for d in &world.decls {
+        if let emerge_lang::ast::WDecl::Rule { name: rn, on, body } = &d.node { walk(body, usize::MAX, rn, on, &mut named, name); }
+    }
+    Ok(named)
 }

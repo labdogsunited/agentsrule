@@ -409,6 +409,18 @@ pub struct Transfer {
     pub overflowed: Mu,
 }
 
+/// Who and what behind `last_transfers[k]` (same index): the creatures at the two ends, by ID as the tick
+/// ran (their positions in `entities` move afterwards), and the world-rule statement that asked, or `None` for
+/// a creature's own action. Observation only: not in the state digest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransferMeta {
+    pub origin_id: Option<u64>,
+    pub dest_id: Option<u64>,
+    pub law: Option<u32>,
+    /// From a `steal` intent.
+    pub steal: bool,
+}
+
 /// A transfer request packed for arbitration: endpoints are tagged `u32`s (`pack`).
 #[derive(Debug, Clone, Copy)]
 struct Req {
@@ -479,7 +491,9 @@ pub struct World {
     /// The tick `law_stats` began counting at.
     pub law_since: u64,
     /// Which law made each request of the tick (`u32::MAX`: a creature's own action).
-    req_law: Vec<u32>,
+    pub req_law: Vec<u32>,
+    /// With `record_transfers`: who and what behind each of `last_transfers`.
+    pub last_transfer_meta: Vec<TransferMeta>,
     pub chem: Chemistry,
     pub cells: Vec<Store>,
     pub neighbours: Vec<Vec<usize>>,
@@ -669,6 +683,7 @@ impl World {
             law_stats: Vec::new(),
             law_since: 0,
             req_law: Vec::new(),
+            last_transfer_meta: Vec::new(),
             states: Vec::new(),
             creatures,
             upkeep,
@@ -1619,6 +1634,7 @@ impl World {
 
         // Commit.
         self.last_transfers.clear();
+        self.last_transfer_meta.clear();
         for (k, r) in reqs.iter().enumerate() {
             let s = r.s as usize;
             let delivered = stage2[k];
@@ -1679,6 +1695,8 @@ impl World {
                 c.delivered += delivered as u64;
             }
             if self.record_transfers {
+                let id = |p: u32| match unpack(p) { End::Entity(i) => Some(self.entities[i].id), _ => None };
+                self.last_transfer_meta.push(TransferMeta { origin_id: id(r.origin), dest_id: id(r.dest), law: self.req_law.get(k).copied().filter(|&l| l != u32::MAX), steal: r.steal });
                 self.last_transfers.push(Transfer {
                     origin: unpack(r.origin),
                     dest: unpack(r.dest),

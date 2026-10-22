@@ -454,3 +454,46 @@ fn rule_activity_counts_what_the_runner_did() {
     let rot = b["rows"].as_array().unwrap().iter().find(|r| r["call"] == "react").unwrap();
     assert_eq!(rot["cells"], cells, "one tick of the new rules");
 }
+
+/// Stage S4 (`proposals/science-panels.md` §4): a bounded recording keeps exactly the asked-for statement's
+/// requests of the ticks after its start, counts what the cap forced it to drop, and changes nothing in the run.
+#[test]
+fn a_bounded_recording_keeps_what_it_says_and_counts_what_it_drops() {
+    let mut engine = Engine::new();
+    let mk = || json!({"source": small(NIGHT), "lineages": ["Builder"], "seed": 1, "mutation": false});
+    let w = engine.call("world.create", &mk()).unwrap()["world"].as_str().unwrap().to_string();
+    let twin = engine.call("world.create", &mk()).unwrap()["world"].as_str().unwrap().to_string();
+    assert!(engine.call("trace.query", &json!({"world": w})).is_err(), "nothing recorded before a start");
+    assert!(engine.call("trace.start", &json!({"world": w, "rules": ["Dish.rules.nope#0"]})).is_err());
+    engine.call("run.step", &json!({"world": w, "ticks": 2})).unwrap();
+    engine.call("run.step", &json!({"world": twin, "ticks": 5})).unwrap();
+    let cells = 96u64 * 96;
+    engine.call("trace.start", &json!({"world": w, "ticks": 3, "cap": 100_000, "rules": ["Dish.rules.sunlight#0"]})).unwrap();
+    engine.call("run.step", &json!({"world": w, "ticks": 3})).unwrap();
+    let t = engine.call("trace.query", &json!({"world": w, "limit": 5})).unwrap();
+    assert_eq!(t["from_tick"], 2);
+    assert_eq!(t["requests_matching"], 3 * cells, "one sunlight request per cell per tick, none from before the start");
+    assert_eq!(t["kept"], 3 * cells);
+    assert_eq!(t["dropped"], 0);
+    assert_eq!(t["complete"], true);
+    let r = &t["records"][0];
+    assert_eq!(r["by"], "Dish.rules.sunlight#0");
+    assert_eq!(r["requested_mu"], 40);
+    assert!(r["delivered_mu"].as_u64() <= r["requested_mu"].as_u64());
+    assert_eq!(r["tick"], 3, "the first recorded tick is the one after the start");
+    // A cap drops the rest and says so.
+    engine.call("trace.start", &json!({"world": w, "ticks": 1, "cap": 100, "rules": ["Dish.rules.sunlight#0"]})).unwrap();
+    engine.call("run.step", &json!({"world": w, "ticks": 1})).unwrap();
+    let c = engine.call("trace.query", &json!({"world": w})).unwrap();
+    assert_eq!((c["kept"].as_u64().unwrap(), c["dropped"].as_u64().unwrap()), (100, cells - 100));
+    assert_eq!(c["complete"], false, "a recording that dropped records is not complete");
+    // Creatures' own actions are recorded too, when asked: the Builder takes nitrate.
+    engine.call("trace.start", &json!({"world": w, "ticks": 5, "cap": 5000, "rules": [], "creatures": true})).unwrap();
+    engine.call("run.step", &json!({"world": w, "ticks": 5})).unwrap();
+    let a = engine.call("trace.query", &json!({"world": w, "limit": 5000})).unwrap();
+    assert!(a["records"].as_array().unwrap().iter().any(|r| r["kind"] == "creature" && r["from"].as_str().unwrap().starts_with("cell") && r["to"].as_str().unwrap().starts_with("creature")), "creatures take from cells");
+    assert!(a["interactions"].is_array());
+    // Observation changed nothing: w ran 2+3+1+5 = 11 ticks, so compare at equal ticks.
+    engine.call("run.step", &json!({"world": twin, "ticks": 6})).unwrap();
+    assert_eq!(engine.run(&w).unwrap().digest(), engine.run(&twin).unwrap().digest(), "recording does not change the run");
+}

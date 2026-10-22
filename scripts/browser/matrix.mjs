@@ -22,4 +22,13 @@ export default async (page) => {
   const act = await page.eval(`document.getElementById("rulesbody").innerText`);
   ok(/cells through/.test(act) && /transfer\(light/.test(act) && /react\(rot/.test(act), "activity table lists the statements with counters");
   await page.shot(S + "activity.png");
+  await page.eval(`document.querySelector('input[name="rmode"][value="trace"]').click()`);
+  await page.wait(800);
+  await page.eval(`(() => { const s = document.querySelector("#rulesbody select"); s.selectedIndex = 2; s.onchange(); [...document.querySelectorAll("#rulesbody button")].find((b) => /Record/.test(b.textContent)).click(); })()`);
+  await page.wait(500);
+  await page.eval(`call("run.step", { world: document.getElementById("world").value, ticks: 3 })`);
+  await page.eval(`loadRules()`);
+  await page.wait(1000);
+  const tr = await page.eval(`document.getElementById("rulesbody").innerText`);
+  ok(/requests matched/.test(tr) && /kept/.test(tr) && /dropped/.test(tr), "trace reports matched, kept and dropped: " + tr.split("\n").find((l) => /matched/.test(l)).slice(0, 100));
 };
