@@ -6,7 +6,7 @@
 <title>Emerge viewer</title>
 <style>
   :root {
-    --bg: #3b3b3b; --panel: #2f2f2f; --line: #222222; --field: #262626; --ink: #ebebeb; --muted: #b6b6b6;
+    --bg: #3b3b3b; --panel: #303030; --line: #202020; --field: #262626; --ink: #ebebeb; --muted: #b6b6b6;
     --accent: #e0a458; --ok: #7bc47f; --bad: #e57373;
   }
   * { box-sizing: border-box; }
@@ -18,10 +18,6 @@
   #status.ok { color: var(--ok); }
   #status.bad { color: var(--bad); }
   #where { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
-  .layout { flex: 1; display: flex; min-height: 0; }
-  aside { display: flex; flex-direction: column; width: 280px; flex: none; padding: 14px 16px; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; }
-  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 18px 0 8px; font-weight: 600; }
-  aside h2:first-child { margin-top: 0; }
   label { display: block; color: var(--muted); font-size: 12px; margin: 8px 0 3px; }
   select, input { width: 100%; background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; }
   .row { display: flex; gap: 8px; }
@@ -35,31 +31,9 @@
   .checks input { width: auto; }
   #stats { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; white-space: pre-line; }
   #error { color: var(--bad); font-size: 13px; white-space: pre-wrap; margin-top: 10px; }
-  #stages { flex: 1; display: flex; min-width: 0; position: relative; }
-  .pane { flex: 1 1 0; min-width: 0; display: none; flex-direction: column; }
-  .pane.vis { display: flex; }
-  .pane > main { flex: 1; min-height: 0; position: relative; overflow: hidden; touch-action: none; cursor: grab; }
-  .phead { flex: none; height: 26px; display: flex; align-items: stretch; background: var(--panel); border-bottom: 1px solid var(--line); user-select: none; }
-  .ptab { display: flex; align-items: center; gap: 6px; padding: 0 14px 0 10px; font-size: 12px; color: var(--muted); background: #3b3b3b; border-right: 1px solid var(--line); border-top: 2px solid transparent; }
-  .pane.focus .ptab { color: var(--ink); border-top-color: var(--accent); }
-  #stages.split .ptab { cursor: grab; }
-  #stages.split .ptab::before { content: "\2630"; opacity: 0.6; }
-  #stages.split .ptab:hover { color: var(--ink); }
-  .pane.dragging { opacity: 0.55; }
-  main.dragging { cursor: grabbing; }
-  .divider, #asidebar { flex: none; width: 6px; cursor: col-resize; background: var(--line); }
-  .divider:hover, .divider.on, #asidebar:hover, #asidebar.on { background: var(--accent); }
-  body.codeonly #asidebar { display: none; }
-  #dropmark { position: absolute; top: 0; bottom: 0; width: 4px; margin-left: -2px; background: var(--accent); z-index: 9; display: none; pointer-events: none; }
   #frame { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; display: none; user-select: none; -webkit-user-drag: none; }
   #frame.enlarged { image-rendering: pixelated; }
   #empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
-  #cam { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 4px 4px 10px; color: var(--muted); font-variant-numeric: tabular-nums; cursor: default; }
-  #cam button { padding: 3px 8px; }
-  body.graph #sel { order: -1; margin-bottom: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
-  body.graph #sel h2 { margin-top: 0; }
-  #code { display: none; position: relative; width: 480px; min-width: 260px; flex: none; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); }
-  body.code-open #code { display: flex; }
   #code .bar { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
   #code .bar select { width: auto; flex: 1; min-width: 0; }
   #code .bar button { padding: 3px 8px; }
@@ -76,8 +50,6 @@
   #codeerrors .ok { color: var(--ok); }
   #codeerrors .muted { color: var(--muted); }
   #code-world { display: none; }
-  body.codeonly #code-world { display: block; }
-  #codehandle { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 2; }
   #codebody { flex: 1; overflow: auto; font: 12px/1.55 ui-monospace, monospace; padding: 6px 0; tab-size: 4; }
   .cl { display: flex; white-space: pre; }
   .cl .n { flex: none; width: 46px; text-align: right; padding-right: 10px; color: var(--muted); opacity: 0.7; user-select: none; cursor: pointer; }
@@ -91,11 +63,6 @@
   .tk-l { color: #e0a050; }
   .tk-n { color: #6fbfae; }
   .tk-s { color: #9cc77a; }
-  body.codeonly aside, body.codeonly #stages, body.codeonly .modes, body.codeonly .server, body.codeonly #where { display: none; }
-  body.codeonly #code { display: flex; flex: 1; width: auto; border-left: 0; }
-  body.codeonly #codehandle, body.codeonly #popout { display: none; }
-  body.genome #sel { order: -1; margin-bottom: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
-  body.genome #sel h2 { margin-top: 0; }
   #genome { position: absolute; left: 0; top: 0; transform-origin: 0 0; display: none; background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 20px 20px; }
   #genome svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
   #genome .wire { fill: none; stroke-width: 2; opacity: 0.8; }
@@ -131,7 +98,6 @@
   #infopanel .who { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
   #infopanel .who button { padding: 1px 8px; margin-top: 3px; font-size: 11px; }
   #infopanel .hint { margin-top: 6px; color: var(--muted); font-size: 11px; }
-  #cam button.on { background: var(--accent); color: #1a1408; border-color: var(--accent); }
   .modes { display: flex; gap: 4px; }
   .modes button { padding: 3px 10px; }
   .modes button.on { background: var(--accent); color: #1a1408; border-color: var(--accent); font-weight: 600; }
@@ -165,7 +131,7 @@
   .box.codebox .t { background: #9aa1ad; }
   .box.k-code .t { background: #9aa1ad; }
   .col-head { position: absolute; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-  #picked { font: 12px/1.4 ui-monospace, monospace; color: var(--ink); white-space: pre-wrap; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 260px; overflow: auto; }
+  #picked { font: 12px/1.4 ui-monospace, monospace; color: var(--ink); white-space: pre-wrap; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
   #picked textarea { width: 100%; min-height: 90px; resize: vertical; background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; font: inherit; }
   #picked textarea.dirty { border-color: var(--accent); }
   #picked .edit { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
@@ -174,21 +140,71 @@
   #picked .msg.bad { color: var(--bad); }
   #picked .msg.ok { color: var(--ok); }
   #picked small { display: block; color: var(--muted); font: 11px system-ui, sans-serif; margin-bottom: 4px; }
-  @media (max-width: 720px) {
-    .layout { flex-direction: column; }
-    aside { width: auto; border-right: 0; border-bottom: 1px solid var(--line); }
-  }
+
+  body { overflow: hidden; }
+  #desk { flex: 1; display: flex; min-height: 0; }
+  #colL { flex: 1; min-width: 200px; display: flex; }
+  #colR { flex: none; width: 40%; min-width: 240px; display: flex; flex-direction: column; border-left: 1px solid var(--line); }
+  .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1 1 0; position: relative; }
+  #colL .pane { flex: 1; }
+  #pane-parm { flex: 0 0 40%; }
+  #pane-net { flex: 1 1 0; }
+  .phead { flex: none; height: 28px; display: flex; align-items: stretch; gap: 0; background: var(--panel); border-bottom: 1px solid var(--line); user-select: none; }
+  .phead select { align-self: center; width: auto; max-width: 220px; padding: 2px 6px; margin-left: 6px; font-size: 12px; }
+  .phead #zoom { align-self: center; padding-right: 10px; color: var(--muted); font-size: 12px; }
+  .ptab { display: flex; align-items: center; padding: 0 14px; font: 12px system-ui, sans-serif; color: var(--muted); background: var(--panel); border: 0; border-right: 1px solid var(--line); border-top: 2px solid transparent; border-radius: 0; cursor: pointer; }
+  .ptab:hover { color: var(--ink); border-color: var(--line); border-top-color: transparent; }
+  .ptab.on { color: var(--ink); background: var(--bg); border-top-color: var(--accent); }
+  body.code-open .ptab:not(#codebtn).on { background: var(--panel); color: var(--muted); border-top-color: transparent; }
+  .pane:not(.focus) .ptab.on { border-top-color: #777; }
+  .pbody { flex: 1; display: flex; min-height: 0; position: relative; }
+  .pbody > main { flex: 1; min-width: 0; position: relative; overflow: hidden; touch-action: none; cursor: grab; }
+  .tabbody { flex: 1; position: relative; min-height: 0; }
+  .tabbody > main { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: grab; display: none; }
+  .tabbody > main.vis { display: block; }
+  main.dragging { cursor: grabbing; }
+  .strip { flex: none; width: 34px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 0; background: var(--panel); }
+  #lstrip { border-right: 1px solid var(--line); }
+  #rstrip { border-left: 1px solid var(--line); }
+  .strip button { width: 26px; height: 26px; padding: 0; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center; }
+  .strip button.on { background: var(--accent); color: #1a1408; border-color: var(--accent); }
+  #flyout { display: none; position: absolute; right: 40px; top: 36px; z-index: 12; width: 150px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px 10px; box-shadow: 0 6px 24px #0008; }
+  #flyout.open { display: block; }
+  #flyout .check { display: flex; gap: 6px; align-items: center; color: var(--ink); margin-top: 10px; }
+  #flyout .check input { width: auto; }
+  .divider { flex: none; background: var(--line); z-index: 3; }
+  .divider.v { width: 6px; cursor: col-resize; }
+  .divider.h { height: 6px; cursor: row-resize; }
+  .divider:hover, .divider.on { background: var(--accent); }
+  .hbar { align-self: center; color: var(--muted); font-size: 12px; margin: 0 -8px 0 8px; }
+  header select { width: auto; max-width: 240px; padding: 3px 6px; }
+  header button { padding: 3px 10px; }
+  #newworld { display: none; position: fixed; left: 280px; top: 44px; z-index: 30; width: 300px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px 14px; box-shadow: 0 8px 28px #000a; }
+  #newworld.open { display: block; }
+  #newworld h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 6px 0 4px; }
+  #empty button { margin-top: 12px; pointer-events: auto; }
+  #parm { flex: 1; overflow-y: auto; padding: 10px 12px; background: var(--panel); display: flex; flex-direction: column; }
+  #parm h2, #parm h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 14px 0 6px; font-weight: 600; }
+  #parm h2:first-child { margin-top: 0; }
+  #parm details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 6px; }
+  #parm summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; padding: 4px 0; }
+  #sel { padding-bottom: 6px; }
+  #playbar { flex: none; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--panel); border-top: 1px solid var(--line); }
+  #playbar button { padding: 4px 12px; }
+  #playbar input { width: 64px; padding: 4px 6px; }
+  #playbar #stats { margin-left: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  #playbar #error { margin: 0; color: var(--bad); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+  #code { display: none; position: absolute; inset: 0; z-index: 8; flex-direction: column; background: var(--panel); }
+  body.code-open #code { display: flex; }
+  #codehandle { display: none; }
+  body.codeonly #colL, body.codeonly #dv, body.codeonly #pane-parm, body.codeonly #dh, body.codeonly #pane-net .phead, body.codeonly .tabbody > main, body.codeonly #playbar, body.codeonly .server, body.codeonly #where, body.codeonly .hbar, body.codeonly #world, body.codeonly #newbtn { display: none; }
+  body.codeonly #colR { width: auto !important; flex: 1 !important; border-left: 0; }
+  body.codeonly #popout { display: none; }
 </style>
 </head>
 <body>
-<header><h1>Emerge</h1><span id="status">connecting…</span><span class="modes"><button id="m-picture" class="on">Picture</button><button id="m-graph">Graph</button><button id="m-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button id="split" title="Viewport and network side by side, with a draggable divider">Split</button><button id="codebtn" title="Show the complete source of the world">Code</button></span><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
-<div class="layout">
-  <aside>
-    <h2>World</h2>
-    <label for="world">Running worlds</label>
-    <select id="world"></select>
-    <h2>New world</h2>
-    <label for="example">Start from</label>
+<header><h1>Emerge</h1><span id="status">connecting…</span><label class="hbar" for="world">World</label><select id="world" title="The running world that Play, Step and the editors act on"></select><button id="newbtn" title="Start a new world from an example">New world…</button><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
+<div id="newworld"><h3>New world</h3>    <label for="example">Start from</label>
     <select id="example"></select>
     <div class="checks" id="lins"></div>
     <div class="row">
@@ -198,36 +214,50 @@
     <label for="backend">Runs on</label>
     <select id="backend" title="The GPU runs the same world in contract mode (its own exact arithmetic, so numbers differ from the CPU's)"><option value="cpu">CPU</option><option value="gpu">GPU (contract mode)</option></select>
     <p><button class="primary" id="create">Create from the example</button></p>
-    <h2>View</h2>
-    <label for="view">View</label>
-    <select id="view"></select>
-    <div class="row">
-      <div><label for="every">Every (ticks)</label><input id="every" type="number" value="5" min="1"></div>
-      <div><label for="fps">Max fps</label><input id="fps" type="number" value="8" min="1" max="30"></div>
     </div>
-    <div class="checks"><label><input type="checkbox" id="charts" checked> Charts (population, births and deaths, ledger)</label></div>
-    <h2>Run</h2>
-    <div class="row">
-      <button id="play">Play</button>
-      <button id="pause">Pause</button>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <input id="steps" type="number" value="10" min="1">
-      <button id="step">Step</button>
-    </div>
-    <h2>Stats</h2>
-    <div id="stats">–</div>
-    <div id="sel">
+<div id="desk">
+  <div id="colL">
+    <section class="pane focus" id="pane-picture" data-view="picture">
+      <div class="phead"><span class="ptab on">Viewport</span><select id="view" title="Which view of the world to draw"></select><span style="flex:1"></span><span id="zoom" title="Zoom of the focused pane">100%</span></div>
+      <div class="pbody">
+        <div class="strip" id="lstrip">
+          <button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button>
+          <button id="zin" title="Zoom in">+</button>
+          <button id="zout" title="Zoom out">&minus;</button>
+          <button id="fit" title="Fit the view to the pane (double-click does it too)">&#10530;</button>
+        </div>
+        <main id="stage-picture" data-view="picture"><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.<br><button id="newbtn2" class="primary">New world…</button></span><div id="pickmark"></div><div id="infopanel"></div></main>
+        <div class="strip" id="rstrip">
+          <button id="chartsbtn" class="on" title="Charts under the picture">&#9636;</button>
+          <button id="gear" title="Update rate">&#9881;</button>
+        </div>
+        <div id="flyout">
+          <label for="every">Every (ticks)</label><input id="every" type="number" value="5" min="1">
+          <label for="fps">Max fps</label><input id="fps" type="number" value="8" min="1" max="30">
+          <label class="check"><input type="checkbox" id="charts" checked> Charts</label>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="divider v" id="dv" title="Drag to resize"></div>
+  <div id="colR">
+    <section class="pane" id="pane-parm">
+      <div class="phead"><span class="ptab on">Parameters</span></div>
+      <div id="parm">
+        <div id="sel">
       <h2>Selected</h2>
       <div id="picked">Click a box in the graph.</div>
       <label for="decls">Other declarations</label>
       <select id="decls"><option value="">–</option></select>
     </div>
-    <div id="error"></div>
-  </aside>
-  <div id="asidebar" title="Drag to resize the side panel"></div>
-  <div id="stages"><section class="pane" id="pane-picture" data-view="picture"><div class="phead"><span class="ptab">Viewport</span></div><main id="stage-picture" data-view="picture"><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="pickmark"></div><div id="infopanel"></div></main></section><section class="pane" id="pane-graph" data-view="graph"><div class="phead"><span class="ptab">Network</span></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></section><section class="pane" id="pane-genome" data-view="genome"><div class="phead"><span class="ptab">Genome</span></div><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main></section><div id="dropmark"></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit. i: info picker."><span id="zoom">100%</span><button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button><button id="fit">Fit</button></div></div>
-  <section id="code">
+    
+
+      </div>
+    </section>
+    <div class="divider h" id="dh" title="Drag to resize"></div>
+    <section class="pane" id="pane-net">
+      <div class="phead"><button class="ptab on" id="t-graph">Network</button><button class="ptab" id="t-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button class="ptab" id="codebtn" title="Show the complete source of the world">Code</button></div>
+      <div class="tabbody"><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main><section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
     <div id="codebody"><span style="padding:10px;color:var(--muted)">Create a world, or pick one.</span></div>
@@ -244,8 +274,15 @@
         <input type="file" id="fileinput" accept=".em,.txt,text/plain" style="display:none">
       </div>
     </div>
-  </section>
+  </section></div>
+    </section>
+  </div>
 </div>
+<footer id="playbar">
+  <button id="play" title="Run">&#9654; Play</button><button id="pause">&#10074;&#10074; Pause</button>
+  <input id="steps" type="number" value="10" min="1" title="Ticks per step"><button id="step">Step</button>
+  <span id="stats">–</span><span id="error"></span>
+</footer>
 <script>
 const $ = (id) => document.getElementById(id);
 const say = (text, kind) => { $("status").textContent = text; $("status").className = kind || ""; };
@@ -274,18 +311,12 @@ const info = { on: false, map: null, pin: null, hover: null, at: 0, busy: false 
 let wantEntity = null;
 const newCam = () => ({ s: 1, x: 0, y: 0, fit: true, w: 0, h: 0 });
 const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
-// `mode` is the focused view (what the zoom label and Fit speak of); `visible` says which views are
-// on screen: one, or the picture beside the network or the genome (Split).
+// `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
+// screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-let split = false, side = "graph";
-let panesOn = new Set(["picture", "graph"]);          // the panes on screen in a split layout
-let order = ["picture", "graph", "genome"];          // left to right
-const weights = { picture: 1, graph: 1, genome: 1 };   // their shares of the width
-let asideW = 280;
-const visible = { picture: true, graph: false, genome: false };
+const visible = { picture: true, graph: true, genome: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
-const panes = { picture: $("pane-picture"), graph: $("pane-graph"), genome: $("pane-genome") };       // with their title bars
 const stage = stages.picture;   // the picture's stage: the info picker lives there
 const viewOf = (cam) => Object.keys(cams).find((k) => cams[k] === cam);
 function fitCam(cam = cams[mode]) {
@@ -305,20 +336,30 @@ function applyCam(cam = cams[mode]) {
   if (cam === cams.picture) placeMark();
   if (cam === cams[mode]) $("zoom").textContent = `${Math.round(cam.s * 100)}%`;
 }
-// The views on screen fit their stage again (after the window, the divider or the layout moved).
+// A view that is on screen fits its stage again when the stage changes size (a divider, a tab, the window).
 function refitAll() {
   for (const v of Object.keys(cams)) if (visible[v] && cams[v].fit) { fitCam(cams[v]); applyCam(cams[v]); }
 }
-function markButtons() {
-  for (const v of Object.keys(stages)) $(`m-${v}`).classList.toggle("on", split ? visible[v] : mode === v);
-}
+for (const v of Object.keys(stages)) new ResizeObserver(() => { if (visible[v] && cams[v].fit) { fitCam(cams[v]); applyCam(cams[v]); } }).observe(stages[v]);
 function focusView(v) {
   if (mode === v) return;
   mode = v;
-  for (const k of Object.keys(panes)) panes[k].classList.toggle("focus", k === v);
-  markButtons();
+  $("pane-picture").classList.toggle("focus", v === "picture");
+  $("pane-net").classList.toggle("focus", v !== "picture");
   applyCam(cams[v]);
 }
+function zoomBy(f) {
+  const cam = cams[mode], r = stages[mode].getBoundingClientRect();
+  if (!cam.w) return;
+  const s = Math.min(64, Math.max(0.05, cam.s * f)), px = r.width / 2, py = r.height / 2;
+  cam.x = px - (px - cam.x) * (s / cam.s);
+  cam.y = py - (py - cam.y) * (s / cam.s);
+  cam.s = s;
+  cam.fit = false;
+  applyCam(cam);
+}
+$("zin").onclick = () => zoomBy(1.25);
+$("zout").onclick = () => zoomBy(0.8);
 let drag = null;
 function bindStage(view) {
   const stage = stages[view];
@@ -332,13 +373,13 @@ function bindStage(view) {
     cam.y = py - (py - cam.y) * (s / cam.s);
     cam.s = s;
     cam.fit = false;
-    if (split) focusView(view);
+    focusView(view);
     applyCam(cam);
   }, { passive: false });
   stage.addEventListener("pointerdown", (e) => {
     const cam = cams[view];
-    if (split) focusView(view);
-    if (!cam.w || e.button > 1 || e.target.closest("#cam") || e.target.closest("#infopanel")) return;
+    focusView(view);
+    if (!cam.w || e.button > 1 || e.target.closest("#infopanel")) return;
     const port = view === "graph" && e.target.closest(".port.out");
     const box = view === "graph" && e.target.closest(".box");
     if (port && box) {
@@ -411,102 +452,35 @@ function bindStage(view) {
   };
   stage.addEventListener("pointerup", drop);
   stage.addEventListener("pointercancel", () => { drag = null; stage.classList.remove("dragging"); });
-  stage.addEventListener("dblclick", (e) => { if (!e.target.closest("#cam") && !e.target.closest(".box")) { fitCam(cams[view]); applyCam(cams[view]); } });
+  stage.addEventListener("dblclick", (e) => { if (!e.target.closest(".box")) { fitCam(cams[view]); applyCam(cams[view]); } });
 }
 for (const v of Object.keys(stages)) bindStage(v);
 $("fit").onclick = () => { fitCam(); applyCam(); };
 window.addEventListener("resize", refitAll);
-// Dividers between the panes on screen, and the panes' order: a pane moves by dragging its title.
-const MIN_PANE = 140;
-function layout() {
-  document.querySelectorAll("#stages .divider").forEach((d) => d.remove());
-  const vis = order.filter((v) => visible[v]);
-  order.forEach((v) => { panes[v].style.order = vis.includes(v) ? 2 * vis.indexOf(v) : 100; });
-  for (const v of order) panes[v].style.flex = vis.includes(v) && split ? `${weights[v]} 1 0` : "1 1 0";
-  vis.forEach((v, i) => {
-    if (i === 0 || !split) return;
-    const bar = document.createElement("div");
-    bar.className = "divider";
-    bar.title = "Drag to resize the panes";
-    bar.style.order = 2 * i - 1;
-    bar.dataset.left = vis[i - 1];
-    bar.dataset.right = v;
-    bar.addEventListener("pointerdown", dividerDrag);
-    $("stages").appendChild(bar);
+// The two dividers: viewport | right column, and Parameters / Network. Sizes are kept per browser.
+const layoutState = { rw: null, ph: null };
+function saveLayout() { try { localStorage.setItem("layout2", JSON.stringify(layoutState)); } catch (e) {} }
+function dragBar(bar, move) {
+  bar.addEventListener("pointerdown", (e) => {
+    bar.setPointerCapture(e.pointerId);
+    bar.classList.add("on");
+    const mv = (m) => { move(m); refitAll(); };
+    const up = () => { bar.classList.remove("on"); bar.removeEventListener("pointermove", mv); bar.removeEventListener("pointerup", up); saveLayout(); };
+    bar.addEventListener("pointermove", mv);
+    bar.addEventListener("pointerup", up);
   });
-  document.querySelectorAll("#stages .phead").forEach((t) => { t.onpointerdown = split ? titleDrag : null; });
 }
-function dividerDrag(e) {
-  const bar = e.currentTarget, l = bar.dataset.left, r = bar.dataset.right;
-  bar.setPointerCapture(e.pointerId);
-  bar.classList.add("on");
-  const total = weights[l] + weights[r];
-  const move = (m) => {
-    const a = panes[l].getBoundingClientRect().left, b = panes[r].getBoundingClientRect().right;
-    const lo = MIN_PANE / (b - a), f = Math.min(1 - lo, Math.max(lo, (m.clientX - a) / (b - a)));
-    weights[l] = total * f;
-    weights[r] = total * (1 - f);
-    panes[l].style.flex = `${weights[l]} 1 0`;
-    panes[r].style.flex = `${weights[r]} 1 0`;
-    refitAll();
-  };
-  const up = () => { bar.classList.remove("on"); bar.removeEventListener("pointermove", move); bar.removeEventListener("pointerup", up); saveLayout(); };
-  bar.addEventListener("pointermove", move);
-  bar.addEventListener("pointerup", up);
-}
-// Where a pane dragged to x would land: the index among the other panes on screen.
-function dropIndex(v, x) {
-  const others = order.filter((o) => visible[o] && o !== v);
-  let i = 0;
-  for (const o of others) { const r = panes[o].getBoundingClientRect(); if (x > r.left + r.width / 2) i++; }
-  return { i, others };
-}
-function titleDrag(e) {
-  e.stopPropagation();
-  e.preventDefault();
-  const v = e.currentTarget.parentElement.dataset.view, t = e.currentTarget, mark = $("dropmark"), box = $("stages").getBoundingClientRect();
-  panes[v].classList.add("dragging");
-  t.setPointerCapture(e.pointerId);
-  const at = (x) => {
-    const { i, others } = dropIndex(v, x);
-    const left = i < others.length ? panes[others[i]].getBoundingClientRect().left : panes[others[others.length - 1]].getBoundingClientRect().right;
-    mark.style.left = `${left - box.left}px`;
-    mark.style.display = others.length ? "block" : "none";
-  };
-  const move = (m) => at(m.clientX);
-  const up = (m) => {
-    t.removeEventListener("pointermove", move);
-    t.removeEventListener("pointerup", up);
-    panes[v].classList.remove("dragging");
-    mark.style.display = "none";
-    const { i, others } = dropIndex(v, m.clientX);
-    const rest = order.filter((o) => o !== v);
-    const before = others[i];
-    rest.splice(before ? rest.indexOf(before) : rest.length, 0, v);
-    order = rest;
-    layout();
-    refitAll();
-    saveLayout();
-  };
-  t.addEventListener("pointermove", move);
-  t.addEventListener("pointerup", up);
-  at(e.clientX);
-}
-// The side panel's width.
-$("asidebar").addEventListener("pointerdown", (e) => {
-  const bar = $("asidebar");
-  bar.setPointerCapture(e.pointerId);
-  bar.classList.add("on");
-  const move = (m) => {
-    asideW = Math.min(520, Math.max(200, m.clientX - document.querySelector("aside").getBoundingClientRect().left));
-    document.querySelector("aside").style.width = `${asideW}px`;
-    refitAll();
-  };
-  const up = () => { bar.classList.remove("on"); bar.removeEventListener("pointermove", move); bar.removeEventListener("pointerup", up); saveLayout(); };
-  bar.addEventListener("pointermove", move);
-  bar.addEventListener("pointerup", up);
-});
-function saveLayout() { try { localStorage.setItem("layout", JSON.stringify({ order, weights, asideW })); } catch (e) {} }
+const setRightWidth = (w) => { const box = $("desk").getBoundingClientRect(); layoutState.rw = Math.min(box.width - 260, Math.max(240, w)); $("colR").style.width = `${layoutState.rw}px`; };
+const setParmHeight = (h) => { const box = $("colR").getBoundingClientRect(); layoutState.ph = Math.min(box.height - 120, Math.max(60, h)); $("pane-parm").style.flex = `0 0 ${layoutState.ph}px`; };
+dragBar($("dv"), (m) => setRightWidth($("desk").getBoundingClientRect().right - m.clientX));
+dragBar($("dh"), (m) => setParmHeight(m.clientY - $("colR").getBoundingClientRect().top));
+const toggleNew = (on) => $("newworld").classList.toggle("open", on === undefined ? !$("newworld").classList.contains("open") : on);
+$("newbtn").onclick = () => toggleNew();
+$("newbtn2").onclick = () => toggleNew(true);
+$("create").addEventListener("click", () => setTimeout(() => toggleNew(false), 300));
+$("gear").onclick = () => $("flyout").classList.toggle("open");
+$("chartsbtn").onclick = () => $("charts").click();
+$("charts").addEventListener("change", () => $("chartsbtn").classList.toggle("on", $("charts").checked));
 
 // ---- The code window: the complete source of the running world, read-only. A statement or box
 // selected in the graph is marked here, a click on a line selects the box that holds it, and lines a
@@ -1153,59 +1127,40 @@ function selectGene(i) {
 $("entity").onchange = () => { genomeSel = null; loadGenome().catch(oops); };
 $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).catch(oops);
 
+// The network pane's tabs: Network, Genome, Code. `setMode("picture")` only moves the focus.
 function setMode(m) {
-  mode = m;
-  if (m !== "picture") side = m;
-  if (split) panesOn.add(m);
-  for (const v of Object.keys(visible)) visible[v] = split ? panesOn.has(v) : v === m;
-  if (!visible.picture && info.on) infoOff();
-  markButtons();
-  $("split").classList.toggle("on", split);
-  $("stages").classList.toggle("split", split);
-  for (const v of Object.keys(stages)) {
-    panes[v].classList.toggle("vis", visible[v]);
-    panes[v].classList.toggle("focus", v === m);
-  }
-  layout();
+  if (m === "picture") return focusView("picture");
+  if (document.body.classList.contains("code-open")) $("codebtn").click();
+  visible.graph = m === "graph";
+  visible.genome = m === "genome";
+  $("t-graph").classList.toggle("on", visible.graph);
+  $("t-genome").classList.toggle("on", visible.genome);
+  $("stage-graph").classList.toggle("vis", visible.graph);
+  $("stage-genome").classList.toggle("vis", visible.genome);
   $("graph").style.display = visible.graph ? "block" : "none";
   $("genome").style.display = visible.genome ? "block" : "none";
   document.body.classList.toggle("graph", visible.graph);
   document.body.classList.toggle("genome", visible.genome);
-  $("frame").style.display = visible.picture && $("frame").src ? "block" : "none";
-  $("empty").style.display = visible.picture && !$("frame").src ? "flex" : "none";
+  mode = m;
+  $("pane-picture").classList.remove("focus");
+  $("pane-net").classList.add("focus");
   showGenomeMsg();
-  if (visible.picture) { fitIfFit(cams.picture); applyCam(cams.picture); }
-  if (visible.graph) loadGraph().then(() => { fitIfFit(cams.graph); applyCam(cams.graph); }).catch(oops);
-  if (visible.genome) loadEntities().then(() => loadGenome()).then(() => { fitIfFit(cams.genome); applyCam(cams.genome); }).catch(oops);
+  if (visible.graph) loadGraph().then(() => { if (cams.graph.fit) fitCam(cams.graph); applyCam(cams.graph); }).catch(oops);
+  if (visible.genome) loadEntities().then(() => loadGenome()).then(() => { if (cams.genome.fit) fitCam(cams.genome); applyCam(cams.genome); }).catch(oops);
   applyCam(cams[m]);
-  saveLayout();
 }
-const fitIfFit = (cam) => { if (cam.fit) fitCam(cam); };
 try {
-  const saved = JSON.parse(localStorage.getItem("layout") || "{}");
-  if (Array.isArray(saved.order) && saved.order.length === 3 && saved.order.every((v) => stages[v])) order = saved.order;
-  for (const v of Object.keys(weights)) if (saved.weights && saved.weights[v] > 0) weights[v] = saved.weights[v];
-  if (saved.asideW >= 200) { asideW = saved.asideW; document.querySelector("aside").style.width = `${asideW}px`; }
+  const saved = JSON.parse(localStorage.getItem("layout2") || "{}");
+  if (!codeonly && saved.rw >= 240) setRightWidth(saved.rw);
+  if (!codeonly && saved.ph >= 60) setParmHeight(saved.ph);
 } catch (e) {}
-setMode("picture");
-$("split").onclick = () => {
-  split = !split;
-  if (split) panesOn = new Set(["picture", mode === "picture" ? side : mode]);
-  setMode(mode);
-  requestAnimationFrame(refitAll);
-};
-// In a split layout a view's button turns its pane on or off (one stays); alone, it shows that view.
-function pick(v) {
-  if (!split) return setMode(v);
-  if (panesOn.has(v) && panesOn.size > 1) {
-    panesOn.delete(v);
-    setMode(mode === v ? order.find((o) => panesOn.has(o)) : mode);
-  } else setMode(v);
-  requestAnimationFrame(refitAll);
-}
-$("m-picture").onclick = () => pick("picture");
-$("m-graph").onclick = () => pick("graph");
-$("m-genome").onclick = () => pick("genome");
+$("t-graph").onclick = () => setMode("graph");
+$("t-genome").onclick = () => setMode("genome");
+$("frame").style.display = "none";
+$("pane-picture").classList.add("focus");
+$("stage-graph").classList.add("vis");
+$("graph").style.display = "block";
+document.body.classList.add("graph");
 $("decls").onchange = () => select($("decls").value);
 
 // A point of the picture as a point of the world: the map is the top left of the image, `map.w` by
@@ -1458,6 +1413,7 @@ async function create() {
   await refreshViews();
   await subscribe();
   await stats();
+  if (isShown("graph")) { await loadGraph(); if (cams.graph.fit) fitCam(cams.graph); applyCam(cams.graph); }
 }
 
 function connect() {
