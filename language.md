@@ -1035,7 +1035,8 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | `transfer` from a source, with `overflow` | yes | yes | yes |
 | `react`, `diffuse_conserved` | yes | yes | yes |
 | `when`, `else`, `let` around those statements (§7; conditions on `self.<substance>`, `cap()`, `tick`, neighbour reads and `sum`/`min`/`max`/`count` over `moore`/`vonneumann`, in exact integers) | yes | yes | yes, equal to the CPU in contract mode; a condition more than 16 values deep is refused |
-| Other rule statements on the conserved field; transfers not from a source | parsed | `E1001` | — |
+| `transfer(s, from: self, to: above\|right\|below\|left, amount)` between cells (§7.2; no `overflow`) | yes | yes | yes, equal to the CPU in contract mode |
+| Other rule statements on the conserved field; transfers from anything but a source or `self` | parsed | `E1001` | — |
 | World genesis `for cell in … { transfer(…) }`; lineage genesis `count`, `position = uniform(…)`, `transfer` | yes | yes | yes (genesis runs on the CPU before packing) |
 | **Genomes and mutation** | | | |
 | Senses `inventory`, `gradient`, `probe`, `crowd`, `neighbour`, `clock`, `delta` | yes | yes (`delta` is the signed difference; before 2026-10-21 it wrapped outside contract mode, spec §10.1) | yes |
