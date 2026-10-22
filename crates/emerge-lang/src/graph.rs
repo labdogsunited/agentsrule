@@ -238,7 +238,8 @@ pub fn graph(file: &File, world: &str) -> Result<Graph, String> {
                 Kind::Transfer => {
                     let s = subject(call).into_iter().next();
                     let from = arg_name(call, "from").and_then(|n| target(&n));
-                    let to = arg_name(call, "to").and_then(|n| target(&n));
+                    // A move to a neighbouring cell (`to: below`) stays in the field it leaves.
+                    let to = arg_name(call, "to").and_then(|n| if ["above", "right", "below", "left"].contains(&n.as_str()) { store(on) } else { target(&n) });
                     if let Some(f) = from {
                         wires.push(Wire { from: f, to: sid.clone(), substance: s.clone() });
                     }
