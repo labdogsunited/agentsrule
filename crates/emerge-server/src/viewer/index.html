@@ -233,6 +233,7 @@
   .box.pin { outline: 2px dashed var(--accent); outline-offset: 2px; }
   #picked .state { font: 11px system-ui, sans-serif; color: var(--accent); margin: 4px 0; }
   #picked input.dirty { border-color: var(--accent); }
+  #picked input.bad { border-color: var(--bad); }
   #picked input.pending { opacity: 0.6; }
   #picked input:disabled { opacity: 0.6; }
   #playbar { flex: none; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--panel); border-top: 1px solid var(--line); }
@@ -243,6 +244,16 @@
   #code { display: none; position: absolute; inset: 0; z-index: 8; flex-direction: column; background: var(--panel); }
   body.code-open #code { display: flex; }
   #codehandle { display: none; }
+  .phead { overflow-x: auto; scrollbar-width: none; }
+  .phead::-webkit-scrollbar { display: none; }
+  .ptab { flex: none; white-space: nowrap; }
+  @media (max-width: 900px) { .ptab { padding: 0 9px; } #flyout { right: 36px; } }
+  @media (max-width: 760px) {
+    #desk { flex-direction: column; overflow-y: auto; }
+    #colL { flex: none; height: 62vh; min-width: 0; }
+    #colR { width: 100% !important; min-width: 0; flex: none; height: 90vh; border-left: 0; border-top: 1px solid var(--line); }
+    #dv { display: none; }
+  }
   body.codeonly #colL, body.codeonly #dv, body.codeonly #pane-parm, body.codeonly #dh, body.codeonly #pane-net .phead, body.codeonly .tabbody > main, body.codeonly #playbar, body.codeonly .server, body.codeonly #where, body.codeonly .hbar, body.codeonly #world, body.codeonly #newbtn { display: none; }
   body.codeonly #colR { width: auto !important; flex: 1 !important; border-left: 0; }
   body.codeonly #popout { display: none; }
@@ -304,7 +315,7 @@
     </section>
     <div class="divider h" id="dh" title="Drag to resize"></div>
     <section class="pane" id="pane-net">
-      <div class="phead"><button class="ptab on" id="t-graph">Network</button><button class="ptab" id="t-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button class="ptab" id="t-look" title="The colour ramps of the current view, as nodes">Look</button><button class="ptab" id="t-details" title="A table of the creatures: id, lineage, age, position, what they carry">Details</button><button class="ptab" id="codebtn" title="Show the complete source of the world">Code</button><span style="flex:1"></span><button class="ptab" id="netgrid" title="Show the dotted grid behind the network (G)">Grid</button></div>
+      <div class="phead"><button class="ptab on" id="t-graph">Network</button><button class="ptab" id="t-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button class="ptab" id="t-look" title="The colour ramps of the current view, as nodes">Look</button><button class="ptab" id="t-details" title="A table of the creatures: id, lineage, age, position, what they carry">Details</button><button class="ptab" id="codebtn" title="Show the complete source of the world">Code</button><span style="flex:1"></span><button class="ptab" id="netfit" title="Fit the network or the genome to the pane">Fit</button><button class="ptab" id="netgrid" title="Show the dotted grid behind the network (G)">Grid</button></div>
       <div class="tabbody"><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main><section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
@@ -437,10 +448,10 @@ function focusView(v) {
   $("pane-net").classList.toggle("focus", v !== "picture");
   applyCam(cams[v]);
 }
-function zoomBy(f) {
-  const cam = cams[mode];
+function zoomBy(f, view = "picture") {
+  const cam = cams[view];
   if (!cam || !cam.w) return;
-  const r = stages[mode].getBoundingClientRect();
+  const r = stages[view].getBoundingClientRect();
   const s = Math.min(64, Math.max(0.05, cam.s * f)), px = r.width / 2, py = r.height / 2;
   cam.x = px - (px - cam.x) * (s / cam.s);
   cam.y = py - (py - cam.y) * (s / cam.s);
@@ -545,7 +556,8 @@ function bindStage(view) {
   stage.addEventListener("dblclick", (e) => { if (!e.target.closest(".box")) { fitCam(cams[view]); applyCam(cams[view]); } });
 }
 for (const v of Object.keys(stages)) bindStage(v);
-$("fit").onclick = () => { fitCam(); applyCam(); };
+$("fit").onclick = () => { fitCam(cams.picture); applyCam(cams.picture); };
+$("netfit").onclick = () => { const v = visible.genome ? "genome" : "graph"; fitCam(cams[v]); applyCam(cams[v]); };
 window.addEventListener("resize", refitAll);
 // The two dividers: viewport | right column, and Parameters / Network. Sizes are kept per browser.
 const layoutState = { rw: null, ph: null };
@@ -744,6 +756,7 @@ function setEditing(on) {
   $("editcode").classList.toggle("on", on);
   if (on) {
     $("codetext").value = codeLines.length ? codeLines.join("\n") + "\n" : "";
+    codeEditBase = $("codetext").value;
     $("codeerrors").textContent = "";
     checked = null;
     $("codetext").focus();
@@ -963,6 +976,8 @@ for (const b of document.querySelectorAll("#palette button[data-kind]")) b.oncli
 // statement edit is a draft that belongs to (world, node, base revision), not to the textarea, so it
 // survives selecting something else and coming back. A draft is clean, draft, pending, rejected, stale
 // or unknown; a stale one is never sent again by itself, and a lost connection leaves the outcome unknown.
+let codeEditBase = "";
+const paramDrafts = new Map();     // a rejected or unsent parameter value: `${world}\0${id}\0${name}` -> { value, base, msg }
 const drafts = new Map();          // `${world}\0${id}` -> { world, id, applied, base, text, state, msg, sent }
 const notes = new Map();           // the last outcome shown for a target: { cls, text }
 let selection = null;              // { world, kind: "node", id } | { world, kind: "gene", entity, index }
@@ -982,18 +997,20 @@ function paramsGrid(n, locked) {
   const w = $("world").value;
   for (const [name, value] of n.params) {
     const l = document.createElement("label"), inp = document.createElement("input");
+    const pk = `${w}\0${n.id}\0${name}`, pd = paramDrafts.get(pk);
     l.textContent = name;
-    inp.value = value;
+    inp.value = pd ? pd.value : value;
+    if (pd) { inp.classList.add("dirty"); inp.dataset.base = pd.base; if (pd.msg) { inp.classList.add("bad"); inp.title = pd.msg; } }
     inp.spellcheck = false;
     if (locked) { inp.disabled = true; inp.title = "This statement has an unapplied draft: apply or revert it first"; }
-    inp.oninput = () => { if (inp.dataset.base === undefined) inp.dataset.base = graphData.revision; inp.classList.add("dirty"); };
-    inp.onkeydown = (e) => { if (e.key === "Escape") { inp.value = value; inp.classList.remove("dirty"); delete inp.dataset.base; inp.blur(); } };
+    inp.oninput = () => { if (inp.dataset.base === undefined) inp.dataset.base = graphData.revision; inp.classList.add("dirty"); inp.classList.remove("bad"); paramDrafts.set(pk, { value: inp.value, base: +inp.dataset.base, msg: null }); };
+    inp.onkeydown = (e) => { if (e.key === "Escape") { inp.value = value; inp.classList.remove("dirty", "bad"); delete inp.dataset.base; paramDrafts.delete(pk); inp.blur(); } };
     // One request when the field is committed (Enter or leaving it); Escape restores the applied value and sends nothing.
     inp.onchange = async () => {
-      if (inp.value === value) { inp.classList.remove("dirty"); return; }
+      if (inp.value === value) { inp.classList.remove("dirty"); paramDrafts.delete(pk); return; }
       const base = +(inp.dataset.base ?? graphData.revision);
       delete inp.dataset.base;
-      if (inflight.has(w)) { inp.value = value; return oops("Another edit is being applied; try again when it finishes."); }
+      if (inflight.has(w)) { paramDrafts.set(pk, { value: inp.value, base, msg: "Another edit is being applied" }); return oops("Another edit is being applied; the value is kept in the field: enter it again when it has finished."); }
       inflight.add(w);
       inp.classList.add("pending");
       oops();
@@ -1001,11 +1018,13 @@ function paramsGrid(n, locked) {
         const r = await call("world.graph_op", { world: w, base_revision: base, op: { op: "set_param", id: n.id, param: name, value: inp.value } });
         await loadGraph();
         await loadCode().catch(() => {});
+        paramDrafts.delete(pk);
         notes.set(dkey(w, n.id), { cls: "ok", text: `Applied ${name}, revision ${graphData.revision}${viewportNote(graphData.revision)}.` });
         if (r.selected && $("world").value === w) select(r.selected);
       } catch (e) {
-        inp.value = value;
-        notes.set(dkey(w, n.id), { cls: "bad", text: paramFailure(e, name) });
+        const why = paramFailure(e, name);
+        paramDrafts.set(pk, { value: inp.value, base, msg: why });   // the rejected value stays as a draft
+        notes.set(dkey(w, n.id), { cls: "bad", text: why });
         await loadGraph().catch(() => {});
       } finally {
         inflight.delete(w);
@@ -1043,7 +1062,7 @@ function renderPinBar() {
   return n;
 }
 // Drafts live in this page only: say so before it is closed or reloaded.
-window.addEventListener("beforeunload", (e) => { if (drafts.size) { e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("beforeunload", (e) => { const codeDraft = document.body.classList.contains("code-editing") && $("codetext") && $("codetext").value !== codeEditBase; if (drafts.size || paramDrafts.size || codeDraft) { e.preventDefault(); e.returnValue = ""; } });
 $("pinbtn").onclick = () => {
   if (pinned) pinned = null;
   else if (selection && selection.kind === "node") {
@@ -1689,7 +1708,7 @@ async function loadLook() {
     const b = document.createElement("button");
     b.textContent = "Edit a copy";
     b.title = "Make an editable copy of this view next to it";
-    b.onclick = () => { const copy = `${name}_look`; viewOverrides[copy] = text.replace(new RegExp(`view\\s+${name}\\b`), `view ${copy}`); example.views = (example.views || "") + "\n"; refreshViews().then(() => { $("view").value = copy; return subscribe(); }).then(loadLook).catch(oops); };
+    b.onclick = () => { const copy = `${name}_look`; viewOverrides[copy] = text.replace(new RegExp(`view\\s+${name}\\b`), `view ${copy}`); refreshViews().then(() => { $("view").value = copy; return subscribe(); }).then(loadLook).catch(oops); };
     bar.append(b);
   }
   if (!text) { body.textContent = "This view's text is not available."; return; }
@@ -1733,14 +1752,18 @@ function lookRow(viewName, text, layer, ro) {
   items.push(err);
   for (const el of [pal, kind, lo, hi]) el.disabled = ro;
   const apply = async () => {
+    // The view is one document: read its current text and find this layer in it again, so an edit of
+    // another layer made in between is kept.
+    const doc = currentViewText(viewName), cur = doc && parseLayers(doc).find((l) => l.name === layer.name);
+    if (!cur || cur.palette === undefined) { err.textContent = "This layer's colour entry has changed: reopen the tab."; return; }
     const scale = state.scaled ? ` |> scale(${kind.value}, range: ${lit(lo.value)}..${lit(hi.value)})` : "";
-    const entry = `${layer.src}${scale} |> palette(${pal.value})`;
-    const next = text.slice(0, layer.at) + `color: ${entry};` + text.slice(layer.at + layer.len);
+    const entry = `${cur.src}${scale} |> palette(${pal.value})`;
+    const next = doc.slice(0, cur.at) + `color: ${entry};` + doc.slice(cur.at + cur.len);
     bar.style.background = barStyle(pal.value);
     const before = viewOverrides[viewName];
     viewOverrides[viewName] = next;
     err.textContent = "";
-    try { await subscribe(); text = next; layer.len = `color: ${entry};`.length; layer.entry = entry; }
+    try { await subscribe(); }
     catch (e) { err.textContent = String(e.message || e); if (before === undefined) delete viewOverrides[viewName]; else viewOverrides[viewName] = before; await subscribe().catch(() => {}); }
   };
   pal.onchange = kind.onchange = lo.onchange = hi.onchange = apply;
@@ -1810,7 +1833,7 @@ async function refreshViews() {
   const w = $("world").value;
   if (!w) return;
   const { source } = await call("world.source", { world: w });
-  const own = viewNames(source), extra = viewNames(example.views).filter((v) => !own.includes(v));
+  const own = viewNames(source), extra = [...new Set([...viewNames(example.views), ...Object.keys(viewOverrides)])].filter((v) => !own.includes(v));
   const prev = $("view").value;
   $("view").innerHTML = [...own.map((v) => `<option>${v}</option>`), ...extra.map((v) => `<option>${v}</option>`)].join("");
   $("view").value = [...own, ...extra].includes(prev) ? prev : (extra[0] || own[0] || "");
@@ -1932,7 +1955,7 @@ function connect() {
 
 $("create").onclick = () => create().catch(oops);
 $("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).catch(oops) };
-$("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().catch(oops);
+$("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().then(() => { if (visible.look) return loadLook(); }).catch(oops);
 // Space plays and pauses the active world.
 let runningNow = {};
 function toggleRun() {
