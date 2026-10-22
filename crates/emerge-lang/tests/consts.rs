@@ -31,7 +31,8 @@ fn integers_fold_and_saturate() {
     assert_eq!(value("", "5 - 8"), Ok(neg(Lit::Int(3))));
     assert_eq!(value("", "7 / 2"), Ok(lit(Lit::Int(3))));
     assert_eq!(value("", "7 / 0"), Ok(lit(Lit::Int(0))));
-    assert_eq!(value("", "2_000_000_000 + 2_000_000_000"), Ok(lit(Lit::Int(i32::MAX as i64))));
+    assert_eq!(value("", "2_000_000_000 + 2_000_000_000"), Ok(lit(Lit::Int(4_000_000_000))));
+    assert_eq!(value("", "9_000_000_000_000_000_000 + 9_000_000_000_000_000_000"), Ok(lit(Lit::Int(i64::MAX))));
 }
 
 #[test]

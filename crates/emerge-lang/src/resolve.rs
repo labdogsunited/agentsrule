@@ -326,7 +326,7 @@ pub fn fold(e: &Expr) -> Option<Lit> {
         Expr::Lit(l @ (Lit::Int(_) | Lit::Float(_) | Lit::Amount(_) | Lit::Rate(_) | Lit::Bool(_))) => Some(l.clone()),
         Expr::Paren(i) => fold(i),
         Expr::Neg(i) => match fold(i)? {
-            Lit::Int(i) => Some(Lit::Int(i.saturating_neg().clamp(I32.0, I32.1))),
+            Lit::Int(i) => Some(Lit::Int(i.saturating_neg())),
             Lit::Float(s) => Some(float(-parse(&s)?)),
             _ => None,
         },
@@ -334,8 +334,6 @@ pub fn fold(e: &Expr) -> Option<Lit> {
         _ => None,
     }
 }
-
-const I32: (i64, i64) = (i32::MIN as i64, i32::MAX as i64);
 
 fn parse(s: &str) -> Option<f32> {
     s.parse::<f32>().ok()
@@ -350,14 +348,13 @@ fn float(v: f32) -> Lit {
 
 fn binary(op: BinOp, a: Lit, b: Lit) -> Option<Lit> {
     use BinOp::*;
-    let clamp = |v: i64| Lit::Int(v.clamp(I32.0, I32.1));
     let amount = |v: i128| Lit::Amount(v.clamp(0, u32::MAX as i128) as u64);
     Some(match (a, b) {
         (Lit::Int(x), Lit::Int(y)) => match op {
-            Add => clamp(x + y),
-            Sub => clamp(x - y),
-            Mul => clamp(x.saturating_mul(y)),
-            Div => clamp(if y == 0 { 0 } else { x / y }),
+            Add => Lit::Int(x.saturating_add(y)),
+            Sub => Lit::Int(x.saturating_sub(y)),
+            Mul => Lit::Int(x.saturating_mul(y)),
+            Div => Lit::Int(if y == 0 { 0 } else { x.checked_div(y).unwrap_or(i64::MAX) }),
             _ => return None,
         },
         (Lit::Amount(x), Lit::Amount(y)) => match op {

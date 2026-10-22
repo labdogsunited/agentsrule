@@ -146,6 +146,8 @@ A **project** is a directory. `emerge` loads every `.em` file in it as one progr
 
 Potentials are `i32` but appear only in `substance` declarations.
 
+Integer arithmetic folded at check time and integer arithmetic in a world rule's condition both use `i64`, saturating; division by zero is `0` (decision 13, delegated 2026-10-22).
+
 **Amounts are typed by substance.** This catches mixing substances at compile time:
 
 ```
