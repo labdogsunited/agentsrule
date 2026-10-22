@@ -35,8 +35,15 @@
   .checks input { width: auto; }
   #stats { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; white-space: pre-line; }
   #error { color: var(--bad); font-size: 13px; white-space: pre-wrap; margin-top: 10px; }
-  main { flex: 1; position: relative; overflow: hidden; touch-action: none; cursor: grab; }
+  #stages { flex: 1; display: flex; min-width: 0; position: relative; }
+  #stages > main { flex: 1; min-width: 0; display: none; position: relative; overflow: hidden; touch-action: none; cursor: grab; }
+  #stages > main.vis { display: block; }
   main.dragging { cursor: grabbing; }
+  .ptitle { position: absolute; right: 12px; top: 8px; z-index: 2; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); pointer-events: none; display: none; }
+  #stages.split .ptitle { display: block; }
+  #stages.split > main.focus { box-shadow: inset 0 2px 0 var(--accent); }
+  #divider { flex: none; width: 6px; display: none; cursor: col-resize; background: var(--line); }
+  #divider:hover, #divider.on { background: var(--accent); }
   #frame { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; display: none; user-select: none; -webkit-user-drag: none; }
   #frame.enlarged { image-rendering: pixelated; }
   #empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
@@ -77,7 +84,7 @@
   .tk-l { color: #e0a050; }
   .tk-n { color: #6fbfae; }
   .tk-s { color: #9cc77a; }
-  body.codeonly aside, body.codeonly main, body.codeonly .modes, body.codeonly .server, body.codeonly #where { display: none; }
+  body.codeonly aside, body.codeonly #stages, body.codeonly .modes, body.codeonly .server, body.codeonly #where { display: none; }
   body.codeonly #code { display: flex; flex: 1; width: auto; border-left: 0; }
   body.codeonly #codehandle, body.codeonly #popout { display: none; }
   body.genome #sel { order: -1; margin-bottom: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
@@ -167,7 +174,7 @@
 </style>
 </head>
 <body>
-<header><h1>Emerge</h1><span id="status">connecting…</span><span class="modes"><button id="m-picture" class="on">Picture</button><button id="m-graph">Graph</button><button id="m-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button id="codebtn" title="Show the complete source of the world">Code</button></span><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
+<header><h1>Emerge</h1><span id="status">connecting…</span><span class="modes"><button id="m-picture" class="on">Picture</button><button id="m-graph">Graph</button><button id="m-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button id="split" title="Viewport and network side by side, with a draggable divider">Split</button><button id="codebtn" title="Show the complete source of the world">Code</button></span><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
 <div class="layout">
   <aside>
     <h2>World</h2>
@@ -211,7 +218,7 @@
     </div>
     <div id="error"></div>
   </aside>
-  <main><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="graph"></div><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div><div id="pickmark"></div><div id="infopanel"></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit. i: info picker."><span id="zoom">100%</span><button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button><button id="fit">Fit</button></div></main>
+  <div id="stages"><main id="stage-picture" data-view="picture"><div class="ptitle">Viewport</div><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="pickmark"></div><div id="infopanel"></div></main><div id="divider" title="Drag to resize the panes"></div><main id="stage-graph" data-view="graph"><div class="ptitle">Network</div><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main><main id="stage-genome" data-view="genome"><div class="ptitle">Genome</div><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit. i: info picker."><span id="zoom">100%</span><button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button><button id="fit">Fit</button></div></div>
   <section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
@@ -259,11 +266,18 @@ const info = { on: false, map: null, pin: null, hover: null, at: 0, busy: false 
 let wantEntity = null;
 const newCam = () => ({ s: 1, x: 0, y: 0, fit: true, w: 0, h: 0 });
 const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
+// `mode` is the focused view (what the zoom label and Fit speak of); `visible` says which views are
+// on screen: one, or the picture beside the network or the genome (Split).
 let mode = "picture";
-const stage = document.querySelector("main");
+let split = false, side = "graph", splitFrac = 0.5;
+const visible = { picture: true, graph: false, genome: false };
+const isShown = (v) => visible[v];
+const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };
+const stage = stages.picture;   // the picture's stage: the info picker lives there
+const viewOf = (cam) => Object.keys(cams).find((k) => cams[k] === cam);
 function fitCam(cam = cams[mode]) {
-  const r = stage.getBoundingClientRect();
-  if (!cam.w || !cam.h) return;
+  const r = stages[viewOf(cam)].getBoundingClientRect();
+  if (!cam.w || !cam.h || !r.width || !r.height) return;
   cam.s = Math.min(r.width / cam.w, r.height / cam.h);
   if (cam !== cams.picture) cam.s = Math.min(cam.s, 1.5);
   cam.x = (r.width - cam.w * cam.s) / 2;
@@ -278,97 +292,131 @@ function applyCam(cam = cams[mode]) {
   if (cam === cams.picture) placeMark();
   if (cam === cams[mode]) $("zoom").textContent = `${Math.round(cam.s * 100)}%`;
 }
-stage.addEventListener("wheel", (e) => {
-  const cam = cams[mode];
-  if (!cam.w) return;
-  e.preventDefault();
-  const r = stage.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
-  const s = Math.min(64, Math.max(0.05, cam.s * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015))));
-  cam.x = px - (px - cam.x) * (s / cam.s);
-  cam.y = py - (py - cam.y) * (s / cam.s);
-  cam.s = s;
-  cam.fit = false;
-  applyCam();
-}, { passive: false });
+// The views on screen fit their stage again (after the window, the divider or the layout moved).
+function refitAll() {
+  for (const v of Object.keys(cams)) if (visible[v] && cams[v].fit) { fitCam(cams[v]); applyCam(cams[v]); }
+}
+function focusView(v) {
+  if (mode === v) return;
+  mode = v;
+  for (const k of Object.keys(stages)) stages[k].classList.toggle("focus", k === v);
+  $("m-picture").classList.toggle("on", v === "picture");
+  $("m-graph").classList.toggle("on", v === "graph");
+  $("m-genome").classList.toggle("on", v === "genome");
+  applyCam(cams[v]);
+}
 let drag = null;
-stage.addEventListener("pointerdown", (e) => {
-  const cam = cams[mode];
-  if (!cam.w || e.button > 1 || e.target.closest("#cam") || e.target.closest("#infopanel")) return;
-  const port = mode === "graph" && e.target.closest(".port.out");
-  const box = mode === "graph" && e.target.closest(".box");
-  if (port && box) {
-    // A wire is pulled from an output port and dropped on a box.
-    drag = { wire: box.dataset.id, port };
-    port.classList.add("hot");
-    e.stopPropagation();
-  } else if (box) {
-    // A box moves with the pointer; a click without a move selects it.
-    const p = placed.get(box.dataset.id);
-    drag = { box, p, sx: e.clientX, sy: e.clientY, x0: p.x, y0: p.y, moved: false };
-  } else {
-    // In the genome view a press on a gene that does not move is a click on it.
-    const gene = mode === "genome" && e.target.closest(".gene");
-    drag = { x: e.clientX - cam.x, y: e.clientY - cam.y, gene: gene ? +gene.dataset.index : null, sx: e.clientX, sy: e.clientY, moved: false };
-  }
-  stage.setPointerCapture(e.pointerId);
-  stage.classList.add("dragging");
-});
-stage.addEventListener("pointermove", (e) => {
-  if (!drag) return;
-  const cam = cams[mode];
-  if (drag.wire) {
-    const r = stage.getBoundingClientRect(), a = placed.get(drag.wire);
-    const gx = (e.clientX - r.left - cam.x) / cam.s, gy = (e.clientY - r.top - cam.y) / cam.s;
-    let t = $("tempwire");
-    if (!t) {
-      t = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      t.id = "tempwire";
-      t.setAttribute("class", "wire");
-      t.setAttribute("stroke", "#e6b45c");
-      t.setAttribute("stroke-dasharray", "5 4");
-      $("wires").appendChild(t);
+function bindStage(view) {
+  const stage = stages[view];
+  stage.addEventListener("wheel", (e) => {
+    const cam = cams[view];
+    if (!cam.w) return;
+    e.preventDefault();
+    const r = stage.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+    const s = Math.min(64, Math.max(0.05, cam.s * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015))));
+    cam.x = px - (px - cam.x) * (s / cam.s);
+    cam.y = py - (py - cam.y) * (s / cam.s);
+    cam.s = s;
+    cam.fit = false;
+    if (split) focusView(view);
+    applyCam(cam);
+  }, { passive: false });
+  stage.addEventListener("pointerdown", (e) => {
+    const cam = cams[view];
+    if (split) focusView(view);
+    if (!cam.w || e.button > 1 || e.target.closest("#cam") || e.target.closest("#infopanel")) return;
+    const port = view === "graph" && e.target.closest(".port.out");
+    const box = view === "graph" && e.target.closest(".box");
+    if (port && box) {
+      // A wire is pulled from an output port and dropped on a box.
+      drag = { wire: box.dataset.id, port };
+      port.classList.add("hot");
+      e.stopPropagation();
+    } else if (box) {
+      // A box moves with the pointer; a click without a move selects it.
+      const p = placed.get(box.dataset.id);
+      drag = { box, p, sx: e.clientX, sy: e.clientY, x0: p.x, y0: p.y, moved: false };
+    } else {
+      // In the genome view a press on a gene that does not move is a click on it.
+      const gene = view === "genome" && e.target.closest(".gene");
+      drag = { x: e.clientX - cam.x, y: e.clientY - cam.y, gene: gene ? +gene.dataset.index : null, sx: e.clientX, sy: e.clientY, moved: false };
     }
-    const x0 = a.x + BOX.w, y0 = a.y + 15, d = Math.max(40, Math.abs(gx - x0) / 2);
-    t.setAttribute("d", `M${x0},${y0} C${x0 + d},${y0} ${gx - d},${gy} ${gx},${gy}`);
-    return;
-  }
-  if (drag.box) {
-    const dx = (e.clientX - drag.sx) / cam.s, dy = (e.clientY - drag.sy) / cam.s;
-    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-    drag.p.x = drag.x0 + dx;
-    drag.p.y = drag.y0 + dy;
-    drag.box.style.left = `${drag.p.x}px`;
-    drag.box.style.top = `${drag.p.y}px`;
-    drawWires();
-    return;
-  }
-  if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > 3) drag.moved = true;
-  cam.x = e.clientX - drag.x;
-  cam.y = e.clientY - drag.y;
-  cam.fit = false;
-  applyCam();
-});
-const drop = (e) => {
-  if (drag && !drag.box && !drag.wire && drag.gene == null && !drag.moved && info.on && mode === "picture") pinInfo(e);
-  if (drag && drag.gene != null && !drag.moved) selectGene(drag.gene);
-  if (drag && drag.box && !drag.moved) select(drag.box.dataset.id);
-  if (drag && drag.box && drag.moved) savePosition(drag.box.dataset.id);
-  if (drag && drag.wire) {
-    drag.port.classList.remove("hot");
-    const t = $("tempwire");
-    if (t) t.remove();
-    const target = document.elementFromPoint(e.clientX, e.clientY);
-    const to = target && target.closest(".box");
-    if (to && to.dataset.id !== drag.wire) graphOp({ op: "wire", from: drag.wire, to: to.dataset.id });
-  }
-  drag = null;
-  stage.classList.remove("dragging");
-};
-stage.addEventListener("pointerup", drop);
-stage.addEventListener("pointercancel", () => { drag = null; stage.classList.remove("dragging"); });
-stage.addEventListener("dblclick", (e) => { if (!e.target.closest("#cam") && !e.target.closest(".box")) { fitCam(); applyCam(); } });
+    stage.setPointerCapture(e.pointerId);
+    stage.classList.add("dragging");
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const cam = cams[view];
+    if (drag.wire) {
+      const r = stage.getBoundingClientRect(), a = placed.get(drag.wire);
+      const gx = (e.clientX - r.left - cam.x) / cam.s, gy = (e.clientY - r.top - cam.y) / cam.s;
+      let t = $("tempwire");
+      if (!t) {
+        t = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        t.id = "tempwire";
+        t.setAttribute("class", "wire");
+        t.setAttribute("stroke", "#e6b45c");
+        t.setAttribute("stroke-dasharray", "5 4");
+        $("wires").appendChild(t);
+      }
+      const x0 = a.x + BOX.w, y0 = a.y + 15, d = Math.max(40, Math.abs(gx - x0) / 2);
+      t.setAttribute("d", `M${x0},${y0} C${x0 + d},${y0} ${gx - d},${gy} ${gx},${gy}`);
+      return;
+    }
+    if (drag.box) {
+      const dx = (e.clientX - drag.sx) / cam.s, dy = (e.clientY - drag.sy) / cam.s;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      drag.p.x = drag.x0 + dx;
+      drag.p.y = drag.y0 + dy;
+      drag.box.style.left = `${drag.p.x}px`;
+      drag.box.style.top = `${drag.p.y}px`;
+      drawWires();
+      return;
+    }
+    if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > 3) drag.moved = true;
+    cam.x = e.clientX - drag.x;
+    cam.y = e.clientY - drag.y;
+    cam.fit = false;
+    applyCam(cam);
+  });
+  const drop = (e) => {
+    if (drag && !drag.box && !drag.wire && drag.gene == null && !drag.moved && info.on && view === "picture") pinInfo(e);
+    if (drag && drag.gene != null && !drag.moved) selectGene(drag.gene);
+    if (drag && drag.box && !drag.moved) select(drag.box.dataset.id);
+    if (drag && drag.box && drag.moved) savePosition(drag.box.dataset.id);
+    if (drag && drag.wire) {
+      drag.port.classList.remove("hot");
+      const t = $("tempwire");
+      if (t) t.remove();
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      const to = target && target.closest(".box");
+      if (to && to.dataset.id !== drag.wire) graphOp({ op: "wire", from: drag.wire, to: to.dataset.id });
+    }
+    drag = null;
+    stage.classList.remove("dragging");
+  };
+  stage.addEventListener("pointerup", drop);
+  stage.addEventListener("pointercancel", () => { drag = null; stage.classList.remove("dragging"); });
+  stage.addEventListener("dblclick", (e) => { if (!e.target.closest("#cam") && !e.target.closest(".box")) { fitCam(cams[view]); applyCam(cams[view]); } });
+}
+for (const v of Object.keys(stages)) bindStage(v);
 $("fit").onclick = () => { fitCam(); applyCam(); };
-window.addEventListener("resize", () => { if (cams[mode].fit) { fitCam(); applyCam(); } });
+window.addEventListener("resize", refitAll);
+// The divider between the panes of a split layout.
+$("divider").addEventListener("pointerdown", (e) => {
+  const bar = $("divider"), box = $("stages").getBoundingClientRect();
+  bar.setPointerCapture(e.pointerId);
+  bar.classList.add("on");
+  const move = (m) => {
+    splitFrac = Math.min(0.8, Math.max(0.2, (m.clientX - box.left) / box.width));
+    stages.picture.style.flex = `0 0 ${splitFrac * 100}%`;
+    refitAll();
+  };
+  const up = () => { bar.classList.remove("on"); bar.removeEventListener("pointermove", move); bar.removeEventListener("pointerup", up); saveLayout(); };
+  bar.addEventListener("pointermove", move);
+  bar.addEventListener("pointerup", up);
+});
+function saveLayout() { try { localStorage.setItem("layout", JSON.stringify({ split, side, splitFrac })); } catch (e) {} }
 
 // ---- The code window: the complete source of the running world, read-only. A statement or box
 // selected in the graph is marked here, a click on a line selects the box that holds it, and lines a
@@ -477,7 +525,7 @@ $("codebody").addEventListener("click", async (e) => {
     const end = spanEnd(n.line);
     if (end >= line && end - n.line < size) { best = n; size = end - n.line; }
   }
-  if (best) { if (mode !== "graph") setMode("graph"); select(best.id); }
+  if (best) { if (!isShown("graph")) setMode("graph"); select(best.id); }
 });
 
 $("codebtn").onclick = () => {
@@ -571,7 +619,7 @@ $("makeworld").onclick = async () => {
     setEditing(false);
     await refreshWorlds(world);
     $("code-world").value = world;
-    if (!codeonly) { await refreshViews(); await subscribe(); await stats(); if (mode === "graph") await loadGraph(); }
+    if (!codeonly) { await refreshViews(); await subscribe(); await stats(); if (isShown("graph")) await loadGraph(); }
     await loadCode();
   } catch (e) {
     codeNote("bad", String(e.message || e));
@@ -658,7 +706,7 @@ function drawGraph() {
   drawWires();
   if (selected && !dirty) select(selected);
   else for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === selected);
-  if (mode === "graph") applyCam(cam);
+  if (isShown("graph")) applyCam(cam);
   const other = g.nodes.filter((n) => !["store", "reaction", "transfer", "react", "diffuse", "signal", "code", "rule"].includes(n.kind));
   $("decls").innerHTML = `<option value="">${other.length} declarations</option>` + other.map((n) => `<option value="${n.id}"></option>`).join("");
   [...$("decls").options].slice(1).forEach((o, i) => { o.textContent = `${other[i].id.split(".").slice(1, 3).join(" ")}`; });
@@ -738,7 +786,7 @@ async function stepHistory(method) {
 $("undo").onclick = () => stepHistory("world.undo");
 $("redo").onclick = () => stepHistory("world.redo");
 window.addEventListener("keydown", (e) => {
-  if (mode !== "graph" || !(e.ctrlKey || e.metaKey) || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
+  if (!isShown("graph") || !(e.ctrlKey || e.metaKey) || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
   const k = e.key.toLowerCase();
   if (k === "z" && !e.shiftKey) { e.preventDefault(); if (!$("undo").disabled) stepHistory("world.undo"); }
   else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); if (!$("redo").disabled) stepHistory("world.redo"); }
@@ -848,7 +896,7 @@ let genomeMsg = "";
 function showGenomeMsg() {
   const el = $("genomemsg");
   el.textContent = genomeMsg;
-  el.style.display = mode === "genome" && !genomeData && genomeMsg ? "flex" : "none";
+  el.style.display = isShown("genome") && !genomeData && genomeMsg ? "flex" : "none";
 }
 const genomeWhy = (e) => String(e.message || e);
 
@@ -990,7 +1038,7 @@ function drawGenome() {
   }
   const cam = cams.genome;
   if (cam.fit || cam.w !== maxX || cam.h !== y) { cam.w = maxX; cam.h = y; if (cam.fit) fitCam(cam); }
-  if (mode === "genome") applyCam(cam);
+  if (isShown("genome")) applyCam(cam);
   if (genomeSel != null) selectGene(genomeSel);
 }
 
@@ -1017,22 +1065,39 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 
 function setMode(m) {
   mode = m;
-  if (m !== "picture" && info.on) infoOff();
+  if (m !== "picture") side = m;
+  visible.picture = split || m === "picture";
+  visible.graph = split ? side === "graph" : m === "graph";
+  visible.genome = split ? side === "genome" : m === "genome";
+  if (!visible.picture && info.on) infoOff();
   $("m-picture").classList.toggle("on", m === "picture");
   $("m-graph").classList.toggle("on", m === "graph");
   $("m-genome").classList.toggle("on", m === "genome");
-  $("graph").style.display = m === "graph" ? "block" : "none";
-  $("genome").style.display = m === "genome" ? "block" : "none";
-  document.body.classList.toggle("graph", m === "graph");
-  document.body.classList.toggle("genome", m === "genome");
-  const pic = m === "picture";
-  $("frame").style.display = pic && $("frame").src ? "block" : "none";
-  $("empty").style.display = pic && !$("frame").src ? "flex" : "none";
+  $("split").classList.toggle("on", split);
+  $("stages").classList.toggle("split", split);
+  for (const v of Object.keys(stages)) {
+    stages[v].classList.toggle("vis", visible[v]);
+    stages[v].classList.toggle("focus", v === m);
+  }
+  stages.picture.style.flex = split ? `0 0 ${splitFrac * 100}%` : "";
+  $("divider").style.display = split ? "block" : "none";
+  $("graph").style.display = visible.graph ? "block" : "none";
+  $("genome").style.display = visible.genome ? "block" : "none";
+  document.body.classList.toggle("graph", visible.graph);
+  document.body.classList.toggle("genome", visible.genome);
+  $("frame").style.display = visible.picture && $("frame").src ? "block" : "none";
+  $("empty").style.display = visible.picture && !$("frame").src ? "flex" : "none";
   showGenomeMsg();
-  if (m === "graph") loadGraph().then(() => { if (cams.graph.fit) fitCam(cams.graph); applyCam(cams.graph); }).catch(oops);
-  else if (m === "genome") loadEntities().then(() => loadGenome()).then(() => { if (cams.genome.fit) fitCam(cams.genome); applyCam(cams.genome); }).catch(oops);
-  else applyCam(cams.picture);
+  if (visible.picture) { fitIfFit(cams.picture); applyCam(cams.picture); }
+  if (visible.graph) loadGraph().then(() => { fitIfFit(cams.graph); applyCam(cams.graph); }).catch(oops);
+  if (visible.genome) loadEntities().then(() => loadGenome()).then(() => { fitIfFit(cams.genome); applyCam(cams.genome); }).catch(oops);
+  applyCam(cams[m]);
+  saveLayout();
 }
+const fitIfFit = (cam) => { if (cam.fit) fitCam(cam); };
+try { splitFrac = JSON.parse(localStorage.getItem("layout") || "{}").splitFrac || splitFrac; } catch (e) {}
+setMode("picture");
+$("split").onclick = () => { split = !split; setMode(mode === "picture" && split ? side : mode); };
 $("m-picture").onclick = () => setMode("picture");
 $("m-graph").onclick = () => setMode("graph");
 $("m-genome").onclick = () => setMode("genome");
@@ -1042,7 +1107,7 @@ $("decls").onchange = () => select($("decls").value);
 // `map.h` pixels for the whole world.
 function pointToWorld(clientX, clientY) {
   const m = info.map;
-  if (!m || mode !== "picture") return null;
+  if (!m || !isShown("picture")) return null;
   const r = stage.getBoundingClientRect(), cam = cams.picture;
   const px = (clientX - r.left - cam.x) / cam.s, py = (clientY - r.top - cam.y) / cam.s;
   if (px < 0 || py < 0 || px >= m.w || py >= m.h) return null;
@@ -1052,7 +1117,7 @@ const toScreen = (p) => ({ x: p.px * cams.picture.s + cams.picture.x, y: p.py * 
 
 function placeMark() {
   const p = info.pin || info.hover, mark = $("pickmark");
-  if (!info.on || !p || mode !== "picture") { mark.style.display = "none"; return; }
+  if (!info.on || !p || !isShown("picture")) { mark.style.display = "none"; return; }
   const at = toScreen(p);
   mark.style.display = "block";
   mark.style.left = `${at.x}px`;
@@ -1152,7 +1217,7 @@ function infoOff() {
 
 function toggleInfo() {
   if (info.on) return infoOff();
-  if (mode !== "picture") setMode("picture");
+  if (!isShown("picture")) setMode("picture");
   info.on = true;
   stage.classList.add("picking");
   $("infobtn").classList.add("on");
@@ -1167,7 +1232,7 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === "Escape" && info.on) { if (info.pin) { info.pin = null; $("infopanel").style.display = "none"; placeMark(); } else infoOff(); }
 });
 // A pinned point follows the running world.
-setInterval(() => { if (info.on && info.pin && mode === "picture") { const r = stage.getBoundingClientRect(), at = toScreen(info.pin); askInfo(info.pin, { x: at.x, y: at.y }); } }, 1000);
+setInterval(() => { if (info.on && info.pin && isShown("picture")) { const r = stage.getBoundingClientRect(), at = toScreen(info.pin); askInfo(info.pin, { x: at.x, y: at.y }); } }, 1000);
 
 function onFrame(buf) {
   const n = new DataView(buf).getUint32(0, true);
@@ -1185,7 +1250,7 @@ function onFrame(buf) {
     applyCam(cam);
   };
   img.src = url;
-  if (mode === "picture") {
+  if (isShown("picture")) {
     img.style.display = "block";
     $("empty").style.display = "none";
   }
@@ -1314,8 +1379,8 @@ function connect() {
       stats().catch(() => {});
       refreshWorlds().then((ws) => {
         const w = ws.find((x) => x.world === $("world").value);
-        if (mode === "graph" && w && w.revision !== graphRev) loadGraph().catch(() => {});
-        if (mode === "genome" && ++genomeTick % 3 === 0) loadGenome(true).catch(() => {});
+        if (isShown("graph") && w && w.revision !== graphRev) loadGraph().catch(() => {});
+        if (isShown("genome") && ++genomeTick % 3 === 0) loadGenome(true).catch(() => {});
         const cw = ws.find((x) => x.world === codeWorld());
         if (codeOpen() && cw && (cw.world !== codeWorldName || cw.revision !== codeRev)) loadCode().catch(() => {});
       }).catch(() => {});
@@ -1333,7 +1398,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => refreshViews().then(subscribe).then(stats).then(() => (mode === "graph" ? loadGraph() : mode === "genome" ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).catch(oops);
+$("world").onchange = () => refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).catch(oops);
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().catch(oops);
 $("play").onclick = () => call("run.resume", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
 $("pause").onclick = () => call("run.pause", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
