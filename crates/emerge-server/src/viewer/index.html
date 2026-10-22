@@ -260,6 +260,12 @@
   #netgrid.on { color: var(--ink); } #netgrid:not(.on) { text-decoration: line-through; }
   #dropzone { position: fixed; z-index: 50; background: rgba(224, 164, 88, 0.22); border: 2px solid var(--accent); pointer-events: none; display: none; }
   #tabghost { position: fixed; z-index: 60; padding: 2px 10px; background: var(--panel); border: 1px solid var(--accent); pointer-events: none; display: none; font: 12px system-ui, sans-serif; color: var(--ink); }
+  #tabmenu { position: fixed; z-index: 45; width: 280px; background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; box-shadow: 0 8px 28px #000a; display: none; padding: 6px; }
+  #tabmenu input { width: 100%; }
+  #tablist { margin-top: 4px; max-height: 240px; overflow: auto; }
+  #tablist div { padding: 4px 8px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; gap: 10px; }
+  #tablist div small { color: var(--muted); font-size: 11px; }
+  #tablist div.on { background: #4d4636; }
   #lmenu { position: fixed; z-index: 40; min-width: 160px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px; box-shadow: 0 8px 28px #000a; display: none; }
   #lmenu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 4px 10px; }
   #lmenu button:hover { background: #3f3f3f; }
@@ -335,6 +341,7 @@
     </div>
   </section></div>
 </div>
+<div id="tabmenu"><input id="tabq" placeholder="Add a node: type to filter, Enter to create" spellcheck="false" autocomplete="off"><div id="tablist"></div></div>
 <div id="dropzone"></div><div id="tabghost"></div><div id="lmenu"></div>
 <footer id="playbar">
   <button id="play" title="Run">&#9654; Play</button><button id="pause">&#10074;&#10074; Pause</button>
@@ -940,6 +947,82 @@ function savePosition(id) {
   call("world.layout_set", { world: $("world").value, positions: { [id]: [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10] } }).catch(() => {});
 }
 for (const b of document.querySelectorAll("#palette button[data-kind]")) b.onclick = () => graphOp({ op: "add_rule", kind: b.dataset.kind });
+
+// Tab: a menu to add a node at the pointer (Houdini's Tab menu). Type to filter, arrows and Enter (or a
+// click) create it; Escape sends nothing. A new box is placed where the menu was opened.
+const TAB_NODES = [
+  ["transfer", "transfer", "move a substance from a source or store into the cells"],
+  ["react", "react", "run a reaction in every cell"],
+  ["diffuse", "diffuse", "spread substances between neighbouring cells"],
+  ["code", "code", "a statement typed as text"],
+];
+let netPointer = null, tabSel = 0, tabAt = null;
+stages.graph.addEventListener("pointermove", (e) => { netPointer = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+stages.graph.addEventListener("pointerleave", () => { netPointer = null; });
+function tabItems() {
+  const q = $("tabq").value.trim().toLowerCase();
+  return TAB_NODES.filter(([k, name, d]) => !q || name.includes(q) || d.includes(q) || k.startsWith(q));
+}
+function drawTabList() {
+  const items = tabItems();
+  tabSel = Math.min(tabSel, Math.max(0, items.length - 1));
+  $("tablist").textContent = "";
+  items.forEach(([k, name, d], i) => {
+    const row = document.createElement("div");
+    row.className = i === tabSel ? "on" : "";
+    row.innerHTML = `<span>${name}</span><small>${d}</small>`;
+    row.onpointerdown = (e) => { e.preventDefault(); createFromTab(k); };
+    $("tablist").append(row);
+  });
+  if (!items.length) $("tablist").textContent = "Nothing matches.";
+}
+function closeTabMenu() { $("tabmenu").style.display = "none"; tabAt = null; }
+function openTabMenu() {
+  const r = stages.graph.getBoundingClientRect(), at = netPointer || { x: r.left + 80, y: r.top + 60 };
+  const cam = cams.graph;
+  tabAt = { gx: (at.x - r.left - cam.x) / cam.s, gy: (at.y - r.top - cam.y) / cam.s };
+  const m = $("tabmenu");
+  m.style.display = "block";
+  m.style.left = `${Math.min(at.x, window.innerWidth - 300)}px`;
+  m.style.top = `${Math.min(at.y, window.innerHeight - 320)}px`;
+  $("tabq").value = "";
+  tabSel = 0;
+  drawTabList();
+  $("tabq").focus();
+}
+async function createFromTab(kind) {
+  const at = tabAt;
+  closeTabMenu();
+  const r = await graphOp({ op: "add_rule", kind });
+  if (!r || !r.selected || !at) return;
+  const p = placed.get(r.selected), box = [...$("graph").querySelectorAll(".box")].find((b) => b.dataset.id === r.selected);
+  if (!p || !box) return;
+  p.x = Math.max(0, at.gx - BOX.w / 2);
+  p.y = Math.max(0, at.gy - 12);
+  box.style.left = `${p.x}px`;
+  box.style.top = `${p.y}px`;
+  drawWires();
+  savePosition(r.selected);
+}
+$("tabq").addEventListener("input", () => { tabSel = 0; drawTabList(); });
+$("tabq").addEventListener("keydown", (e) => {
+  const items = tabItems();
+  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeTabMenu(); }
+  else if (e.key === "Tab") { e.preventDefault(); closeTabMenu(); }
+  else if (e.key === "ArrowDown") { e.preventDefault(); tabSel = Math.min(items.length - 1, tabSel + 1); drawTabList(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); tabSel = Math.max(0, tabSel - 1); drawTabList(); }
+  else if (e.key === "Enter") { e.preventDefault(); if (items[tabSel]) createFromTab(items[tabSel][0]); }
+});
+$("tabq").addEventListener("blur", () => setTimeout(closeTabMenu, 120));
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab" || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
+  if (!isShown("graph") || !$("world").value) return;
+  const fl = findLeaf(focusLeaf), overNet = !!netPointer, focusedNet = fl && fl.active === "network";
+  if (!overNet && !focusedNet) return;
+  e.preventDefault();
+  openTabMenu();
+});
 
 // The selected box. A statement is edited in place: Apply sends the new text, the server makes the
 // patch and swaps the running world (`world.graph_edit`); a refused edit changes nothing and its
