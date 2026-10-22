@@ -583,6 +583,55 @@ impl Run {
             "not_recorded": "genome differences between parent and child are not kept unless recorded at birth"}))
     }
 
+    /// Totals over a rectangle of the world, read in one call so cells and creatures are of the same
+    /// tick (`region.query`, `proposals/science-panels.md` §9). With `wrap`, a range whose start is past
+    /// its end runs across the edge. Cell amounts need the CPU runner.
+    pub fn region(&self, x: [f32; 2], y: [f32; 2]) -> Result<Value, String> {
+        let w = &self.live.world;
+        let space = w.space.as_ref().ok_or("the world has no space")?;
+        let within = |v: f32, r: [f32; 2], size: f32| -> Result<bool, String> {
+            if r.iter().any(|a| !a.is_finite() || *a < 0.0 || *a > size) { return Err(format!("a range must lie inside 0 to {size}")); }
+            Ok(if r[0] <= r[1] { v >= r[0] && v <= r[1] } else if space.wrap { v >= r[0] || v <= r[1] } else { return Err("a range that starts after it ends needs a wrapping world".into()) })
+        };
+        within(0.0, x, space.w)?;
+        within(0.0, y, space.h)?;
+        let ns = w.chem.substances.len();
+        let n = self.spec.lineages.len();
+        let (mut count, mut carried) = (vec![0u64; n], vec![0u64; ns]);
+        let rows: Vec<(usize, [f32; 2], Vec<u32>)> = match &self.backend {
+            Backend::Cpu => w.entities.iter().map(|e| (e.lineage, e.pos, e.store.amounts[..ns].to_vec())).collect(),
+            Backend::Gpu(r) => {
+                let (ent, epos, amounts) = r.entity_table();
+                ent.chunks(emerge_gpu::pack::ENT).enumerate().map(|(i, e)| (e[11] as usize, [epos[i * 4], epos[i * 4 + 1]], amounts[i * ns..(i + 1) * ns].to_vec())).collect()
+            }
+        };
+        for (l, pos, amt) in &rows {
+            if within(pos[0], x, space.w)? && within(pos[1], y, space.h)? {
+                count[*l] += 1;
+                for s in 0..ns { carried[s] += u64::from(amt[s]); }
+            }
+        }
+        let (mut cells, mut cell_amounts) = (0u64, vec![0u64; ns]);
+        let cell_side = |size: f32, grid: usize| size / grid as f32;
+        if matches!(self.backend, Backend::Cpu) {
+            for cy in 0..space.grid_h {
+                for cx in 0..space.grid_w {
+                    let centre = [(cx as f32 + 0.5) * cell_side(space.w, space.grid_w), (cy as f32 + 0.5) * cell_side(space.h, space.grid_h)];
+                    if within(centre[0], x, space.w)? && within(centre[1], y, space.h)? {
+                        cells += 1;
+                        for s in 0..ns { cell_amounts[s] += u64::from(w.cells[cy * space.grid_w + cx].amounts[s]); }
+                    }
+                }
+            }
+        }
+        let by_sub = |v: &[u64]| -> serde_json::Map<String, Value> { (0..ns).filter(|&s| v[s] > 0).map(|s| (w.chem.substances[s].name.clone(), json!(v[s]))).collect() };
+        Ok(json!({"tick": self.tick(), "region": {"x": x, "y": y, "wraps": x[0] > x[1] || y[0] > y[1]}, "world": {"w": space.w, "h": space.h, "wrap": space.wrap},
+            "creatures": self.spec.lineages.iter().zip(&count).map(|(l, c)| json!({"lineage": l, "count": c})).collect::<Vec<_>>(), "creatures_total": count.iter().sum::<u64>(),
+            "carried_mu": by_sub(&carried),
+            "cells": if matches!(self.backend, Backend::Cpu) { json!({"count": cells, "amounts_mu": by_sub(&cell_amounts), "rule": "a cell counts when its centre is inside the region"}) } else { json!({"unavailable": "cell amounts of a GPU run are not read by this query"}) },
+            "unit": "µ (millionths of a unit); creatures count when their position is inside the region"}))
+    }
+
     /// The active-gene count of every living entity, by lineage: the whole population, not a sample
     /// (`genome.census`, `proposals/science-panels.md` S2). Read-only.
     pub fn census(&self) -> Value {

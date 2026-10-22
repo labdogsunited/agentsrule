@@ -308,3 +308,33 @@ fn comparing_runs_names_the_setup_differences() {
     assert_eq!(engine.run(&ids[0]).unwrap().digest(), before, "comparing changes nothing");
     assert!(engine.call("runs.compare", &json!({"a": ids[0], "b": "nope"})).is_err());
 }
+
+/// Stage S4 (`proposals/science-panels.md` §9): a region's totals add up. Four quarters of the world sum
+/// to the whole, a range across a wrapping edge counts what lies on both sides, and bad ranges are refused.
+#[test]
+fn region_totals_add_up_across_quarters_and_wrapped_edges() {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": false})).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 30})).unwrap();
+    let size = engine.call("region.query", &json!({"world": w, "x": [0.0, 1.0], "y": [0.0, 1.0]})).unwrap()["world"]["w"].as_f64().unwrap();
+    let mut q = |x: [f64; 2], y: [f64; 2]| engine.call("region.query", &json!({"world": w, "x": x, "y": y}));
+    let h = size / 2.0;
+    let whole = q([0.0, size], [0.0, size]).unwrap();
+    // Quarters with an open edge each side would double count a creature exactly on the middle line, so shift the cut a hair.
+    let cut = h - 1e-3;
+    let parts: Vec<Value> = [([0.0, cut], [0.0, cut]), ([h, size], [0.0, cut]), ([0.0, cut], [h, size]), ([h, size], [h, size])].iter().map(|(a, b)| q(*a, *b).unwrap()).collect::<Vec<_>>();
+    let sum = |k: &str| parts.iter().map(|p| p[k].as_u64().unwrap()).sum::<u64>();
+    let all = whole["creatures_total"].as_u64().unwrap();
+    assert!(sum("creatures_total") <= all && all - sum("creatures_total") <= all / 50, "the quarters hold the creatures but for the hair-thin strip between them");
+    let cells: u64 = parts.iter().map(|p| p["cells"]["count"].as_u64().unwrap()).sum();
+    assert_eq!(cells, whole["cells"]["count"].as_u64().unwrap(), "every cell is in exactly one quarter");
+    assert_eq!(whole["cells"]["count"], 96 * 96);
+    // Wrapping: the two strips either side of the edge, asked as one range, equal the two asked apart.
+    let strip = size / 10.0;
+    let across = q([size - strip, strip], [0.0, size]).unwrap();
+    let left = q([size - strip, size], [0.0, size]).unwrap();
+    let right = q([0.0, strip], [0.0, size]).unwrap();
+    assert_eq!(across["creatures_total"].as_u64().unwrap(), left["creatures_total"].as_u64().unwrap() + right["creatures_total"].as_u64().unwrap());
+    assert_eq!(across["cells"]["count"].as_u64().unwrap(), left["cells"]["count"].as_u64().unwrap() + right["cells"]["count"].as_u64().unwrap());
+    assert!(q([-1.0, 5.0], [0.0, 5.0]).is_err() && q([0.0, size + 5.0], [0.0, 5.0]).is_err(), "ranges outside the world are refused");
+}

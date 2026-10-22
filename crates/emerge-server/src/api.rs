@@ -568,6 +568,14 @@ impl Engine {
                     "sampling": "only ticks both runs sampled are compared; counts are living creatures by founding lineage", "series": series,
                     "worlds_kept": self.runs.keys().collect::<Vec<_>>()}))
             }
+            "region.query" => {
+                let r = |k: &str| -> Result<[f32; 2], Fault> {
+                    let a = p[k].as_array().filter(|a| a.len() == 2).ok_or_else(|| bad(format!("`{k}` must be [from, to] in world units")))?;
+                    Ok([a[0].as_f64().ok_or_else(|| bad(format!("`{k}` must be numbers")))? as f32, a[1].as_f64().ok_or_else(|| bad(format!("`{k}` must be numbers")))? as f32])
+                };
+                let (x, y) = (r("x")?, r("y")?);
+                self.entry(p)?.run.region(x, y).map_err(bad)
+            }
             "genome.census" => Ok(self.entry(p)?.run.census()),
             "genome.compare" => {
                 // Two living entities' genes side by side, matched by kind and text; read-only. Genes in
