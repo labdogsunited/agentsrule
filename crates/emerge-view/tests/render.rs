@@ -202,3 +202,18 @@ fn a_body_formats_to_itself() {
     assert_eq!(once, emerge_lang::format(&emerge_lang::parse(&once).unwrap()));
     assert!(once.contains("if (@age < 5) {\n            @Alpha = 0.5;\n        } else {"), "{once}");
 }
+
+#[test]
+fn thinning_merges_samples_keeps_totals_and_records_the_original_interval() {
+    use emerge_view::frame::{History, Sample, MAX_SAMPLES};
+    let mut h = History::new(1);
+    let n = MAX_SAMPLES as u64 + 1;
+    for t in 1..=n {
+        h.push(Sample { tick: t, revision: 0, by_lineage: vec![t], births: 2, deaths: 1, drift: Some(0) });
+    }
+    assert_eq!((h.base_every, h.every), (1, 2), "the interval doubled; the first interval is remembered");
+    assert!(h.samples.len() <= MAX_SAMPLES);
+    assert_eq!(h.samples.iter().map(|s| s.births).sum::<u64>(), 2 * n, "merging keeps every birth");
+    assert_eq!(h.samples.iter().map(|s| s.deaths).sum::<u64>(), n);
+    assert_eq!(h.samples.last().unwrap().tick, n, "the last sample is the latest");
+}

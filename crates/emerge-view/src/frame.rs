@@ -54,6 +54,8 @@ pub struct Frame {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct History {
     pub every: u64,
+    /// The interval the run began with; `every` is larger once samples were merged.
+    pub base_every: u64,
     pub samples: Vec<Sample>,
 }
 
@@ -76,7 +78,7 @@ pub const MAX_SAMPLES: usize = 4_096;
 
 impl History {
     pub fn new(every: u64) -> History {
-        History { every: every.max(1), samples: Vec::new() }
+        History { every: every.max(1), base_every: every.max(1), samples: Vec::new() }
     }
 
     /// Adds a sample, thinning the history if it is full.

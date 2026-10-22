@@ -230,6 +230,52 @@ impl Engine {
                     "wires": g.wires.iter().map(|w| json!({"from": w.from, "to": w.to, "substance": w.substance})).collect::<Vec<_>>(),
                 }))
             }
+            "rules.lens" => {
+                // The checked schedule of the running world's source (`proposals/science-panels.md`
+                // §3.1): the steps of one tick in order, each with the rules and statements the
+                // checked IR puts there. Static: it says what can happen, not what did.
+                let e = self.entry(p)?;
+                let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+                let name = file.items.iter().find_map(|i| match &i.node {
+                    emerge_lang::ast::Item::World(w) => Some(w.name.clone()),
+                    _ => None,
+                });
+                let name = name.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+                let prepared = emerge_lang::prepare(&file).map_err(|d| fault(-32005, format!("{}: {}: {}", d.code, d.path, d.message)))?;
+                let sched = emerge_lang::schedule::lower(&prepared, &name).map_err(|m| fault(-32005, m))?;
+                let mut placed = Vec::new();
+                let mut unplaced = Vec::new();
+                for r in &sched.rules {
+                    match r.placements() {
+                        Ok(parts) => placed.extend(parts.into_iter().map(|(slot, stmts)| (slot, r, stmts))),
+                        Err(why) => unplaced.push(json!({"rule": r.name, "on": r.on, "line": r.pos.line, "why": why})),
+                    }
+                }
+                let steps: Vec<Value> = sched.steps.iter().map(|s| {
+                    let rules: Vec<Value> = if s.slot == emerge_lang::schedule::Slot::None { vec![] } else {
+                        placed.iter().filter(|(slot, _, _)| *slot == s.slot).map(|(_, r, stmts)| json!({
+                            "rule": r.name, "on": r.on, "line": r.pos.line,
+                            "statements": stmts.iter().map(|st| json!({"text": st.text, "label": st.label, "line": st.pos.line, "path": match &st.label { Some(_) => r.path(&name, st), None => format!("{name}.rules.{}#{}", r.name, r.stmts.iter().position(|x| std::ptr::eq(x, *st)).unwrap_or(0)) }})).collect::<Vec<_>>(),
+                        })).collect()
+                    };
+                    json!({"id": s.id(), "phase": s.phase.name(), "name": s.name, "what": s.what, "reads": s.reads.text(), "settles": s.settles.text(), "creatures": s.creatures, "rules": rules})
+                }).collect();
+                Ok(json!({"world": name, "revision": e.run.revision(), "tick": e.run.tick(), "creatures": sched.creatures, "steps": steps, "unplaced": unplaced, "waste": sched.waste.iter().map(|(a, b)| json!({"substance": a, "sink": b})).collect::<Vec<_>>(),
+                    "disposal": sched.disposal.as_ref().map(|d| json!({"decompose": d.decompose, "remains": d.remains})), "source": "checked schedule (the one `emerge order` prints)"}))
+            }
+            "history.query" => {
+                // The sampled counts behind the charts, with their labels: what was sampled, how
+                // often, and whether older samples were merged (`proposals/science-panels.md` §5).
+                let e = self.entry(p)?;
+                let h = &e.run.history;
+                Ok(json!({
+                    "tick": e.run.tick(), "revision": e.run.revision(),
+                    "lineages": e.run.spec.lineages,
+                    "every": h.every, "base_every": h.base_every, "thinned": h.every > h.base_every,
+                    "kind": "samples of living creatures by founding lineage; births and deaths are the totals between neighbouring samples",
+                    "samples": h.samples.iter().map(|s| json!({"tick": s.tick, "revision": s.revision, "counts": s.by_lineage, "births": s.births, "deaths": s.deaths, "drift": s.drift.map(|d| d.to_string())})).collect::<Vec<_>>(),
+                }))
+            }
             "world.graph_edit" => {
                 // Replaces the text of one statement box: the patch is made from the graph's model
                 // and goes through the same `hotswap` as any patch (checked, preflighted, journalled).

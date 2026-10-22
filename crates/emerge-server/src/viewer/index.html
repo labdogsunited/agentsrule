@@ -171,6 +171,22 @@
   .lnode.ramp .range { display: flex; gap: 4px; }
   .rampbar { grid-column: 1 / 3; height: 16px; border: 1px solid #222; border-radius: 2px; }
   .lnode .err { grid-column: 1 / 3; color: var(--bad); font: 11px system-ui, sans-serif; white-space: pre-wrap; }
+  #stage-rules, #stage-lineage { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
+  #rulesbar, #lineagebar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
+  #lineagebar input { width: auto; margin: 0; }
+  #rulesbody, #lineagebody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
+  .lens-phase { margin: 12px 0 4px; font-weight: 600; letter-spacing: .04em; color: var(--accent); text-transform: uppercase; font-size: 11px; }
+  .lens-step { margin: 2px 0 2px 8px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
+  .lens-step.placed { border-left-color: var(--accent); }
+  .lens-step .what { color: var(--muted); }
+  .lens-step .meta { color: var(--muted); font-size: 11px; }
+  .lens-rule { margin: 3px 0 0 14px; font-family: ui-monospace, monospace; }
+  .lens-stmt { margin-left: 14px; cursor: pointer; white-space: pre-wrap; color: var(--fg); }
+  .lens-stmt:hover { background: #454545; }
+  #lineagebody svg { width: 100%; height: 100%; min-height: 160px; display: block; }
+  #lineagebody .legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0; }
+  #lineagebody .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; }
   #stage-details { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
   #detailsbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
   #detailstable { flex: 1; overflow: auto; }
@@ -321,6 +337,8 @@
   <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network (G)">Grid</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
+  <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span></div><div id="rulesbody"></div></main></div>
+  <div class="editor" id="ed-lineage"><main id="stage-lineage"><div id="lineagebar"><span id="lineagenote"></span><label><input type="radio" name="lmode" value="count" checked> counts</label><label><input type="radio" name="lmode" value="share"> share</label></div><div id="lineagebody"></div></main></div>
   <div class="editor" id="ed-details"><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main></div>
   <div class="editor" id="ed-source"><section id="code">
     <div id="codehandle"></div>
@@ -379,7 +397,7 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
 // screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false };
+const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
 const stage = stages.picture;   // the picture's stage: the info picker lives there
@@ -1493,16 +1511,17 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 // Tabs move by dragging (to a leaf's middle, or to one of its edges to split it), a leaf can be maximized
 // for a while, editors can be closed and added back, and desktops are named arrangements. One instance of
 // each editor; the arrangement is kept in this browser and checked before it is used again.
-const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source" };
+const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History" };
 const VIEW_OF = { viewport: "picture", network: "graph", genome: "genome" };          // editors with a camera
-const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source" };
+const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage" };
 let tree = null, closed = [], maxLeaf = null, focusLeaf = null, leafSeq = 0;
 const mkLeaf = (tabs, active) => ({ t: "leaf", id: `L${++leafSeq}`, tabs, active: active || tabs[0] });
 const mkSplit = (dir, ratio, a, b) => ({ t: "split", dir, ratio, a, b });
 const BUILTIN = {
-  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source"]))),
-  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome"]))),
-  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source"]), mkLeaf(["params"]))),
+  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage"]))),
+  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage"]))),
+  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage"]), mkLeaf(["params"]))),
+  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["details", "genome", "network", "look", "params", "source"]))),
 };
 const leavesOf = (n = tree) => (n.t === "leaf" ? [n] : [...leavesOf(n.a), ...leavesOf(n.b)]);
 const findLeaf = (id) => leavesOf().find((l) => l.id === id);
@@ -1622,7 +1641,7 @@ function resizeSplit(e, n, box, a, b, bar) {
 let prevVis = {};
 function syncVisible() {
   const on = new Set((maxLeaf ? [findLeaf(maxLeaf)] : leavesOf()).filter(Boolean).filter((l) => document.querySelector(`[data-leaf="${l.id}"]`)).map((l) => l.active));
-  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source" };
+  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage" };
   for (const [v, ed] of Object.entries(map)) visible[v] = on.has(ed);
   document.body.classList.toggle("graph", visible.graph);
   document.body.classList.toggle("genome", visible.genome);
@@ -1638,6 +1657,8 @@ function syncVisible() {
   if (fresh("genome")) loadEntities().then(() => loadGenome()).then(() => { if (cams.genome.fit) fitCam(cams.genome); applyCam(cams.genome); }).catch(oops);
   if (fresh("details")) loadDetails().catch(oops);
   if (fresh("look")) loadLook().catch(oops);
+  if (fresh("rules")) loadRules().catch(oops);
+  if (fresh("lineage")) loadLineage().catch(oops);
   if (fresh("source")) loadCode().catch(oops);
   prevVis = { ...visible };
   const fl = findLeaf(focusLeaf), v = fl && VIEW_OF[fl.active];
@@ -2091,6 +2112,86 @@ function drawDetails() {
   $("detailstable").scrollTop = keep;
 }
 
+// Rule Lens (proposals/science-panels.md §3.1): the checked schedule of the running world, as `emerge order` prints it.
+// Static: it says what can happen in a tick, not what did. Reloads when the revision changes.
+let rulesRev = null;
+async function loadRules() {
+  const w = $("world").value, note = $("rulesnote"), body = $("rulesbody");
+  if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
+  const r = await call("rules.lens", { world: w });
+  if (w !== $("world").value || !visible.rules) return;
+  rulesRev = r.revision;
+  note.textContent = `${w} · checked schedule of revision ${r.revision} (read at tick ${r.tick}) · click a statement to open it in the network`;
+  const keep = body.scrollTop;
+  body.textContent = "";
+  let phase = null;
+  for (const s of r.steps) {
+    if (s.phase !== phase) { phase = s.phase; const ph = el("lens-phase"); ph.textContent = phase; body.append(ph); }
+    const d = el(`lens-step${s.rules.length ? " placed" : ""}`);
+    d.innerHTML = `<b></b> <span class="what"></span><div class="meta"></div>`;
+    d.querySelector("b").textContent = s.name;
+    d.querySelector(".what").textContent = s.what;
+    d.querySelector(".meta").textContent = `reads ${s.reads}; settles: ${s.settles}`;
+    for (const ru of s.rules) {
+      const rd = el("lens-rule");
+      rd.textContent = `rule ${ru.rule} on ${ru.on}`;
+      d.append(rd);
+      for (const st of ru.statements) {
+        const sd = el("lens-stmt");
+        sd.textContent = st.text;
+        sd.title = st.path;
+        sd.onclick = () => { setMode("graph"); loadGraph().then(() => select(st.path)).catch(oops); };
+        d.append(sd);
+      }
+    }
+    if (s.name === "Venting") for (const x of r.waste) { const m = el("lens-rule"); m.textContent = `waste ${x.substance} -> ${x.sink}`; d.append(m); }
+    if (s.name === "Disposal" && r.disposal) { const m = el("lens-rule"); m.textContent = [r.disposal.decompose && `decompose: ${r.disposal.decompose}`, r.disposal.remains && `remains: ${r.disposal.remains}`].filter(Boolean).join("; "); if (m.textContent) d.append(m); }
+    body.append(d);
+  }
+  for (const u of r.unplaced) { const d = el("lens-step"); d.textContent = `rule ${u.rule} on ${u.on}: not placed, ${u.why}`; body.append(d); }
+  body.scrollTop = keep;
+}
+
+// Lineage History (§5): the sampled counts behind the charts, labelled with how they were sampled.
+async function loadLineage() {
+  const w = $("world").value, note = $("lineagenote"), body = $("lineagebody");
+  if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
+  const h = await call("history.query", { world: w });
+  if (w !== $("world").value || !visible.lineage) return;
+  const share = document.querySelector('input[name="lmode"]:checked').value === "share";
+  const S = h.samples, n = h.lineages.length;
+  note.textContent = `${w} · tick ${h.tick} · ${S.length} samples of living creatures by founding lineage, ${h.thinned ? `merged to every ${h.every} ticks (first every ${h.base_every}); births and deaths are summed over merged samples` : `every ${h.every} tick${h.every === 1 ? "" : "s"}`} · not a full census of lineages that arose later`;
+  body.textContent = "";
+  if (!S.length || !n) { body.textContent = "No samples yet."; return; }
+  if (!palettes) palettes = (await call("view.palettes")).palettes;
+  const cols = palStops("categorical").map((c) => `rgb(${c[0]},${c[1]},${c[2]})`);
+  const col = (i) => cols.length ? cols[i % cols.length] : `hsl(${i * 67},60%,60%)`;
+  const lg = el("legend");
+  h.lineages.forEach((name, i) => { const s = document.createElement("span"); s.innerHTML = "<i></i>"; s.firstChild.style.background = col(i); s.append(name); lg.append(s); });
+  body.append(lg);
+  const W = 800, H = 300, L = 44, B = 20, T0 = S[0].tick, T1 = S[S.length - 1].tick || 1;
+  const tot = (s) => s.counts.reduce((a, b) => a + b, 0) || 1;
+  const val = (s, i) => (share ? s.counts[i] / tot(s) : s.counts[i]);
+  const ymax = share ? 1 : Math.max(1, ...S.flatMap((s) => s.counts));
+  const X = (t) => L + ((t - T0) / Math.max(1, T1 - T0)) * (W - L - 6), Y = (v) => H - B - (v / ymax) * (H - B - 8);
+  let g = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><g stroke="#555" fill="#999" font-size="11">`;
+  for (let k = 0; k <= 4; k++) { const v = (ymax * k) / 4; g += `<line x1="${L}" x2="${W - 6}" y1="${Y(v)}" y2="${Y(v)}" stroke-opacity=".35"/><text x="${L - 4}" y="${Y(v) + 4}" text-anchor="end">${share ? Math.round(v * 100) + "%" : Math.round(v)}</text>`; }
+  g += `<text x="${L}" y="${H - 4}">tick ${T0}</text><text x="${W - 6}" y="${H - 4}" text-anchor="end">tick ${T1}</text></g>`;
+  for (let i = 0; i < n; i++) g += `<polyline fill="none" stroke="${col(i)}" stroke-width="1.6" points="${S.map((s) => `${X(s.tick).toFixed(1)},${Y(val(s, i)).toFixed(1)}`).join(" ")}"/>`;
+  g += "</svg>";
+  const wrap = document.createElement("div");
+  wrap.innerHTML = g;
+  wrap.style.height = "320px";
+  const read = el("legend");
+  body.append(wrap, read);
+  wrap.onpointermove = (e) => {
+    const r = wrap.getBoundingClientRect(), t = T0 + ((e.clientX - r.left) / r.width * W - L) / (W - L - 6) * (T1 - T0);
+    const s = S.reduce((a, b) => (Math.abs(b.tick - t) < Math.abs(a.tick - t) ? b : a));
+    read.textContent = `tick ${s.tick} (revision ${s.revision}): ` + h.lineages.map((name, i) => `${name} ${s.counts[i]}`).join(", ") + ` · births ${s.births}, deaths ${s.deaths}`;
+  };
+}
+for (const r of document.querySelectorAll('input[name="lmode"]')) r.onchange = () => loadLineage().catch(oops);
+
 async function refreshWorlds(select) {
   const gen = ++worldGen;
   const { worlds } = await call("world.list");
@@ -2213,6 +2314,8 @@ function connect() {
         if (isShown("graph") && w && w.revision !== graphRev) loadGraph().catch(() => {});
         if (isShown("genome") && ++genomeTick % 3 === 0) loadGenome(true).catch(() => {});
         if (isShown("details") && ++genomeTick % 2 === 0) loadDetails().catch(() => {});
+        if (isShown("rules") && w && w.revision !== rulesRev) loadRules().catch(() => {});
+        if (isShown("lineage") && ++genomeTick % 2 === 0) loadLineage().catch(() => {});
         const cw = ws.find((x) => x.world === codeWorld());
         if (codeOpen() && cw && (cw.world !== codeWorldName || cw.revision !== codeRev)) loadCode().catch(() => {});
       }).catch(() => {});
@@ -2231,7 +2334,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).catch(oops) };
+$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); }).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().then(() => { if (visible.look) return loadLook(); }).catch(oops);
 // Space plays and pauses the active world.
 let runningNow = {};

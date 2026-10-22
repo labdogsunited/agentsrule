@@ -1,0 +1,86 @@
+//! Science panels, stage S1 (`proposals/science-panels.md` §15): the Rule Lens schedule is the
+//! checked schedule `emerge order` prints, the lineage history says how it was sampled, and asking
+//! for either changes nothing in the run.
+
+use emerge_server::api::Engine;
+use serde_json::{json, Value};
+
+const DISH: &str = include_str!("../../../examples/dish.em");
+const TEST9: &str = include_str!("../../../archive/test9-dish.em");
+const LIFE: &str = include_str!("../../../examples/life.em");
+const NIGHT: &str = include_str!("../../../examples/presets/long_night.em");
+
+fn small(s: &str) -> String {
+    s.replace("Grid(w: 256, h: 256)", "Grid(w: 96, h: 96)").replace("count: 2_000;", "count: 300;")
+}
+
+/// The text of `emerge order` cut into one block per numbered step, keyed by the step's name.
+fn order_blocks(src: &str) -> Vec<(String, Vec<String>)> {
+    let file = emerge_lang::prepare(&emerge_lang::parse(src).unwrap()).unwrap();
+    let text = emerge_lang::order::order(&file, "Dish").or_else(|_| emerge_lang::order::order(&file, "Life")).unwrap();
+    let mut blocks: Vec<(String, Vec<String>)> = Vec::new();
+    for line in text.lines() {
+        let t = line.trim_start();
+        if let Some((n, rest)) = t.split_once(". ") {
+            if n.chars().all(|c| c.is_ascii_digit()) && !n.is_empty() && line.starts_with("  ") && !line.starts_with("   ") {
+                let name = rest.split("  ").next().unwrap().trim().to_string();
+                blocks.push((name, vec![]));
+                continue;
+            }
+        }
+        if let Some((_, lines)) = blocks.last_mut() {
+            if !t.is_empty() && !["Set", "Move", "Transform", "Restructure"].contains(&t) {
+                lines.push(t.to_string());
+            }
+        }
+    }
+    blocks
+}
+
+fn lens_matches_order(src: &str, lineages: &[&str]) {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": src, "lineages": lineages, "seed": 1})).unwrap()["world"].as_str().unwrap().to_string();
+    let lens = engine.call("rules.lens", &json!({"world": w})).unwrap();
+    let blocks = order_blocks(src);
+    let steps = lens["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), blocks.len(), "the same steps");
+    for (s, (name, lines)) in steps.iter().zip(&blocks) {
+        assert_eq!(s["name"].as_str().unwrap(), name);
+        let mut want: Vec<String> = Vec::new();
+        for r in s["rules"].as_array().unwrap() {
+            want.push(format!("rule {} on {}", r["rule"].as_str().unwrap(), r["on"].as_str().unwrap()));
+            want.extend(r["statements"].as_array().unwrap().iter().map(|st| st["text"].as_str().unwrap().to_string()));
+        }
+        let got: Vec<String> = lines.iter().filter(|l| l.starts_with("rule ") || !(l.starts_with("reads ") || l.starts_with("waste ") || l.starts_with("decompose") || l.starts_with("remains"))).cloned().collect();
+        assert_eq!(got, want, "step {name}");
+    }
+    assert!(lens["revision"].is_number() && lens["tick"].is_number(), "an observation says which revision and tick it is of");
+}
+
+#[test]
+fn the_rule_lens_is_the_checked_schedule() {
+    lens_matches_order(&small(DISH), &["Builder"]);
+    lens_matches_order(&small(&TEST9.to_string()), &["Builder"]);
+    lens_matches_order(LIFE, &[]);
+    lens_matches_order(&small(NIGHT), &["Builder"]);
+}
+
+#[test]
+fn history_says_how_it_was_sampled_and_asking_changes_nothing() {
+    let create = |engine: &mut Engine| engine.call("world.create", &json!({"source": small(DISH), "lineages": ["Builder"], "seed": 3})).unwrap()["world"].as_str().unwrap().to_string();
+    let mut engine = Engine::new();
+    let (a, b) = (create(&mut engine), create(&mut engine));
+    for step in 0..6 {
+        engine.call("run.step", &json!({"world": a, "ticks": 20})).unwrap();
+        engine.call("run.step", &json!({"world": b, "ticks": 20})).unwrap();
+        // Only A is observed, over and over.
+        engine.call("rules.lens", &json!({"world": a})).unwrap();
+        let h: Value = engine.call("history.query", &json!({"world": a})).unwrap();
+        assert_eq!(h["lineages"], json!(["Builder"]));
+        assert_eq!(h["tick"], 20 * (step + 1));
+    }
+    let h = engine.call("history.query", &json!({"world": a})).unwrap();
+    assert_eq!(h["thinned"], false, "121 samples (tick 0 and every tick after) are not thinned");
+    assert_eq!(h["samples"].as_array().unwrap().len(), 121);
+    assert_eq!(engine.run(&a).unwrap().digest(), engine.run(&b).unwrap().digest(), "observation does not change the trajectory");
+}
