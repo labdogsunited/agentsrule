@@ -2633,11 +2633,12 @@ async function loadLife() {
   const w = $("world").value, note = $("lifenote"), body = $("lifebody");
   if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
   const now = (await call("world.list")).worlds.find((x) => x.world === w);
-  const t = now ? now.tick : 0, span = lifeSpan && lifeSpan.world === w ? lifeSpan : { world: w, from: Math.max(0, t - 30), to: t };
+  const t = now ? now.tick : 0, brushed = science.world === w && science.window;
+  const span = brushed ? { world: w, from: science.window.from, to: science.window.to } : lifeSpan && lifeSpan.world === w ? lifeSpan : { world: w, from: Math.max(0, t - 30), to: t };
   let r;
   try { r = await call("life.query", { world: w, from: span.from, to: span.to }); } catch (e) { note.textContent = e.message || String(e); body.textContent = ""; return; }
   if (w !== $("world").value || !visible.life) return;
-  note.textContent = `${w} · tick ${r.tick} · ${r.source}`;
+  note.textContent = `${brushed ? "cohort = births in the brushed ticks · " : ""}${w} · tick ${r.tick} · ${r.source}`;
   body.textContent = "";
   const s = r.snapshot, mx = Math.max(1, ...s.ages.flatMap((a) => a.bins));
   const at = tag("table"); at.innerHTML = `<tr><th colspan="3">Age of the living (bins of ${s.age_bin_width} ticks; ${s.coverage})</th></tr>` + s.ages.map((a) => `<tr><td>${esc(a.lineage)}</td><td>${a.bins.reduce((x, y) => x + y, 0)}</td><td>${a.bins.map((b) => `<span class="bar" style="height:${Math.max(1, Math.round(40 * b / mx))}px" title="${b} creatures"></span>`).join("")}</td></tr>`).join("");
@@ -2674,7 +2675,8 @@ async function loadFlow() {
   $("flowbase").onclick = () => { flowBase = { world: w, tick: f.tick, rev: f.revision, ext: Object.fromEntries(f.reactions.flatMap((r) => r.measured.map((m) => [r.name + "|" + m.by, m.extent]))) }; loadFlow().catch(oops); };
   const base = flowBase && flowBase.world === w && flowBase.rev === f.revision ? flowBase : null;
   const qty = q.value, el = f.elements.indexOf(qty.replace("element ", ""));
-  note.textContent = `${w} · tick ${f.tick} · ` + (mode === "measured" ? (base ? `interval ticks ${base.tick} to ${f.tick}` : `cumulative: creatures since tick 0, world rules since tick ${f.world_rules_since}`) + ` · ${f.units}` : mode === "blocked" ? (f.blocked_counting ? "blocked outcomes of creatures' reaction genes, since counting started" : "not counting") : "possible reactions, as declared");
+  const fw = science.world === w && science.window;
+  note.textContent = (fw ? `brushed ticks ${science.window.from} to ${science.window.to}: past activity cannot be recovered, so the interval is from "Measure from now" · ` : "") + `${w} · tick ${f.tick} · ` + (mode === "measured" ? (base ? `interval ticks ${base.tick} to ${f.tick}` : `cumulative: creatures since tick 0, world rules since tick ${f.world_rules_since}`) + ` · ${f.units}` : mode === "blocked" ? (f.blocked_counting ? "blocked outcomes of creatures' reaction genes, since counting started" : "not counting") : "possible reactions, as declared");
   body.textContent = "";
   const subs = f.substances, R = f.reactions;
   const delta = (r, m) => Math.max(0, m.extent - (base && base.ext[r.name + "|" + m.by] !== undefined ? base.ext[r.name + "|" + m.by] : 0));
@@ -2732,6 +2734,24 @@ async function loadRegion() {
     `<tr><th>carried by those creatures (µ)</th><th></th></tr>` + Object.entries(r.carried_mu).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v.toLocaleString()}</td></tr>`).join("") +
     (r.cells.unavailable ? `<tr><th colspan="2">${esc(r.cells.unavailable)}</th></tr>` : `<tr><th>cells (${r.cells.count}; ${esc(r.cells.rule)}), amounts (µ)</th><th></th></tr>` + Object.entries(r.cells.amounts_mu).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v.toLocaleString()}</td></tr>`).join(""));
   body.append(t);
+}
+
+// One selection for the science panels (§13): a window of ticks brushed on Lineage History, a founding lineage, a creature.
+// It is typed (the panels receive the predicate, not a list of ids) and carries its world; a panel that cannot show the
+// scope says so and keeps showing what it can. Changing the world drops it.
+const science = { world: "", window: null, lineage: null, entity: null };
+function scopeText() {
+  const x = [];
+  if (science.window) x.push(`ticks ${science.window.from} to ${science.window.to}`);
+  if (science.lineage) x.push(`lineage ${science.lineage}`);
+  if (science.entity) x.push(`creature #${science.entity}`);
+  return x.length ? `selection: ${x.join(" · ")}` : "";
+}
+function setScience(patch) {
+  const w = $("world").value;
+  if (science.world !== w) Object.assign(science, { world: w, window: null, lineage: null, entity: null });
+  Object.assign(science, patch);
+  for (const [ed, load] of [["lineage", loadLineage], ["life", loadLife], ["census", loadCensus], ["family", loadFamily], ["budget", loadBudget], ["flow", loadFlow]]) if (visible[ed]) load().catch(() => {});
 }
 
 // Exports (S6): the plotted data with the run, build, source, scale and definitions it came from; a picture alone is
@@ -2801,14 +2821,17 @@ async function loadFamily() {
   if (w !== $("world").value || !visible.family) return;
   body.textContent = "";
   const sel = tag("select");
-  sel.innerHTML = ents.entities.map((e) => `<option value="${e.id}">#${e.id} · ${esc(e.lineage)} · age ${e.age}</option>`).join("");
-  if (familyPick && ents.entities.some((e) => String(e.id) === familyPick)) sel.value = familyPick;
-  sel.onchange = () => { familyPick = sel.value; loadFamily().catch(oops); };
+  const list = ents.entities.filter((e) => !science.lineage || e.lineage === science.lineage);
+  sel.innerHTML = list.map((e) => `<option value="${e.id}">#${e.id} · ${esc(e.lineage)} · age ${e.age}</option>`).join("");
+  if (science.entity && science.world === w && list.some((e) => e.id === science.entity)) familyPick = String(science.entity);
+  if (familyPick && list.some((e) => String(e.id) === familyPick)) sel.value = familyPick;
+  sel.onchange = () => { familyPick = sel.value; setScience({ entity: +sel.value }); };
+  if (!list.length) { note.textContent = `no creature of ${science.lineage} in the sample`; return; }
   const head = tag("div"); head.append("Creature ", sel, ents.total > ents.entities.length ? ` (an even sample of ${ents.entities.length} of ${ents.total})` : "");
   body.append(head);
   let a;
   try { a = await call("ancestry.query", { world: w, entity: +sel.value }); } catch (e) { note.textContent = `${w} · ${e.message || e}`; return; }
-  note.textContent = `${w} · tick ${a.tick} · ${a.source}`;
+  note.textContent = `${scopeText() ? scopeText() + " · " : ""}${w} · tick ${a.tick} · ${a.source}`;
   const t = tag("table");
   const state = (x) => (x.alive ? "alive" : x.died ? `died at tick ${x.died.tick} (${x.died.cause})` : "gone");
   t.innerHTML = "<tr><th>generation</th><th>creature</th><th>born</th><th>state</th><th>children</th></tr>" +
@@ -2829,7 +2852,8 @@ async function loadBudget() {
   let b;
   try { b = await call("accounts.query", { world: w }); } catch (e) { note.textContent = `${w} · ${e.message || e}`; body.textContent = ""; return; }
   if (w !== $("world").value || !visible.budget) return;
-  note.textContent = `${w} · ${b.substance}, ${b.unit}, ticks ${b.from_tick} to ${b.to_tick}${b.crosses_edit ? ` · crosses an edit (revision ${b.revision_start} to ${b.revision_now})` : ""} · ${b.scope}`;
+  const bw = science.world === w && science.window;
+  note.textContent = `${bw ? `brushed ticks ${science.window.from} to ${science.window.to} cannot be observed afterwards: this budget covers ticks ${b.from_tick} to ${b.to_tick}, from when its window was started · ` : ""}${w} · ${b.substance}, ${b.unit}, ticks ${b.from_tick} to ${b.to_tick}${b.crosses_edit ? ` · crosses an edit (revision ${b.revision_start} to ${b.revision_now})` : ""} · ${b.scope}`;
   body.textContent = "";
   for (const l of b.lineages) {
     const rows = [["stock at tick " + b.from_tick, l.stock_start_mu, "stock"], ...l.lines.filter((x) => x.mu).map((x) => [(x.sign > 0 ? "+ " : "− ") + x.name, x.mu, x.sign > 0 ? "plus" : "minus"]), ["stock now", l.stock_now_mu, "stock"]];
@@ -2881,7 +2905,7 @@ async function loadCensus(keepCompare) {
   if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
   const [c, ents] = await Promise.all([call("genome.census", { world: w }), call("entities.query", { world: w, limit: 200 })]);
   if (w !== $("world").value || !visible.census) return;
-  note.textContent = `${w} · tick ${c.tick} · ${c.metric}, ${c.coverage}`;
+  note.textContent = `${scopeText() ? scopeText() + " · " : ""}${w} · tick ${c.tick} · ${c.metric}, ${c.coverage}`;
   const keep = body.scrollTop;
   const old = keepCompare && body.querySelector(".cmpres");
   body.textContent = "";
@@ -2903,13 +2927,13 @@ async function loadCensus(keepCompare) {
     const cl = atlasBy === "clade" ? (cmpPick.a || (ents.entities[0] && String(ents.entities[0].id))) : null;
     const A = await call("genome.atlas", cl ? { world: w, clade: +cl } : { world: w });
     const note2 = tag("div"); note2.textContent = `${A.coverage}. ${A.trait}.`; at.append(note2);
-    for (const g of A.groups) {
+    for (const g of A.groups.filter((g) => !science.lineage || atlasBy === "clade" || g.group === science.lineage)) {
       const tt = tag("table");
       tt.innerHTML = `<tr><th colspan="3">${esc(g.group)}: ${g.creatures} creatures</th></tr>` + g.traits.map((x) => { const share = g.creatures ? x.active / g.creatures : 0; return `<tr><td>${esc(x.kind)} · ${esc(x.title)}: ${esc(x.text)}</td><td>${x.active} active${x.dormant ? `, ${x.dormant} dormant` : ""}</td><td><span class="bar" style="width:${Math.round(60 * Math.min(1, share))}px"></span>${(100 * share).toFixed(0)}%</td></tr>`; }).join("");
       at.append(tt);
     }
   } catch (e) { at.textContent = e.message || String(e); }
-  const row = tag("div"), mk = (k) => { const s = tag("select"); s.innerHTML = ents.entities.map((e) => `<option value="${e.id}">#${e.id} · ${esc(e.lineage)} · ${e.active_genes} genes</option>`).join(""); if (cmpPick[k] && ents.entities.some((e) => String(e.id) === cmpPick[k])) s.value = cmpPick[k]; s.onchange = () => { cmpPick[k] = s.value; }; return s; };
+  const row = tag("div"), mk = (k) => { const s = tag("select"); s.innerHTML = ents.entities.map((e) => `<option value="${e.id}">#${e.id} · ${esc(e.lineage)} · ${e.active_genes} genes</option>`).join(""); if (cmpPick[k] && ents.entities.some((e) => String(e.id) === cmpPick[k])) s.value = cmpPick[k]; s.onchange = () => { cmpPick[k] = s.value; if (k === "a") setScience({ entity: +s.value }); }; if (k === "a" && science.entity && science.world === w && ents.entities.some((e) => e.id === science.entity)) { s.value = String(science.entity); cmpPick.a = s.value; } return s; };
   const sa = mk("a"), sb = mk("b");
   if (!cmpPick.b && ents.entities.length > 1) sb.selectedIndex = ents.entities.length - 1;
   const go = tag("button"); go.textContent = "Compare"; go.onclick = () => { cmpPick = { a: sa.value, b: sb.value }; compareGenomes(+sa.value, +sb.value).catch(oops); };
@@ -2944,14 +2968,15 @@ async function loadLineage() {
   if (w !== $("world").value || !visible.lineage) return;
   const share = document.querySelector('input[name="lmode"]:checked').value === "share";
   const S = h.samples, n = h.lineages.length;
-  note.textContent = `${w} · tick ${h.tick} · ${S.length} samples of living creatures by founding lineage, ${h.thinned ? `merged to every ${h.every} ticks (first every ${h.base_every}); births and deaths are summed over merged samples` : `every ${h.every} tick${h.every === 1 ? "" : "s"}`} · not a full census of lineages that arose later`;
+  note.textContent = `${scopeText() ? scopeText() + " (drag on the chart to brush ticks; click a lineage name to select it) · " : "drag on the chart to brush a span of ticks · "}${w} · tick ${h.tick} · ${S.length} samples of living creatures by founding lineage, ${h.thinned ? `merged to every ${h.every} ticks (first every ${h.base_every}); births and deaths are summed over merged samples` : `every ${h.every} tick${h.every === 1 ? "" : "s"}`} · not a full census of lineages that arose later`;
   body.textContent = "";
   if (!S.length || !n) { body.textContent = "No samples yet."; return; }
   if (!palettes) palettes = (await call("view.palettes")).palettes;
   const cols = palStops("categorical").map((c) => `rgb(${c[0]},${c[1]},${c[2]})`);
   const col = (i) => cols.length ? cols[i % cols.length] : `hsl(${i * 67},60%,60%)`;
   const lg = el("legend");
-  h.lineages.forEach((name, i) => { const s = document.createElement("span"); s.innerHTML = "<i></i>"; s.firstChild.style.background = col(i); s.append(name); lg.append(s); });
+  if (science.world !== w) Object.assign(science, { world: w, window: null, lineage: null, entity: null });
+  h.lineages.forEach((name, i) => { const s = document.createElement("span"); s.innerHTML = "<i></i>"; s.firstChild.style.background = col(i); s.append(name); s.style.cursor = "pointer"; s.title = "select this lineage in every science panel (click again to clear)"; if (science.lineage === name) s.style.fontWeight = "bold"; s.onclick = () => setScience({ lineage: science.lineage === name ? null : name }); lg.append(s); });
   body.append(lg);
   const W = 800, H = 300, L = 44, B = 20, T0 = S[0].tick, T1 = S[S.length - 1].tick || 1;
   const tot = (s) => s.counts.reduce((a, b) => a + b, 0) || 1;
@@ -2961,7 +2986,8 @@ async function loadLineage() {
   let g = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><g stroke="#555" fill="#999" font-size="11">`;
   for (let k = 0; k <= 4; k++) { const v = (ymax * k) / 4; g += `<line x1="${L}" x2="${W - 6}" y1="${Y(v)}" y2="${Y(v)}" stroke-opacity=".35"/><text x="${L - 4}" y="${Y(v) + 4}" text-anchor="end">${share ? Math.round(v * 100) + "%" : Math.round(v)}</text>`; }
   g += `<text x="${L}" y="${H - 4}">tick ${T0}</text><text x="${W - 6}" y="${H - 4}" text-anchor="end">tick ${T1}</text></g>`;
-  for (let i = 0; i < n; i++) g += `<polyline fill="none" stroke="${col(i)}" stroke-width="1.6" points="${S.map((s) => `${X(s.tick).toFixed(1)},${Y(val(s, i)).toFixed(1)}`).join(" ")}"/>`;
+  for (let i = 0; i < n; i++) g += `<polyline fill="none" stroke="${col(i)}" stroke-opacity="${science.lineage && science.lineage !== h.lineages[i] ? 0.25 : 1}" stroke-width="${science.lineage === h.lineages[i] ? 2.6 : 1.6}" points="${S.map((s) => `${X(s.tick).toFixed(1)},${Y(val(s, i)).toFixed(1)}`).join(" ")}"/>`;
+  if (science.window) g += `<rect x="${X(Math.max(T0, science.window.from))}" y="4" width="${Math.max(2, X(Math.min(T1, science.window.to)) - X(Math.max(T0, science.window.from)))}" height="${H - B - 4}" fill="#cb6" fill-opacity=".18"/>`;
   g += "</svg>";
   const wrap = document.createElement("div");
   wrap.innerHTML = g;
@@ -2969,6 +2995,14 @@ async function loadLineage() {
   const read = el("legend");
   body.append(wrap, read);
   await exportButtons(body, w, `history-${w}`, S.map((s) => [s.tick, s.revision, ...s.counts, s.births, s.deaths]), ["tick", "revision", ...h.lineages, "births", "deaths"], () => wrap.querySelector("svg"));
+  const tickAt = (e) => { const r = wrap.getBoundingClientRect(); return Math.round(T0 + ((e.clientX - r.left) / r.width * W - L) / (W - L - 6) * (T1 - T0)); };
+  let brush = null;
+  wrap.onpointerdown = (e) => { brush = { a: tickAt(e), x: e.clientX }; wrap.setPointerCapture(e.pointerId); };
+  wrap.onpointerup = (e) => {
+    if (!brush) return;
+    const b = tickAt(e), moved = Math.abs(e.clientX - brush.x) > 4, a = brush.a; brush = null;
+    setScience({ window: moved ? { from: Math.max(T0, Math.min(a, b)), to: Math.min(T1, Math.max(a, b)) } : null });
+  };
   wrap.onpointermove = (e) => {
     const r = wrap.getBoundingClientRect(), t = T0 + ((e.clientX - r.left) / r.width * W - L) / (W - L - 6) * (T1 - T0);
     const s = S.reduce((a, b) => (Math.abs(b.tick - t) < Math.abs(a.tick - t) ? b : a));
