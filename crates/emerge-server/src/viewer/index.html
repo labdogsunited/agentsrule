@@ -42,8 +42,13 @@
   .ptitle { position: absolute; right: 12px; top: 8px; z-index: 2; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); pointer-events: none; display: none; }
   #stages.split .ptitle { display: block; }
   #stages.split > main.focus { box-shadow: inset 0 2px 0 var(--accent); }
-  #divider { flex: none; width: 6px; display: none; cursor: col-resize; background: var(--line); }
-  #divider:hover, #divider.on { background: var(--accent); }
+  .divider, #asidebar { flex: none; width: 6px; cursor: col-resize; background: var(--line); }
+  .divider:hover, .divider.on, #asidebar:hover, #asidebar.on { background: var(--accent); }
+  body.codeonly #asidebar { display: none; }
+  #stages.split .ptitle { pointer-events: auto; cursor: grab; user-select: none; padding: 2px 6px; border-radius: 4px; }
+  #stages.split .ptitle:hover { color: var(--ink); background: var(--panel); }
+  #stages.split .ptitle::before { content: "\2630  "; }
+  #dropmark { position: absolute; top: 0; bottom: 0; width: 4px; margin-left: -2px; background: var(--accent); z-index: 9; display: none; pointer-events: none; }
   #frame { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; display: none; user-select: none; -webkit-user-drag: none; }
   #frame.enlarged { image-rendering: pixelated; }
   #empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
@@ -218,7 +223,8 @@
     </div>
     <div id="error"></div>
   </aside>
-  <div id="stages"><main id="stage-picture" data-view="picture"><div class="ptitle">Viewport</div><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="pickmark"></div><div id="infopanel"></div></main><div id="divider" title="Drag to resize the panes"></div><main id="stage-graph" data-view="graph"><div class="ptitle">Network</div><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main><main id="stage-genome" data-view="genome"><div class="ptitle">Genome</div><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit. i: info picker."><span id="zoom">100%</span><button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button><button id="fit">Fit</button></div></div>
+  <div id="asidebar" title="Drag to resize the side panel"></div>
+  <div id="stages"><main id="stage-picture" data-view="picture"><div class="ptitle">Viewport</div><img id="frame" alt="the current frame" draggable="false"><span id="empty">Create a world, or pick one.</span><div id="pickmark"></div><div id="infopanel"></div></main><main id="stage-graph" data-view="graph"><div class="ptitle">Network</div><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main><main id="stage-genome" data-view="genome"><div class="ptitle">Genome</div><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main><div id="dropmark"></div><div id="cam" title="Wheel: zoom at the pointer. Drag: pan. Double-click: fit. i: info picker."><span id="zoom">100%</span><button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button><button id="fit">Fit</button></div></div>
   <section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
@@ -269,7 +275,11 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of); `visible` says which views are
 // on screen: one, or the picture beside the network or the genome (Split).
 let mode = "picture";
-let split = false, side = "graph", splitFrac = 0.5;
+let split = false, side = "graph";
+let panesOn = new Set(["picture", "graph"]);          // the panes on screen in a split layout
+let order = ["picture", "graph", "genome"];          // left to right
+const weights = { picture: 1, graph: 1, genome: 1 };   // their shares of the width
+let asideW = 280;
 const visible = { picture: true, graph: false, genome: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };
@@ -296,13 +306,14 @@ function applyCam(cam = cams[mode]) {
 function refitAll() {
   for (const v of Object.keys(cams)) if (visible[v] && cams[v].fit) { fitCam(cams[v]); applyCam(cams[v]); }
 }
+function markButtons() {
+  for (const v of Object.keys(stages)) $(`m-${v}`).classList.toggle("on", split ? visible[v] : mode === v);
+}
 function focusView(v) {
   if (mode === v) return;
   mode = v;
   for (const k of Object.keys(stages)) stages[k].classList.toggle("focus", k === v);
-  $("m-picture").classList.toggle("on", v === "picture");
-  $("m-graph").classList.toggle("on", v === "graph");
-  $("m-genome").classList.toggle("on", v === "genome");
+  markButtons();
   applyCam(cams[v]);
 }
 let drag = null;
@@ -402,21 +413,95 @@ function bindStage(view) {
 for (const v of Object.keys(stages)) bindStage(v);
 $("fit").onclick = () => { fitCam(); applyCam(); };
 window.addEventListener("resize", refitAll);
-// The divider between the panes of a split layout.
-$("divider").addEventListener("pointerdown", (e) => {
-  const bar = $("divider"), box = $("stages").getBoundingClientRect();
+// Dividers between the panes on screen, and the panes' order: a pane moves by dragging its title.
+const MIN_PANE = 140;
+function layout() {
+  document.querySelectorAll("#stages .divider").forEach((d) => d.remove());
+  const vis = order.filter((v) => visible[v]);
+  order.forEach((v) => { stages[v].style.order = vis.includes(v) ? 2 * vis.indexOf(v) : 100; });
+  for (const v of order) stages[v].style.flex = vis.includes(v) && split ? `${weights[v]} 1 0` : "1 1 0";
+  vis.forEach((v, i) => {
+    if (i === 0 || !split) return;
+    const bar = document.createElement("div");
+    bar.className = "divider";
+    bar.title = "Drag to resize the panes";
+    bar.style.order = 2 * i - 1;
+    bar.dataset.left = vis[i - 1];
+    bar.dataset.right = v;
+    bar.addEventListener("pointerdown", dividerDrag);
+    $("stages").appendChild(bar);
+  });
+  document.querySelectorAll("#stages .ptitle").forEach((t) => { t.onpointerdown = split ? titleDrag : null; });
+}
+function dividerDrag(e) {
+  const bar = e.currentTarget, l = bar.dataset.left, r = bar.dataset.right;
+  bar.setPointerCapture(e.pointerId);
+  bar.classList.add("on");
+  const total = weights[l] + weights[r];
+  const move = (m) => {
+    const a = stages[l].getBoundingClientRect().left, b = stages[r].getBoundingClientRect().right;
+    const lo = MIN_PANE / (b - a), f = Math.min(1 - lo, Math.max(lo, (m.clientX - a) / (b - a)));
+    weights[l] = total * f;
+    weights[r] = total * (1 - f);
+    stages[l].style.flex = `${weights[l]} 1 0`;
+    stages[r].style.flex = `${weights[r]} 1 0`;
+    refitAll();
+  };
+  const up = () => { bar.classList.remove("on"); bar.removeEventListener("pointermove", move); bar.removeEventListener("pointerup", up); saveLayout(); };
+  bar.addEventListener("pointermove", move);
+  bar.addEventListener("pointerup", up);
+}
+// Where a pane dragged to x would land: the index among the other panes on screen.
+function dropIndex(v, x) {
+  const others = order.filter((o) => visible[o] && o !== v);
+  let i = 0;
+  for (const o of others) { const r = stages[o].getBoundingClientRect(); if (x > r.left + r.width / 2) i++; }
+  return { i, others };
+}
+function titleDrag(e) {
+  e.stopPropagation();
+  e.preventDefault();
+  const v = e.currentTarget.parentElement.dataset.view, t = e.currentTarget, mark = $("dropmark"), box = $("stages").getBoundingClientRect();
+  t.setPointerCapture(e.pointerId);
+  const at = (x) => {
+    const { i, others } = dropIndex(v, x);
+    const left = i < others.length ? stages[others[i]].getBoundingClientRect().left : stages[others[others.length - 1]].getBoundingClientRect().right;
+    mark.style.left = `${left - box.left}px`;
+    mark.style.display = others.length ? "block" : "none";
+  };
+  const move = (m) => at(m.clientX);
+  const up = (m) => {
+    t.removeEventListener("pointermove", move);
+    t.removeEventListener("pointerup", up);
+    mark.style.display = "none";
+    const { i, others } = dropIndex(v, m.clientX);
+    const rest = order.filter((o) => o !== v);
+    const before = others[i];
+    rest.splice(before ? rest.indexOf(before) : rest.length, 0, v);
+    order = rest;
+    layout();
+    refitAll();
+    saveLayout();
+  };
+  t.addEventListener("pointermove", move);
+  t.addEventListener("pointerup", up);
+  at(e.clientX);
+}
+// The side panel's width.
+$("asidebar").addEventListener("pointerdown", (e) => {
+  const bar = $("asidebar");
   bar.setPointerCapture(e.pointerId);
   bar.classList.add("on");
   const move = (m) => {
-    splitFrac = Math.min(0.8, Math.max(0.2, (m.clientX - box.left) / box.width));
-    stages.picture.style.flex = `0 0 ${splitFrac * 100}%`;
+    asideW = Math.min(520, Math.max(200, m.clientX - document.querySelector("aside").getBoundingClientRect().left));
+    document.querySelector("aside").style.width = `${asideW}px`;
     refitAll();
   };
   const up = () => { bar.classList.remove("on"); bar.removeEventListener("pointermove", move); bar.removeEventListener("pointerup", up); saveLayout(); };
   bar.addEventListener("pointermove", move);
   bar.addEventListener("pointerup", up);
 });
-function saveLayout() { try { localStorage.setItem("layout", JSON.stringify({ split, side, splitFrac })); } catch (e) {} }
+function saveLayout() { try { localStorage.setItem("layout", JSON.stringify({ order, weights, asideW })); } catch (e) {} }
 
 // ---- The code window: the complete source of the running world, read-only. A statement or box
 // selected in the graph is marked here, a click on a line selects the box that holds it, and lines a
@@ -1066,21 +1151,17 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 function setMode(m) {
   mode = m;
   if (m !== "picture") side = m;
-  visible.picture = split || m === "picture";
-  visible.graph = split ? side === "graph" : m === "graph";
-  visible.genome = split ? side === "genome" : m === "genome";
+  if (split) panesOn.add(m);
+  for (const v of Object.keys(visible)) visible[v] = split ? panesOn.has(v) : v === m;
   if (!visible.picture && info.on) infoOff();
-  $("m-picture").classList.toggle("on", m === "picture");
-  $("m-graph").classList.toggle("on", m === "graph");
-  $("m-genome").classList.toggle("on", m === "genome");
+  markButtons();
   $("split").classList.toggle("on", split);
   $("stages").classList.toggle("split", split);
   for (const v of Object.keys(stages)) {
     stages[v].classList.toggle("vis", visible[v]);
     stages[v].classList.toggle("focus", v === m);
   }
-  stages.picture.style.flex = split ? `0 0 ${splitFrac * 100}%` : "";
-  $("divider").style.display = split ? "block" : "none";
+  layout();
   $("graph").style.display = visible.graph ? "block" : "none";
   $("genome").style.display = visible.genome ? "block" : "none";
   document.body.classList.toggle("graph", visible.graph);
@@ -1095,12 +1176,31 @@ function setMode(m) {
   saveLayout();
 }
 const fitIfFit = (cam) => { if (cam.fit) fitCam(cam); };
-try { splitFrac = JSON.parse(localStorage.getItem("layout") || "{}").splitFrac || splitFrac; } catch (e) {}
+try {
+  const saved = JSON.parse(localStorage.getItem("layout") || "{}");
+  if (Array.isArray(saved.order) && saved.order.length === 3 && saved.order.every((v) => stages[v])) order = saved.order;
+  for (const v of Object.keys(weights)) if (saved.weights && saved.weights[v] > 0) weights[v] = saved.weights[v];
+  if (saved.asideW >= 200) { asideW = saved.asideW; document.querySelector("aside").style.width = `${asideW}px`; }
+} catch (e) {}
 setMode("picture");
-$("split").onclick = () => { split = !split; setMode(mode === "picture" && split ? side : mode); };
-$("m-picture").onclick = () => setMode("picture");
-$("m-graph").onclick = () => setMode("graph");
-$("m-genome").onclick = () => setMode("genome");
+$("split").onclick = () => {
+  split = !split;
+  if (split) panesOn = new Set(["picture", mode === "picture" ? side : mode]);
+  setMode(mode);
+  requestAnimationFrame(refitAll);
+};
+// In a split layout a view's button turns its pane on or off (one stays); alone, it shows that view.
+function pick(v) {
+  if (!split) return setMode(v);
+  if (panesOn.has(v) && panesOn.size > 1) {
+    panesOn.delete(v);
+    setMode(mode === v ? order.find((o) => panesOn.has(o)) : mode);
+  } else setMode(v);
+  requestAnimationFrame(refitAll);
+}
+$("m-picture").onclick = () => pick("picture");
+$("m-graph").onclick = () => pick("graph");
+$("m-genome").onclick = () => pick("genome");
 $("decls").onchange = () => select($("decls").value);
 
 // A point of the picture as a point of the world: the map is the top left of the image, `map.w` by
