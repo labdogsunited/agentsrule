@@ -142,28 +142,16 @@
   #picked small { display: block; color: var(--muted); font: 11px system-ui, sans-serif; margin-bottom: 4px; }
 
   body { overflow: hidden; }
-  #desk { flex: 1; display: flex; min-height: 0; }
-  #colL { flex: 1; min-width: 200px; display: flex; }
-  #colR { flex: none; width: 40%; min-width: 240px; display: flex; flex-direction: column; border-left: 1px solid var(--line); }
-  .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1 1 0; position: relative; }
-  #colL .pane { flex: 1; }
-  #pane-parm { flex: 0 0 40%; }
-  #pane-net { flex: 1 1 0; }
   .phead { flex: none; height: 28px; display: flex; align-items: stretch; gap: 0; background: var(--panel); border-bottom: 1px solid var(--line); user-select: none; }
   .phead select { align-self: center; width: auto; max-width: 220px; padding: 2px 6px; margin-left: 6px; font-size: 12px; }
   .phead #zoom { align-self: center; padding-right: 10px; color: var(--muted); font-size: 12px; }
   .ptab { display: flex; align-items: center; padding: 0 14px; font: 12px system-ui, sans-serif; color: var(--muted); background: var(--panel); border: 0; border-right: 1px solid var(--line); border-top: 2px solid transparent; border-radius: 0; cursor: pointer; }
   .ptab:hover { color: var(--ink); border-color: var(--line); border-top-color: transparent; }
   .ptab.on { color: var(--ink); background: var(--bg); border-top-color: var(--accent); }
-  body.code-open .ptab:not(#codebtn).on { background: var(--panel); color: var(--muted); border-top-color: transparent; }
-  .pane:not(.focus) .ptab.on { border-top-color: #777; }
   .pbody { flex: 1; display: flex; min-height: 0; position: relative; }
   .pbody > main { flex: 1; min-width: 0; position: relative; overflow: hidden; touch-action: none; cursor: grab; }
-  .tabbody { flex: 1; position: relative; min-height: 0; }
-  .tabbody > main { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: grab; display: none; }
-  .tabbody > main.vis { display: block; }
-  #stage-look { cursor: default; display: none; flex-direction: column; background: var(--bg); }
-  #stage-look.vis { display: flex; }
+
+  #stage-look { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
   #lookbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; }
   #lookbar button { padding: 2px 8px; }
   #lookbody { flex: 1; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px;
@@ -183,8 +171,7 @@
   .lnode.ramp .range { display: flex; gap: 4px; }
   .rampbar { grid-column: 1 / 3; height: 16px; border: 1px solid #222; border-radius: 2px; }
   .lnode .err { grid-column: 1 / 3; color: var(--bad); font: 11px system-ui, sans-serif; white-space: pre-wrap; }
-  #stage-details { cursor: default; display: none; flex-direction: column; background: var(--bg); }
-  #stage-details.vis { display: flex; }
+  #stage-details { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
   #detailsbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
   #detailstable { flex: 1; overflow: auto; }
   #detailstable table { border-collapse: collapse; width: 100%; font: 12px ui-monospace, monospace; }
@@ -209,10 +196,6 @@
   #flyout.open { display: block; }
   #flyout .check { display: flex; gap: 6px; align-items: center; color: var(--ink); margin-top: 10px; }
   #flyout .check input { width: auto; }
-  .divider { flex: none; background: var(--line); z-index: 3; }
-  .divider.v { width: 6px; cursor: col-resize; }
-  .divider.h { height: 6px; cursor: row-resize; }
-  .divider:hover, .divider.on { background: var(--accent); }
   .hbar { align-self: center; color: var(--muted); font-size: 12px; margin: 0 -8px 0 8px; }
   header select { width: auto; max-width: 240px; padding: 3px 6px; }
   header button { padding: 3px 10px; }
@@ -241,26 +224,51 @@
   #playbar input { width: 64px; padding: 4px 6px; }
   #playbar #stats { margin-left: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
   #playbar #error { margin: 0; color: var(--bad); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
-  #code { display: none; position: absolute; inset: 0; z-index: 8; flex-direction: column; background: var(--panel); }
-  body.code-open #code { display: flex; }
-  #codehandle { display: none; }
+  #code { display: flex; flex: 1; min-height: 0; flex-direction: column; background: var(--panel); position: relative; }
   .phead { overflow-x: auto; scrollbar-width: none; }
   .phead::-webkit-scrollbar { display: none; }
   .ptab { flex: none; white-space: nowrap; }
   @media (max-width: 900px) { .ptab { padding: 0 9px; } #flyout { right: 36px; } }
-  @media (max-width: 760px) {
-    #desk { flex-direction: column; overflow-y: auto; }
-    #colL { flex: none; height: 62vh; min-width: 0; }
-    #colR { width: 100% !important; min-width: 0; flex: none; height: 90vh; border-left: 0; border-top: 1px solid var(--line); }
-    #dv { display: none; }
-  }
-  body.codeonly #colL, body.codeonly #dv, body.codeonly #pane-parm, body.codeonly #dh, body.codeonly #pane-net .phead, body.codeonly .tabbody > main, body.codeonly #playbar, body.codeonly .server, body.codeonly #where, body.codeonly .hbar, body.codeonly #world, body.codeonly #newbtn { display: none; }
-  body.codeonly #colR { width: auto !important; flex: 1 !important; border-left: 0; }
   body.codeonly #popout { display: none; }
+
+  #workspace { flex: 1; min-height: 0; display: flex; }
+  #stash { display: none; }
+  .split { flex: 1; display: flex; min-width: 0; min-height: 0; }
+  .split.h { flex-direction: row; }
+  .split.v { flex-direction: column; }
+  .sp { min-width: 0; min-height: 0; display: flex; }
+  .sbar { flex: none; background: var(--line); z-index: 3; }
+  .split.h > .sbar { width: 6px; cursor: col-resize; }
+  .split.v > .sbar { height: 6px; cursor: row-resize; }
+  .sbar:hover, .sbar.on { background: var(--accent); }
+  .leaf { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .lhead { flex: none; height: 28px; display: flex; align-items: stretch; background: var(--panel); border-bottom: 1px solid var(--line); user-select: none; }
+  .lhead .tabs { display: flex; overflow-x: auto; scrollbar-width: none; flex: 0 1 auto; min-width: 0; }
+  .lhead .tabs::-webkit-scrollbar { display: none; }
+  .lhead .fill { flex: 1; }
+  .lhead .lbtn { flex: none; width: 26px; border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 0; font-size: 14px; }
+  .lhead .lbtn:hover { color: var(--ink); background: #3a3a3a; }
+  .ptab.dragsrc { opacity: 0.4; }
+  .leaf.focus .ptab.on { border-top-color: var(--accent); }
+  .leaf:not(.focus) .ptab.on { border-top-color: #777; }
+  .lbody { flex: 1; min-height: 0; min-width: 0; position: relative; display: flex; }
+  .editor { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; }
+  .editor > main { flex: 1; min-height: 0; position: relative; overflow: hidden; touch-action: none; cursor: grab; }
+  .etool { flex: none; height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .etool button { padding: 2px 8px; }
+  .etool select { width: auto; max-width: 220px; padding: 2px 6px; font-size: 12px; }
+  #netgrid.on { color: var(--ink); } #netgrid:not(.on) { text-decoration: line-through; }
+  #dropzone { position: fixed; z-index: 50; background: rgba(224, 164, 88, 0.22); border: 2px solid var(--accent); pointer-events: none; display: none; }
+  #tabghost { position: fixed; z-index: 60; padding: 2px 10px; background: var(--panel); border: 1px solid var(--accent); pointer-events: none; display: none; font: 12px system-ui, sans-serif; color: var(--ink); }
+  #lmenu { position: fixed; z-index: 40; min-width: 160px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px; box-shadow: 0 8px 28px #000a; display: none; }
+  #lmenu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 4px 10px; }
+  #lmenu button:hover { background: #3f3f3f; }
+  #lmenu .hd { padding: 4px 10px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+  body.codeonly .lhead, body.codeonly .sbar { display: none; }
 </style>
 </head>
 <body>
-<header><h1>Emerge</h1><span id="status">connecting…</span><label class="hbar" for="world">World</label><select id="world" title="The running world that Play, Step and the editors act on"></select><button id="newbtn" title="Start a new world from an example">New world…</button><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
+<header><h1>Emerge</h1><span id="status">connecting…</span><label class="hbar" for="world">World</label><select id="world" title="The running world that Play, Step and the editors act on"></select><button id="newbtn" title="Start a new world from an example">New world…</button><label class="hbar" for="desktop">Desktop</label><select id="desktop" title="A saved arrangement of the panes"></select><button id="savedesk" title="Save the present arrangement under a name">Save as…</button><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
 <div id="newworld"><h3>New world</h3>    <label for="example">Start from</label>
     <select id="example"></select>
     <div class="checks" id="lins"></div>
@@ -272,11 +280,9 @@
     <select id="backend" title="The GPU runs the same world in contract mode (its own exact arithmetic, so numbers differ from the CPU's)"><option value="cpu">CPU</option><option value="gpu">GPU (contract mode)</option></select>
     <p><button class="primary" id="create">Create from the example</button></p>
     </div>
-<div id="desk">
-  <div id="colL">
-    <section class="pane focus" id="pane-picture" data-view="picture">
-      <div class="phead"><span class="ptab on">Viewport</span><select id="view" title="Which view of the world to draw"></select><span style="flex:1"></span><span id="zoom" title="Zoom of the focused pane">100%</span></div>
-      <div class="pbody">
+<div id="workspace"></div>
+<div id="stash" hidden>
+  <div class="editor" id="ed-viewport"><div class="etool"><select id="view" title="Which view of the world to draw"></select><span style="flex:1"></span><span id="zoom" title="Zoom of the focused pane">100%</span></div><div class="pbody">
         <div class="strip" id="lstrip">
           <button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button>
           <button id="gridbtn" title="Show the cell grid (G)">&#9638;</button>
@@ -294,14 +300,8 @@
           <label for="fps">Max fps</label><input id="fps" type="number" value="8" min="1" max="30">
           <label class="check"><input type="checkbox" id="charts" checked> Charts</label>
         </div>
-      </div>
-    </section>
-  </div>
-  <div class="divider v" id="dv" title="Drag to resize"></div>
-  <div id="colR">
-    <section class="pane" id="pane-parm">
-      <div class="phead"><span class="ptab on">Parameters</span></div>
-      <div id="parm">
+      </div></div>
+  <div class="editor" id="ed-params"><div id="parm">
         <div id="sel">
       <h2>Selected</h2>
       <div id="pinbar"><span id="pintext">Following the selection</span><button id="pinbtn" title="Keep Parameters on this node while you select others">Pin</button></div>
@@ -311,12 +311,12 @@
     </div>
     
 
-      </div>
-    </section>
-    <div class="divider h" id="dh" title="Drag to resize"></div>
-    <section class="pane" id="pane-net">
-      <div class="phead"><button class="ptab on" id="t-graph">Network</button><button class="ptab" id="t-genome" title="The genome of one living creature: modules, genes and signals">Genome</button><button class="ptab" id="t-look" title="The colour ramps of the current view, as nodes">Look</button><button class="ptab" id="t-details" title="A table of the creatures: id, lineage, age, position, what they carry">Details</button><button class="ptab" id="codebtn" title="Show the complete source of the world">Code</button><span style="flex:1"></span><button class="ptab" id="netfit" title="Fit the network or the genome to the pane">Fit</button><button class="ptab" id="netgrid" title="Show the dotted grid behind the network (G)">Grid</button></div>
-      <div class="tabbody"><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main><section id="code">
+      </div></div>
+  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network (G)">Grid</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
+  <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main></div>
+  <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
+  <div class="editor" id="ed-details"><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main></div>
+  <div class="editor" id="ed-source"><section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
     <div id="codebody"><span style="padding:10px;color:var(--muted)">Create a world, or pick one.</span></div>
@@ -334,9 +334,8 @@
       </div>
     </div>
   </section></div>
-    </section>
-  </div>
 </div>
+<div id="dropzone"></div><div id="tabghost"></div><div id="lmenu"></div>
 <footer id="playbar">
   <button id="play" title="Run">&#9654; Play</button><button id="pause">&#10074;&#10074; Pause</button>
   <input id="steps" type="number" value="10" min="1" title="Ticks per step"><button id="step">Step</button>
@@ -373,7 +372,7 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
 // screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-const visible = { picture: true, graph: true, genome: false, details: false, look: false };
+const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
 const stage = stages.picture;   // the picture's stage: the info picker lives there
@@ -434,7 +433,7 @@ function applyCam(cam = cams[mode]) {
   // Exact cells when enlarged; smooth when shrunk, so the legend's text stays readable.
   if (cam === cams.picture) el.classList.toggle("enlarged", cam.s > 1);
   if (cam === cams.picture) { placeGrid(); placeMark(); }
-  if (cam === cams[mode]) $("zoom").textContent = `${Math.round(cam.s * 100)}%`;
+  if (cam === cams.picture) $("zoom").textContent = `${Math.round(cam.s * 100)}%`;
 }
 // A view that is on screen fits its stage again when the stage changes size (a divider, a tab, the window).
 function refitAll() {
@@ -442,10 +441,10 @@ function refitAll() {
 }
 for (const v of Object.keys(stages)) new ResizeObserver(() => { if (v === "picture") layoutCharts(); if (visible[v] && cams[v].fit) { fitCam(cams[v]); applyCam(cams[v]); } }).observe(stages[v]);
 function focusView(v) {
-  if (mode === v) return;
+  if (mode === v && leafOfView(v) && leafOfView(v).id === focusLeaf) return;
   mode = v;
-  $("pane-picture").classList.toggle("focus", v === "picture");
-  $("pane-net").classList.toggle("focus", v !== "picture");
+  const l = leafOfView(v);
+  if (l) setFocusLeaf(l.id, true);
   applyCam(cams[v]);
 }
 function zoomBy(f, view = "picture") {
@@ -559,23 +558,6 @@ for (const v of Object.keys(stages)) bindStage(v);
 $("fit").onclick = () => { fitCam(cams.picture); applyCam(cams.picture); };
 $("netfit").onclick = () => { const v = visible.genome ? "genome" : "graph"; fitCam(cams[v]); applyCam(cams[v]); };
 window.addEventListener("resize", refitAll);
-// The two dividers: viewport | right column, and Parameters / Network. Sizes are kept per browser.
-const layoutState = { rw: null, ph: null };
-function saveLayout() { try { localStorage.setItem("layout2", JSON.stringify(layoutState)); } catch (e) {} }
-function dragBar(bar, move) {
-  bar.addEventListener("pointerdown", (e) => {
-    bar.setPointerCapture(e.pointerId);
-    bar.classList.add("on");
-    const mv = (m) => { move(m); refitAll(); };
-    const up = () => { bar.classList.remove("on"); bar.removeEventListener("pointermove", mv); bar.removeEventListener("pointerup", up); saveLayout(); };
-    bar.addEventListener("pointermove", mv);
-    bar.addEventListener("pointerup", up);
-  });
-}
-const setRightWidth = (w) => { const box = $("desk").getBoundingClientRect(); layoutState.rw = Math.min(box.width - 260, Math.max(240, w)); $("colR").style.width = `${layoutState.rw}px`; };
-const setParmHeight = (h) => { const box = $("colR").getBoundingClientRect(); layoutState.ph = Math.min(box.height - 120, Math.max(60, h)); $("pane-parm").style.flex = `0 0 ${layoutState.ph}px`; };
-dragBar($("dv"), (m) => setRightWidth($("desk").getBoundingClientRect().right - m.clientX));
-dragBar($("dh"), (m) => setParmHeight(m.clientY - $("colR").getBoundingClientRect().top));
 const toggleNew = (on) => $("newworld").classList.toggle("open", on === undefined ? !$("newworld").classList.contains("open") : on);
 $("newbtn").onclick = () => toggleNew();
 $("newbtn2").onclick = () => toggleNew(true);
@@ -605,7 +587,7 @@ function tokens(line) {
   if (last < line.length) out.push(["", line.slice(last)]);
   return out;
 }
-const codeOpen = () => document.body.classList.contains("code-open");
+const codeOpen = () => visible.source;
 const codeWorld = () => $("code-world").value || $("world").value;
 
 function renderCode(src, prev) {
@@ -695,17 +677,10 @@ $("codebody").addEventListener("click", async (e) => {
   if (best) { if (!isShown("graph")) setMode("graph"); select(best.id); }
 });
 
-$("codebtn").onclick = () => {
-  document.body.classList.toggle("code-open");
-  $("codebtn").classList.toggle("on", codeOpen());
-  try { localStorage.setItem("emerge.code", codeOpen() ? "1" : "0"); } catch (_) {}
-  if (codeOpen()) loadCode().catch(oops);
-  window.dispatchEvent(new Event("resize"));
-};
 $("copycode").onclick = () => navigator.clipboard && navigator.clipboard.writeText(codeLines.join("\n") + "\n").catch(() => {});
 $("popout").onclick = () => {
   window.open(`${location.origin}/#k=${token}&code=1`, "emerge-code", "width=780,height=940");
-  if (codeOpen()) $("codebtn").click();
+  closeEditor("source");
 };
 $("code-world").onchange = () => loadCode().catch(oops);
 {
@@ -801,7 +776,6 @@ $("codetext").addEventListener("keydown", (e) => {
   }
 });
 
-try { if (!codeonly && localStorage.getItem("emerge.code") === "1") { document.body.classList.add("code-open"); $("codebtn").classList.add("on"); } } catch (_) {}
 
 // ---- The graph (`proposals/node-editor.md`): boxes and wires, a projection of the source text.
 // Columns: sources and reactions on the left, the statements of the rules in the middle in the
@@ -1432,50 +1406,270 @@ function renderGeneParm() {
 $("entity").onchange = () => { genomeSel = null; loadGenome().catch(oops); };
 $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).catch(oops);
 
-// The network pane's tabs: Network, Genome, Code. `setMode("picture")` only moves the focus.
-function setMode(m) {
-  if (m === "picture") return focusView("picture");
-  if (document.body.classList.contains("code-open")) $("codebtn").click();
-  visible.graph = m === "graph";
-  visible.genome = m === "genome";
-  visible.details = m === "details";
-  visible.look = m === "look";
-  $("t-look").classList.toggle("on", visible.look);
-  $("stage-look").classList.toggle("vis", visible.look);
-  $("t-graph").classList.toggle("on", visible.graph);
-  $("t-genome").classList.toggle("on", visible.genome);
-  $("t-details").classList.toggle("on", visible.details);
-  $("stage-details").classList.toggle("vis", visible.details);
-  $("stage-graph").classList.toggle("vis", visible.graph);
-  $("stage-genome").classList.toggle("vis", visible.genome);
-  $("graph").style.display = visible.graph ? "block" : "none";
-  $("genome").style.display = visible.genome ? "block" : "none";
+// ---- The workspace (houdini-workspace.md W3): a split tree of leaves, each leaf a set of editor tabs.
+// Tabs move by dragging (to a leaf's middle, or to one of its edges to split it), a leaf can be maximized
+// for a while, editors can be closed and added back, and desktops are named arrangements. One instance of
+// each editor; the arrangement is kept in this browser and checked before it is used again.
+const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source" };
+const VIEW_OF = { viewport: "picture", network: "graph", genome: "genome" };          // editors with a camera
+const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source" };
+let tree = null, closed = [], maxLeaf = null, focusLeaf = null, leafSeq = 0;
+const mkLeaf = (tabs, active) => ({ t: "leaf", id: `L${++leafSeq}`, tabs, active: active || tabs[0] });
+const mkSplit = (dir, ratio, a, b) => ({ t: "split", dir, ratio, a, b });
+const BUILTIN = {
+  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source"]))),
+  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome"]))),
+  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source"]), mkLeaf(["params"]))),
+};
+const leavesOf = (n = tree) => (n.t === "leaf" ? [n] : [...leavesOf(n.a), ...leavesOf(n.b)]);
+const findLeaf = (id) => leavesOf().find((l) => l.id === id);
+const leafOfEditor = (ed) => leavesOf().find((l) => l.tabs.includes(ed));
+const leafOfView = (v) => { const ed = EDITOR_OF[v]; return ed ? leafOfEditor(ed) : null; };
+function parentOf(n, from = tree) { if (from.t === "leaf") return null; if (from.a === n || from.b === n) return from; return parentOf(n, from.a) || parentOf(n, from.b); }
+function replaceNode(old, neu) { const p = parentOf(old); if (!p) tree = neu; else if (p.a === old) p.a = neu; else p.b = neu; }
+function removeLeaf(l) { const p = parentOf(l); if (!p) return; replaceNode(p, p.a === l ? p.b : p.a); }
+// A saved arrangement is used only if it holds every editor exactly once (in a leaf or among the closed).
+function validTree(t, cl) {
+  const seen = [];
+  const ok = (n) => {
+    if (!n || typeof n !== "object") return false;
+    if (n.t === "leaf") return Array.isArray(n.tabs) && n.tabs.length > 0 && n.tabs.every((e) => EDITORS[e]) && (seen.push(...n.tabs), true);
+    return n.t === "split" && (n.dir === "h" || n.dir === "v") && n.ratio > 0.05 && n.ratio < 0.95 && ok(n.a) && ok(n.b);
+  };
+  if (!ok(t) || !Array.isArray(cl) || !cl.every((e) => EDITORS[e])) return false;
+  const all = [...seen, ...cl];
+  return all.length === Object.keys(EDITORS).length && new Set(all).size === all.length;
+}
+function renumber(n) { if (n.t === "leaf") { n.id = `L${++leafSeq}`; if (!n.tabs.includes(n.active)) n.active = n.tabs[0]; } else { renumber(n.a); renumber(n.b); } }
+const desktops = () => { try { return JSON.parse(localStorage.getItem("emerge.desktops") || "{}"); } catch (_) { return {}; } };
+function saveLayout() {
+  if (codeonly) return;
+  try { localStorage.setItem("emerge.layout3", JSON.stringify({ v: 3, tree, closed })); } catch (_) {}
+  $("desktop").value = "";
+}
+function loadDesktop(name) {
+  const saved = desktops()[name];
+  const t = saved && validTree(saved.tree, saved.closed) ? { tree: JSON.parse(JSON.stringify(saved.tree)), closed: saved.closed } : BUILTIN[name] ? { tree: BUILTIN[name](), closed: [] } : null;
+  if (!t) return;
+  tree = t.tree; closed = [...t.closed]; renumber(tree); maxLeaf = null; focusLeaf = leavesOf()[0].id;
+  renderWorkspace();
+}
+function fillDesktops() {
+  const sel = $("desktop");
+  sel.innerHTML = `<option value="">(current)</option>` + [...Object.keys(BUILTIN), ...Object.keys(desktops()).filter((n) => !BUILTIN[n])].map((n) => `<option>${n}</option>`).join("");
+}
+$("desktop").onchange = () => { if ($("desktop").value) loadDesktop($("desktop").value); };
+$("savedesk").onclick = () => {
+  const name = (prompt("Name for this arrangement of the panes:") || "").trim();
+  if (!name) return;
+  const all = desktops();
+  all[name] = JSON.parse(JSON.stringify({ tree, closed }));
+  try { localStorage.setItem("emerge.desktops", JSON.stringify(all)); } catch (_) {}
+  fillDesktops();
+  $("desktop").value = name;
+};
+const narrow = () => window.innerWidth < 760;
+const el = (cls, tag = "div") => { const e = document.createElement(tag); e.className = cls; return e; };
+function renderWorkspace() {
+  for (const k of Object.keys(EDITORS)) $("stash").append($(`ed-${k}`));
+  const ws = $("workspace");
+  ws.textContent = "";
+  const root = maxLeaf && findLeaf(maxLeaf) ? findLeaf(maxLeaf) : (maxLeaf = null, tree);
+  ws.append(buildNode(root));
+  syncVisible();
+}
+function buildNode(n) {
+  if (n.t === "leaf") return buildLeaf(n);
+  const box = el(`split ${narrow() ? "v" : n.dir}`), a = el("sp"), b = el("sp"), bar = el("sbar");
+  a.style.flex = `${n.ratio} 1 0`;
+  b.style.flex = `${1 - n.ratio} 1 0`;
+  a.append(buildNode(n.a));
+  b.append(buildNode(n.b));
+  bar.onpointerdown = (e) => resizeSplit(e, n, box, a, b, bar);
+  box.append(a, bar, b);
+  return box;
+}
+function buildLeaf(l) {
+  const box = el(`leaf${l.id === focusLeaf ? " focus" : ""}`), head = el("lhead"), tabs = el("tabs");
+  box.dataset.leaf = l.id;
+  for (const ed of l.tabs) {
+    const b = el(`ptab${ed === l.active ? " on" : ""}`, "button");
+    b.textContent = EDITORS[ed];
+    b.dataset.ed = ed;
+    b.onpointerdown = (e) => tabDrag(e, ed, l);
+    tabs.append(b);
+  }
+  const fill = el("fill"), menu = el("lbtn", "button"), max = el("lbtn", "button");
+  menu.textContent = "⋮";
+  menu.title = "Close this tab, or add an editor";
+  menu.onclick = (e) => { e.stopPropagation(); openMenu(menu, l); };
+  max.textContent = maxLeaf === l.id ? "◱" : "▢";
+  max.title = maxLeaf === l.id ? "Restore the arrangement" : "Maximize this pane";
+  max.onclick = () => { maxLeaf = maxLeaf === l.id ? null : l.id; renderWorkspace(); };
+  head.append(tabs, fill, menu, max);
+  head.ondblclick = (e) => { if (!e.target.closest(".ptab") || true) { maxLeaf = maxLeaf === l.id ? null : l.id; renderWorkspace(); } };
+  const body = el("lbody");
+  body.append($(`ed-${l.active}`));
+  box.append(head, body);
+  box.addEventListener("pointerdown", () => setFocusLeaf(l.id), true);
+  return box;
+}
+function setFocusLeaf(id, keepMode) {
+  focusLeaf = id;
+  for (const e of document.querySelectorAll(".leaf")) e.classList.toggle("focus", e.dataset.leaf === id);
+  const l = findLeaf(id), v = l && VIEW_OF[l.active];
+  if (v && !keepMode) { mode = v; applyCam(cams[v]); }
+}
+function resizeSplit(e, n, box, a, b, bar) {
+  const horizontal = box.classList.contains("h");
+  bar.setPointerCapture(e.pointerId);
+  bar.classList.add("on");
+  const move = (m) => {
+    const r = box.getBoundingClientRect(), size = horizontal ? r.width : r.height, at = horizontal ? m.clientX - r.left : m.clientY - r.top;
+    const lo = Math.min(0.45, 140 / size);
+    n.ratio = Math.min(1 - lo, Math.max(lo, at / size));
+    a.style.flex = `${n.ratio} 1 0`;
+    b.style.flex = `${1 - n.ratio} 1 0`;
+  };
+  const up = () => { bar.classList.remove("on"); bar.removeEventListener("pointermove", move); bar.removeEventListener("pointerup", up); saveLayout(); };
+  bar.addEventListener("pointermove", move);
+  bar.addEventListener("pointerup", up);
+}
+// What is on screen decides what is loaded; a hidden editor does no work.
+let prevVis = {};
+function syncVisible() {
+  const on = new Set((maxLeaf ? [findLeaf(maxLeaf)] : leavesOf()).filter(Boolean).filter((l) => document.querySelector(`[data-leaf="${l.id}"]`)).map((l) => l.active));
+  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source" };
+  for (const [v, ed] of Object.entries(map)) visible[v] = on.has(ed);
   document.body.classList.toggle("graph", visible.graph);
   document.body.classList.toggle("genome", visible.genome);
-  mode = m;
-  $("pane-picture").classList.remove("focus");
-  $("pane-net").classList.add("focus");
+  document.body.classList.toggle("code-open", visible.source);
+  $("graph").style.display = visible.graph ? "block" : "none";
+  $("genome").style.display = visible.genome ? "block" : "none";
+  if (!visible.picture && info.on) infoOff();
+  $("frame").style.display = visible.picture && $("frame").src ? "block" : "none";
+  $("empty").style.display = visible.picture && !$("frame").src ? "flex" : "none";
   showGenomeMsg();
-  if (visible.graph) loadGraph().then(() => { if (cams.graph.fit) fitCam(cams.graph); applyCam(cams.graph); }).catch(oops);
-  if (visible.genome) loadEntities().then(() => loadGenome()).then(() => { if (cams.genome.fit) fitCam(cams.genome); applyCam(cams.genome); }).catch(oops);
-  if (cams[m]) applyCam(cams[m]);
-  if (visible.details) loadDetails().catch(oops);
-  if (visible.look) loadLook().catch(oops);
+  const fresh = (v) => visible[v] && !prevVis[v];
+  if (fresh("graph")) loadGraph().then(() => { if (cams.graph.fit) fitCam(cams.graph); applyCam(cams.graph); }).catch(oops);
+  if (fresh("genome")) loadEntities().then(() => loadGenome()).then(() => { if (cams.genome.fit) fitCam(cams.genome); applyCam(cams.genome); }).catch(oops);
+  if (fresh("details")) loadDetails().catch(oops);
+  if (fresh("look")) loadLook().catch(oops);
+  if (fresh("source")) loadCode().catch(oops);
+  prevVis = { ...visible };
+  const fl = findLeaf(focusLeaf), v = fl && VIEW_OF[fl.active];
+  if (v) mode = v;
+  else if (!on.has(EDITORS && Object.keys(VIEW_OF).find((k) => VIEW_OF[k] === mode))) mode = [...on].map((e) => VIEW_OF[e]).find(Boolean) || mode;
+  requestAnimationFrame(() => { refitAll(); for (const c of Object.values(cams)) if (visible[viewOf(c)]) applyCam(c); });
+  saveLayout();
 }
-try {
-  const saved = JSON.parse(localStorage.getItem("layout2") || "{}");
-  if (!codeonly && saved.rw >= 240) setRightWidth(saved.rw);
-  if (!codeonly && saved.ph >= 60) setParmHeight(saved.ph);
-} catch (e) {}
-$("t-graph").onclick = () => setMode("graph");
-$("t-genome").onclick = () => setMode("genome");
-$("t-details").onclick = () => setMode("details");
-$("t-look").onclick = () => setMode("look");
-$("frame").style.display = "none";
-$("pane-picture").classList.add("focus");
-$("stage-graph").classList.add("vis");
-$("graph").style.display = "block";
-document.body.classList.add("graph");
+// Make an editor the active tab of its leaf (adding it back first if it was closed).
+function activate(ed) {
+  let l = leafOfEditor(ed);
+  if (!l) { l = findLeaf(focusLeaf) || leavesOf()[0]; l.tabs.push(ed); closed = closed.filter((e) => e !== ed); }
+  l.active = ed;
+  focusLeaf = l.id;
+  if (maxLeaf && maxLeaf !== l.id) maxLeaf = null;
+  renderWorkspace();
+}
+function setMode(m) { const ed = EDITOR_OF[m]; if (ed) activate(ed); }
+function closeEditor(ed) {
+  const l = leafOfEditor(ed);
+  if (!l || leavesOf().reduce((n, x) => n + x.tabs.length, 0) <= 1) return;
+  l.tabs = l.tabs.filter((e) => e !== ed);
+  closed.push(ed);
+  if (l.active === ed) l.active = l.tabs[0];
+  if (!l.tabs.length) { if (maxLeaf === l.id) maxLeaf = null; removeLeaf(l); if (!findLeaf(focusLeaf)) focusLeaf = leavesOf()[0].id; }
+  renderWorkspace();
+}
+function openMenu(anchor, l) {
+  const m = $("lmenu"), r = anchor.getBoundingClientRect();
+  m.textContent = "";
+  const item = (text, fn, off) => { const b = el("", "button"); b.textContent = text; b.disabled = !!off; b.onclick = () => { m.style.display = "none"; fn(); }; m.append(b); };
+  item(maxLeaf === l.id ? "Restore the arrangement" : "Maximize this pane", () => { maxLeaf = maxLeaf === l.id ? null : l.id; renderWorkspace(); });
+  item(`Close ${EDITORS[l.active]}`, () => closeEditor(l.active), leavesOf().reduce((n, x) => n + x.tabs.length, 0) <= 1);
+  if (closed.length) { const h = el("hd"); h.textContent = "Add an editor"; m.append(h); for (const ed of closed) item(EDITORS[ed], () => { l.tabs.push(ed); l.active = ed; closed = closed.filter((e) => e !== ed); focusLeaf = l.id; renderWorkspace(); }); }
+  m.style.display = "block";
+  m.style.left = `${Math.max(4, r.right - 170)}px`;
+  m.style.top = `${r.bottom + 2}px`;
+  const away = (e) => { if (!m.contains(e.target)) { m.style.display = "none"; window.removeEventListener("pointerdown", away, true); } };
+  setTimeout(() => window.addEventListener("pointerdown", away, true), 0);
+}
+// Dragging a tab: where it would land is drawn before the button is released; Escape or a release outside
+// every pane changes nothing.
+function dropTarget(x, y, ed) {
+  if (maxLeaf) return null;
+  const under = document.elementFromPoint(x, y), box = under && under.closest(".leaf");
+  if (!box) return null;
+  const l = findLeaf(box.dataset.leaf), r = box.getBoundingClientRect(), hb = box.querySelector(".lhead").getBoundingClientRect();
+  const src = leafOfEditor(ed);
+  const fx = (x - r.left) / r.width, fy = (y - hb.bottom) / (r.bottom - hb.bottom);
+  let zone = "center";
+  if (y > hb.bottom) zone = fx < 0.25 ? "left" : fx > 0.75 ? "right" : fy < 0.25 ? "top" : fy > 0.75 ? "bottom" : "center";
+  if (src === l && (zone === "center" || src.tabs.length === 1)) return null;
+  const rect = { left: r.left, top: r.top, width: r.width, height: r.height };
+  if (zone === "left") rect.width /= 2;
+  if (zone === "right") { rect.left += r.width / 2; rect.width /= 2; }
+  if (zone === "top") rect.height /= 2;
+  if (zone === "bottom") { rect.top += r.height / 2; rect.height /= 2; }
+  return { leaf: l.id, zone, rect };
+}
+function tabDrag(e, ed, l) {
+  if (e.button !== 0) return;
+  const src = e.currentTarget, start = { x: e.clientX, y: e.clientY }, ghost = $("tabghost"), zone = $("dropzone");
+  let dragging = false, target = null;
+  src.setPointerCapture(e.pointerId);
+  const finish = () => {
+    src.removeEventListener("pointermove", move);
+    src.removeEventListener("pointerup", up);
+    window.removeEventListener("keydown", key, true);
+    ghost.style.display = zone.style.display = "none";
+    src.classList.remove("dragsrc");
+  };
+  const move = (m) => {
+    if (!dragging && Math.hypot(m.clientX - start.x, m.clientY - start.y) < 6) return;
+    if (!dragging) { dragging = true; src.classList.add("dragsrc"); ghost.textContent = EDITORS[ed]; ghost.style.display = "block"; }
+    ghost.style.left = `${m.clientX + 12}px`;
+    ghost.style.top = `${m.clientY + 12}px`;
+    target = dropTarget(m.clientX, m.clientY, ed);
+    if (target) { const r = target.rect; zone.style.cssText = `display:block;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`; } else zone.style.display = "none";
+  };
+  const up = () => { const t = target, was = dragging; finish(); if (!was) activate(ed); else if (t) dock(ed, t); };
+  const key = (k) => { if (k.key === "Escape") { target = null; dragging = false; finish(); } };
+  src.addEventListener("pointermove", move);
+  src.addEventListener("pointerup", up);
+  window.addEventListener("keydown", key, true);
+}
+function dock(ed, t) {
+  const from = leafOfEditor(ed), to = findLeaf(t.leaf);
+  if (!from || !to) return;
+  from.tabs = from.tabs.filter((x) => x !== ed);
+  if (from.active === ed) from.active = from.tabs[0];
+  let landed;
+  if (t.zone === "center") { to.tabs.push(ed); to.active = ed; landed = to; }
+  else {
+    const nl = mkLeaf([ed]), first = t.zone === "left" || t.zone === "top";
+    replaceNode(to, mkSplit(t.zone === "left" || t.zone === "right" ? "h" : "v", 0.5, first ? nl : to, first ? to : nl));
+    landed = nl;
+  }
+  if (!from.tabs.length) removeLeaf(from);
+  focusLeaf = landed.id;
+  renderWorkspace();
+}
+window.addEventListener("resize", (() => { let was = narrow(); return () => { if (narrow() !== was) { was = narrow(); renderWorkspace(); } }; })());
+$("netfit").onclick = () => { fitCam(cams.graph); applyCam(cams.graph); };
+// Start: the saved arrangement if it is whole, else the Simulate desktop. A code window opened on its own shows only the source.
+fillDesktops();
+if (codeonly) { tree = mkLeaf(["source"]); closed = Object.keys(EDITORS).filter((e) => e !== "source"); }
+else {
+  try {
+    const saved = JSON.parse(localStorage.getItem("emerge.layout3") || "null");
+    if (saved && saved.v === 3 && validTree(saved.tree, saved.closed)) { tree = saved.tree; closed = saved.closed; renumber(tree); }
+  } catch (_) {}
+  if (!tree) { tree = BUILTIN.Simulate(); closed = []; }
+}
+focusLeaf = (leafOfEditor("viewport") || leavesOf()[0]).id;
+renderWorkspace();
 $("decls").onchange = () => select($("decls").value);
 
 // A point of the picture as a point of the world: the map is the top left of the image, `map.w` by
