@@ -179,7 +179,7 @@ struct Buffers {
 /// Workgroups along x for the world-request kernels (the most bundles any law has, over 64), and the laws.
 fn world_grid(p: &Packed, nc: usize) -> (u32, u32) {
     let nlaws = p.params[P_NLAWS];
-    let most = (0..nlaws as usize).map(|l| { let w = &p.laws[l * LAW..(l + 1) * LAW]; nc as u32 * if w[0] == 0 { 1 } else { w[6] } }).max().unwrap_or(0);
+    let most = (0..nlaws as usize).map(|l| { let w = &p.laws[l * LAW..(l + 1) * LAW]; nc as u32 * if w[0] == 1 { w[6] } else { 1 } }).max().unwrap_or(0);
     (most.div_ceil(64).max(1), nlaws.max(1))
 }
 

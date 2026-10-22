@@ -84,7 +84,7 @@ pub fn run_move(gpu: &Gpu, p: &Packed, rec_in: &[u32]) -> MoveOut {
     let wg = |count: usize| (count.max(1) as u32).div_ceil(64);
     let records = p.params[P_R0] as usize;
     let nlaws = p.params[P_NLAWS];
-    let most = (0..nlaws as usize).map(|l| { let w = &p.laws[l * LAW..(l + 1) * LAW]; nc as u32 * if w[0] == 0 { 1 } else { w[6] } }).max().unwrap_or(0);
+    let most = (0..nlaws as usize).map(|l| { let w = &p.laws[l * LAW..(l + 1) * LAW]; nc as u32 * if w[0] == 1 { w[6] } else { 1 } }).max().unwrap_or(0);
     let grid = Size::Grid(most.div_ceil(64).max(1), nlaws.max(1));
     gpu.dispatch(&[(&upkeep, &group, wg(n))]);
     gpu.dispatch(&[(&gen, &group, wg(n))]);

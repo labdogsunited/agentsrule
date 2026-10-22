@@ -884,6 +884,16 @@ impl<'a> Compiler<'a> {
                 only_args(c, &["from", "to", "amount", "overflow"], &path)?;
                 let s = self.held(self.substance(name_of(subject(c, &path)?, &path)?, &path)?, &path)?;
                 let from = name_of(arg(c, "from", &path)?, &path)?;
+                let to = name_of(arg(c, "to", &path)?, &path)?;
+                if from == "self" && to != "self" {
+                    let Some(dir) = ["above", "right", "below", "left"].iter().position(|d| *d == to) else {
+                        return err("E0301", path, format!("a cell's transfer to another cell goes `to: above`, `right`, `below` or `left`, not `{to}`"));
+                    };
+                    if opt_arg(c, "overflow").is_some() {
+                        return err("E0301", path, "a transfer between cells has no `overflow`: what does not fit stays where it is");
+                    }
+                    return Ok(Law::Shift { s, dir, amount: amount(arg(c, "amount", &path)?, &path)? });
+                }
                 if !self.sources.contains_key(from) {
                     return err("E1001", path, format!("`{from}` is not a source; emerge-ref supports rule transfers from sources only"));
                 }

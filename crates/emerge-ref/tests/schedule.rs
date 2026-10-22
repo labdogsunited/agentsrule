@@ -50,7 +50,7 @@ fn the_laws_the_runner_builds_are_the_statements_the_schedule_places() {
             .laws
             .iter()
             .map(|l| match l.parts().0 {
-                Law::Inflow { .. } | Law::Diffuse { .. } => Slot::Transfer,
+                Law::Inflow { .. } | Law::Shift { .. } | Law::Diffuse { .. } => Slot::Transfer,
                 Law::React { .. } => Slot::React,
                 Law::When { .. } => unreachable!("parts() unwraps a condition"),
             })

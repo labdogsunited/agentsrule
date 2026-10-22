@@ -367,3 +367,93 @@ fn a_reduction_body_deeper_than_the_gpu_stack_is_refused() {
     same_on_both(&src(15), &[], 1, 3, 1);
     assert!(world(&src(16), &[], 1).gpu_unsupported().unwrap().contains("17 values deep"));
 }
+
+// ---------- stage 2b: cell-to-cell transfers (proposals/rule-conditions.md) ----------
+
+/// One shift rule per `(name, condition or "", substance, direction, amount)`.
+fn shift_rules(list: &[(&str, &str, &str, &str, &str)]) -> String {
+    list.iter()
+        .map(|(n, c, s, d, a)| {
+            let t = format!("transfer({s}, from: self, to: {d}, amount: {a}) @transfer_{s};");
+            let body = if c.is_empty() { t } else { format!("when {c} {{ {t} }}") };
+            format!("    rule {n} on cells {{\n        {body}\n    }}\n")
+        })
+        .collect()
+}
+
+const SHIFTS: [(&str, &str, &str, &str, &str); 5] = [
+    ("down", "", "nitrate", "below", "3u"),
+    ("up", "self.carbon > 49u", "carbon", "above", "1u"),
+    ("right", "left.nitrate != 20u or self.nitrate < 18u", "body", "right", "400mu"),
+    ("left", "count(vonneumann.nitrate > 20u) > 0", "nitrate", "left", "2u"),
+    ("again", "", "nitrate", "below", "5u"),
+];
+
+#[test]
+fn cell_to_cell_transfers_run_as_on_the_cpu() {
+    let src = |w, h, wrap| bare(&shift_rules(&SHIFTS)).replace("Grid(w: 96, h: 96)", &format!("Grid(w: {w}, h: {h})")).replace("wrap: true", &format!("wrap: {wrap}"));
+    for wrap in [false, true] {
+        same_on_both(&src(6, 5, wrap), &[], 1, 10, 1);
+    }
+    // Narrow wrapping grids: a neighbour can be the cell itself or the same cell from two sides.
+    same_on_both(&src(2, 1, true), &[], 1, 4, 1);
+    same_on_both(&src(1, 3, true), &[], 1, 4, 1);
+    same_on_both(&src(3, 2, true), &[], 1, 4, 1);
+}
+
+#[test]
+fn a_full_neighbour_takes_a_share_on_both_runners() {
+    // Cells cap at 21u nitrate and hold 20u: two senders into one cell fit only 1u between them.
+    let rules = shift_rules(&[("r", "", "nitrate", "right", "1u"), ("l", "self.nitrate > 0u", "nitrate", "left", "1u")]);
+    let src = bare(&rules).replace("Grid(w: 96, h: 96)", "Grid(w: 5, h: 1)").replace("wrap: true", "wrap: false").replace("nitrate: 2_000u", "nitrate: 21u");
+    same_on_both(&src, &[], 1, 8, 1);
+}
+
+#[test]
+fn creatures_and_shifts_together_run_as_on_the_cpu() {
+    let rules = shift_rules(&[
+        ("rain", "self.light < 3u", "nitrate", "below", "300mu"),
+        ("drift", "above.nitrate > self.nitrate", "carbon", "right", "200mu"),
+        ("wind", "", "sugar", "left", "100mu"),
+    ]);
+    for (seed, wrap) in [(3, true), (8, false)] {
+        // The dish's own rules stay, so creatures have light to live on.
+        let mut src = small().replace("wrap: true", &format!("wrap: {wrap}"));
+        let at = src.find("    genesis {").unwrap();
+        src.insert_str(at, &format!("{rules}\n"));
+        same_on_both(&src, &["Drifter", "Builder"], seed, 320, 20);
+    }
+}
+
+#[test]
+fn cell_to_cell_rules_can_be_swapped_in_and_out_on_the_gpu() {
+    let live = |src: &str| {
+        let mut l = Live::new(src, &["Drifter", "Builder"], Options { seed: 5, allow_partial: true, mutation: true }).unwrap();
+        l.world.contract = true;
+        l
+    };
+    let src = small();
+    let swaps = [
+        (3, "patch Dish {\n    add after rules.spread: rule slide on cells { transfer(nitrate, from: self, to: below, amount: 2u) @transfer_slide; }\n}\n"),
+        (9, "patch Dish {\n    replace rules.slide { when self.carbon > 40u { transfer(carbon, from: self, to: right, amount: 300mu) @transfer_slide; } }\n}\n"),
+        (20, "patch Dish {\n    remove rules.slide;\n}\n"),
+    ];
+    let gpu = Gpu::new();
+    let mut cpu = live(&src);
+    let mut on_gpu = live(&src);
+    let mut r = Resident::new(&gpu, &mut on_gpu.world);
+    r.enable_audit();
+    for tick in 0..30u64 {
+        for (at, patch) in &swaps {
+            if *at == tick {
+                cpu.hotswap(patch, cpu.revision).unwrap_or_else(|e| panic!("CPU, tick {tick}: {e}"));
+                let base = on_gpu.revision;
+                hotswap(&mut on_gpu, &mut r, patch, base).unwrap_or_else(|e| panic!("GPU, tick {tick}: {e}"));
+            }
+        }
+        cpu.world.run_tick();
+        r.tick();
+        check(&cpu.world, &r, tick);
+    }
+    assert_eq!(r.audit().unwrap().drifted, 0);
+}

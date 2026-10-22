@@ -417,6 +417,13 @@ pub fn pack_move(world: &World, p: &mut Packed) {
                 w[4] = overflow.map_or(NONE, |o| o as u32);
                 w[8] = 1;
             }
+            Law::Shift { s, dir, amount } => {
+                w[0] = 2;
+                w[1] = *s as u32;
+                w[3] = *amount;
+                w[5] = *dir as u32;
+                w[8] = 1;
+            }
             Law::Diffuse { substances, rate_bp } => {
                 assert!(substances.len() <= 16);
                 w[0] = 1;

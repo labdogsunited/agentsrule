@@ -226,6 +226,10 @@ fn transfer_kind(r: &Req) -> usize {
 pub enum Law {
     /// Transfer rule: `transfer(s, from: source, to: self, amount, overflow)`. Move.
     Inflow { s: SubstanceId, source: SourceId, amount: Mu, overflow: Option<SinkId> },
+    /// Transfer rule: `transfer(s, from: self, to: above|right|below|left, amount)`. Move. `dir` is an
+    /// index of `cond::OFFSETS` (0 to 3); a cell with no neighbour there (the edge of a grid that
+    /// does not wrap) makes no request.
+    Shift { s: SubstanceId, dir: usize, amount: Mu },
     /// Transfer rule: `diffuse_conserved(substances, rate)`. Move.
     Diffuse { substances: Vec<SubstanceId>, rate_bp: u32 },
     /// Reaction rule: `react(reaction, rate)`. Transform.
@@ -958,6 +962,12 @@ impl World {
                 match law {
                     Law::Inflow { s, source, amount, overflow } => {
                         request(End::Source(*source), End::Cell(c), *s, *amount, *overflow, false)
+                    }
+                    Law::Shift { s, dir, amount } => {
+                        let to = self.space.as_ref().filter(|sp| c < sp.grid_w * sp.grid_h).and_then(|sp| crate::cond::neighbour(sp.grid_w, sp.grid_h, sp.wrap, c, *dir));
+                        if let Some(nb) = to {
+                            request(End::Cell(c), End::Cell(nb), *s, *amount, None, false);
+                        }
                     }
                     Law::Diffuse { substances, rate_bp } => {
                         let nbs = &self.neighbours[c];

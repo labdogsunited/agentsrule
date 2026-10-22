@@ -162,6 +162,13 @@ fn world_req(i: u32) -> Req {
             let a = laws[lb + 3u];
             return Req((2u << TAG) | laws[lb + 2u], c, laws[lb + 1u], laws[lb + 4u], a, 0u, a, a);
         }
+        if (laws[lb] == 2u) {
+            // Shift: from the cell to its neighbour in one direction; none past the edge of a grid that does not wrap.
+            let nb = c_nb(c, laws[lb + 5u]);
+            if (nb == NONE) { break; }
+            let a = laws[lb + 3u];
+            return Req(c, nb, laws[lb + 1u], NONE, a, 0u, a, a);
+        }
         // Diffusion: k = substance index * 4 + neighbour index.
         let si = k / 4u;
         let ni = k % 4u;
@@ -579,6 +586,16 @@ fn diff_of(lb: u32, c: u32, si: u32) -> Diff {
     return Diff(s, count, offer / count);
 }
 
+// A shift law: the substance, the neighbour it sends to, and the amount asked (0 if the condition fails or there is no neighbour).
+struct Shift { s: u32, nb: u32, a: u32 }
+fn shift_of(lb: u32, c: u32) -> Shift {
+    let s = laws[lb + 1u];
+    let nb = c_nb(c, laws[lb + 5u]);
+    if (nb == NONE || !law_on(lb, c)) { return Shift(s, nb, 0u); }
+    return Shift(s, nb, laws[lb + 3u]);
+}
+fn shift_slot(lb: u32, c: u32) -> u32 { return params[P_R0] + laws[lb + 7u] + c; }
+
 // The slot of the request to neighbour ni.
 fn diff_slot(lb: u32, c: u32, si: u32, ni: u32) -> u32 { return params[P_R0] + laws[lb + 7u] + c * laws[lb + 8u] + si * 4u + ni; }
 
@@ -602,6 +619,12 @@ fn sums_world(@builtin(global_invocation_id) id: vec3<u32>) {
         // Inflow: the source is no store, so only the destination sums (stage 2) count; its grant is the request.
         let amt = select(0u, laws[lb + 3u], law_on(lb, b.c));
         if (stage == 1u && amt != 0u) { add_sum(b.c * ns + laws[lb + 1u], amt); }
+        return;
+    }
+    if (laws[lb] == 2u) {
+        let sh = shift_of(lb, b.c);
+        if (sh.a == 0u) { return; }
+        if (stage == 0u) { add_sum(b.c * ns + sh.s, sh.a); } else { add_sum(sh.nb * ns + sh.s, slot_g1(shift_slot(lb, b.c), sh.a)); }
         return;
     }
     let d = diff_of(lb, b.c, b.si);
@@ -636,6 +659,14 @@ fn flag_world(@builtin(global_invocation_id) id: vec3<u32>) {
             let k = b.c * ns + s;
             if (sum_of(k) > u64(headroom(b.c, s))) { list_add(k, params[P_R0] + laws[lb + 7u] + b.c); }
         }
+        return;
+    }
+    if (laws[lb] == 2u) {
+        let sh = shift_of(lb, b.c);
+        if (sh.a == 0u) { return; }
+        let k = select(sh.nb, b.c, stage == 0u) * ns + sh.s;
+        let over = select(headroom(sh.nb, sh.s), balance(b.c, sh.s), stage == 0u);
+        if (sum_of(k) > u64(over)) { list_add(k, shift_slot(lb, b.c)); }
         return;
     }
     let d = diff_of(lb, b.c, b.si);
@@ -679,6 +710,15 @@ fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_inv
                 atomicAdd(&camt[b.c * ns + s], delivered);
                 wflow_add(0u, s, delivered + overflowed);
                 wflow_add(1u, s, overflowed);
+            }
+        } else if (laws[lb] == 2u) {
+            let sh = shift_of(lb, b.c);
+            if (sh.a != 0u) {
+                let g2 = slot_g2(shift_slot(lb, b.c), sh.a);
+                if (g2 != 0u) {
+                    atomicAdd(&camt[sh.nb * ns + sh.s], g2);
+                    atomicSub(&camt[b.c * ns + sh.s], g2);
+                }
             }
         } else {
             let d = diff_of(lb, b.c, b.si);
