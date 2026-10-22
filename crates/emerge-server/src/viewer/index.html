@@ -75,6 +75,14 @@
   .gene { position: absolute; width: 200px; height: 60px; background: #1c2027; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; user-select: none; }
   .gene.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .gene.off { opacity: 0.45; }
+  .gene.nomatch { opacity: 0.18; }
+  .gene .flags { padding: 0 8px; font: 10px system-ui, sans-serif; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #genome .wire.self { stroke-dasharray: 6 3; }
+  .chan { position: absolute; width: 112px; height: 26px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 13px; background: #20252d; color: var(--fg); font: 11px/24px system-ui, sans-serif; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 1; }
+  .chan.lonely { border-style: dashed; color: var(--muted); }
+  .chan.hot { border-color: var(--accent); }
+  .chan.dim { opacity: 0.25; }
+  #gsearch { width: 190px; }
   .gene .t { padding: 2px 8px; font-size: 12px; font-weight: 600; color: #101318; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 5px 5px 0 0; }
   .gene .b { padding: 4px 8px; font: 11px/1.35 system-ui, sans-serif; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .gene.k-sense .t { background: #6f9bd1; }
@@ -335,7 +343,7 @@
 
       </div></div>
   <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network (G)">Grid</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
-  <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><span id="genomenote"></span></div></main></div>
+  <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span></div><div id="rulesbody"></div></main></div>
   <div class="editor" id="ed-lineage"><main id="stage-lineage"><div id="lineagebar"><span id="lineagenote"></span><label><input type="radio" name="lmode" value="count" checked> counts</label><label><input type="radio" name="lmode" value="share"> share</label></div><div id="lineagebody"></div></main></div>
@@ -519,7 +527,11 @@ function bindStage(view) {
     } else {
       // In the genome view a press on a gene that does not move is a click on it.
       const gene = view === "genome" && e.target.closest(".gene");
-      drag = { x: e.clientX - cam.x, y: e.clientY - cam.y, gene: gene ? +gene.dataset.index : null, sx: e.clientX, sy: e.clientY, moved: false };
+      if (gene && genomeData) {
+        // A card moves with the pointer (presentation only); a click without a move selects it.
+        const i = +gene.dataset.index, p = gplaced.get(i);
+        drag = { gcard: gene, gi: i, p, sx: e.clientX, sy: e.clientY, x0: p.x, y0: p.y, moved: false };
+      } else drag = { x: e.clientX - cam.x, y: e.clientY - cam.y, gene: null, sx: e.clientX, sy: e.clientY, moved: false };
     }
     stage.setPointerCapture(e.pointerId);
     stage.classList.add("dragging");
@@ -543,6 +555,18 @@ function bindStage(view) {
       t.setAttribute("d", `M${x0},${y0} C${x0 + d},${y0} ${gx - d},${gy} ${gx},${gy}`);
       return;
     }
+    if (drag.gcard) {
+      const dx = (e.clientX - drag.sx) / cam.s, dy = (e.clientY - drag.sy) / cam.s;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      if (!drag.moved) return;
+      drag.p.x = drag.x0 + dx;
+      drag.p.y = drag.y0 + dy;
+      drag.gcard.style.left = `${drag.p.x}px`;
+      drag.gcard.style.top = `${drag.p.y}px`;
+      drawGenomeWires();
+      if (genomeSel != null) selectGene(genomeSel);
+      return;
+    }
     if (drag.box) {
       const dx = (e.clientX - drag.sx) / cam.s, dy = (e.clientY - drag.sy) / cam.s;
       if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
@@ -562,6 +586,10 @@ function bindStage(view) {
   const drop = (e) => {
     if (drag && !drag.box && !drag.wire && drag.gene == null && !drag.moved && info.on && view === "picture") pinInfo(e);
     if (drag && drag.gene != null && !drag.moved) selectGene(drag.gene);
+    if (drag && drag.gcard) {
+      if (!drag.moved) selectGene(drag.gi);
+      else { const base = gBase.get(drag.gi), x = genomeData.genes.find((z) => z.index === drag.gi); saveGenomeOffset(x, drag.p.x - base.x, drag.p.y - base.y); }
+    }
     if (drag && drag.box && !drag.moved) select(drag.box.dataset.id);
     if (drag && drag.box && drag.moved) savePosition(drag.box.dataset.id);
     if (drag && drag.wire) {
@@ -1392,103 +1420,161 @@ async function loadGenome(quiet) {
   }
 }
 
+// Where a card sits is presentation only: dragging one stores an offset in this browser, keyed by lineage,
+// gene index and kind, and never touches the world (proposals/genome-editor.md G1).
+const gLayout = () => { try { return JSON.parse(localStorage.getItem("emerge.genomelayout") || "{}"); } catch (_) { return {}; } };
+const gKey = (g, x) => `${g.lineage}:${x.index}:${x.title}`;
+function saveGenomeOffset(x, dx, dy) {
+  const all = gLayout();
+  all[gKey(genomeData, x)] = [dx, dy];
+  try { localStorage.setItem("emerge.genomelayout", JSON.stringify(all)); } catch (_) {}
+}
+const CHAN = { w: 112, h: 26 };
+let gBase = new Map(), gChanX = 0;
+
 function drawGenome() {
   const g = genomeData, root = $("genome");
   root.textContent = "";
   gplaced.clear();
+  gBase.clear();
   if (!g) { cams.genome.w = 0; showGenomeMsg(); return; }
   showGenomeMsg();
   const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
   svg.id = "gwires";
   root.appendChild(svg);
+  const saved = gLayout();
   let y = 24, maxX = 0;
   g.modules.forEach((on, m) => {
     const genes = g.genes.filter((x) => x.module === m);
     if (!genes.length) return;
     const rows = [0, 0, 0];
     for (const x of genes) {
-      const c = GCOL[x.kind], k = rows[c]++;
-      gplaced.set(x.index, { x: 44 + c * 250, y: y + 34 + k * 74 });
+      const c = GCOL[x.kind], k = rows[c]++, base = { x: 44 + c * 250, y: y + 34 + k * 74 }, off = saved[gKey(g, x)] || [0, 0];
+      gBase.set(x.index, base);
+      gplaced.set(x.index, { x: base.x + off[0], y: base.y + off[1] });
     }
     const h = 34 + Math.max(...rows) * 74 + 4, frame = document.createElement("div");
     frame.className = `mod${on ? "" : " off"}`;
     frame.style.cssText = `left:24px;top:${y}px;width:${3 * 250 + 16}px;height:${h}px`;
     const t = document.createElement("div");
     t.className = "mt";
-    t.textContent = `module m${m}${on ? "" : " · dormant"}`;
+    t.textContent = `module m${m} · ${on ? "module on" : "module dormant"}`;
     frame.append(t);
     root.appendChild(frame);
     y += h + 24;
     maxX = 24 + 3 * 250 + 40;
   });
+  gChanX = maxX + 30;
+  maxX = gChanX + CHAN.w + 30;
   for (const x of g.genes) {
-    const p = gplaced.get(x.index), el = document.createElement("div"), t = document.createElement("div"), b = document.createElement("div");
+    const p = gplaced.get(x.index), el = document.createElement("div"), t = document.createElement("div"), b = document.createElement("div"), f = document.createElement("div");
     el.className = `gene k-${x.kind}${x.active ? "" : " off"}`;
     el.dataset.index = x.index;
     el.style.left = `${p.x}px`;
     el.style.top = `${p.y}px`;
     t.className = "t";
-    t.textContent = x.title + (x.expressed ? "" : " · dormant");
+    t.textContent = `${x.index} · ${x.title}`;
     b.className = "b";
     b.textContent = x.text;
-    el.append(t, b);
+    // Three separate facts. `active` is only what the two flags allow: it does not say the gene acted.
+    f.className = "flags";
+    f.textContent = `${x.expressed ? "gene on" : "gene off"} · ${g.modules[x.module] ? "module on" : "module off"} · ${x.active ? "active" : "inactive"}`;
+    el.title = `gene ${x.index}: ${x.expressed ? "expressed" : "not expressed"}; module m${x.module} ${g.modules[x.module] ? "expressed" : "not expressed"}; ${x.active ? "active means both flags allow it to take part, not that it acted this tick" : "inactive: a flag keeps it out"}`;
+    el.append(t, b, f);
     if (x.reads.length) { const q = document.createElement("div"); q.className = "port in"; el.append(q); }
     if (x.writes.length) { const q = document.createElement("div"); q.className = "port out"; el.append(q); }
-    el.onclick = () => selectGene(x.index);
     root.appendChild(el);
   }
+  // One channel per signal: writers lead into it, readers leave it. A gene that reads a signal it writes shows both wires.
+  const used = [];
+  for (let k = 0; k < g.keep.length; k++) if (g.genes.some((x) => x.writes.includes(k) || x.reads.includes(k))) used.push(k);
+  used.forEach((k, n) => {
+    const c = document.createElement("div");
+    c.className = "chan";
+    c.dataset.sig = k;
+    c.style.left = `${gChanX}px`;
+    c.style.top = `${24 + n * (CHAN.h + 8)}px`;
+    const wr = g.genes.filter((x) => x.writes.includes(k)).length, rd = g.genes.filter((x) => x.reads.includes(k)).length;
+    c.textContent = `s${k}${g.keep[k] ? ` · keep ${g.keep[k]}` : ""}`;
+    c.title = `signal s${k}: ${wr} writer${wr === 1 ? "" : "s"}, ${rd} reader${rd === 1 ? "" : "s"}${wr === 0 ? " (nothing writes it)" : ""}${rd === 0 ? " (nothing reads it)" : ""}. Readers see the value from the start of each mind step; this is information, not material.`;
+    if (!wr || !rd) c.classList.add("lonely");
+    root.appendChild(c);
+  });
+  y = Math.max(y, 24 + used.length * (CHAN.h + 8) + 24);
   root.style.width = `${maxX}px`;
   root.style.height = `${y}px`;
   svg.setAttribute("width", maxX);
   svg.setAttribute("height", y);
-  // Signals: from each gene that writes one to each gene that reads it.
-  const ends = new Map(), slot = (i, side) => { const k = `${i}${side}`, n = ends.get(k) || 0; ends.set(k, n + 1); return n; };
-  for (let k = 0; k < g.keep.length; k++) {
-    for (const w of g.genes.filter((x) => x.writes.includes(k))) {
-      for (const r of g.genes.filter((x) => x.reads.includes(k) && x.index !== w.index)) {
-        const a = gplaced.get(w.index), b = gplaced.get(r.index);
-        // Left to right where it can: a wire back to an earlier column leaves the writer's left edge and
-        // enters the reader's right edge; within a column it makes a bracket on the right.
-        const back = a.x > b.x, same = a.x === b.x;
-        const x0 = back ? a.x : a.x + BOX.w, x1 = back ? b.x + BOX.w : same ? b.x + BOX.w : b.x;
-        const y0 = a.y + 14 + (slot(w.index, back ? "L" : "R") % 6) * 8, y1 = b.y + 14 + (slot(r.index, back ? "R" : same ? "R" : "L") % 6) * 8;
-        const d = same ? 70 : Math.max(40, Math.abs(x1 - x0) / 2) * (back ? -1 : 1);
-        const path = document.createElementNS(NS, "path");
-        path.setAttribute("class", "wire");
-        path.setAttribute("d", same ? `M${x0},${y0} C${x0 + d},${y0} ${x1 + d},${y1} ${x1},${y1}` : `M${x0},${y0} C${x0 + d},${y0} ${x1 - d},${y1} ${x1},${y1}`);
-        path.setAttribute("stroke", wireColor(`s${k}`));
-        path.dataset.from = w.index;
-        path.dataset.to = r.index;
-        const title = document.createElementNS(NS, "title");
-        title.textContent = `signal s${k}${g.keep[k] ? ` (keeps ${g.keep[k]})` : ""}`;
-        path.append(title);
-        svg.appendChild(path);
-        if (!back && !same) {
-          const tx = document.createElementNS(NS, "text");
-          tx.setAttribute("class", "wlabel");
-          tx.setAttribute("x", x0 + 8);
-          tx.setAttribute("y", y0 - 3);
-          tx.textContent = `s${k}`;
-          svg.appendChild(tx);
-        }
-      }
-    }
-  }
+  drawGenomeWires();
   const cam = cams.genome;
   if (cam.fit || cam.w !== maxX || cam.h !== y) { cam.w = maxX; cam.h = y; if (cam.fit) fitCam(cam); }
   if (isShown("genome")) applyCam(cam);
+  applyGenomeSearch();
   if (genomeSel != null) selectGene(genomeSel);
 }
+
+function drawGenomeWires() {
+  const g = genomeData, svg = $("gwires");
+  if (!g || !svg) return;
+  const NS = "http://www.w3.org/2000/svg";
+  svg.textContent = "";
+  const chans = new Map([...$("genome").querySelectorAll(".chan")].map((c) => [+c.dataset.sig, { x: gChanX, y: parseFloat(c.style.top) }]));
+  const ends = new Map(), slot = (i, side) => { const key = `${i}${side}`, n = ends.get(key) || 0; ends.set(key, n + 1); return n % 6; };
+  const wire = (d, k, gene, role, self) => {
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("class", `wire${self ? " self" : ""}`);
+    path.setAttribute("d", d);
+    path.setAttribute("stroke", wireColor(`s${k}`));
+    path.dataset.gene = gene;
+    path.dataset.sig = k;
+    path.dataset.role = role;
+    const title = document.createElementNS(NS, "title");
+    title.textContent = `signal s${k} ${role === "w" ? "written by" : "read by"} gene ${gene}${self ? " (also reads its own output: feedback)" : ""}`;
+    path.append(title);
+    svg.appendChild(path);
+  };
+  for (const [k, c] of chans) {
+    const cy = c.y + CHAN.h / 2;
+    for (const w of g.genes.filter((x) => x.writes.includes(k))) {
+      const a = gplaced.get(w.index), x0 = a.x + BOX.w, y0 = a.y + 14 + slot(w.index, "R") * 8, d = Math.max(40, (c.x - x0) / 2);
+      wire(`M${x0},${y0} C${x0 + d},${y0} ${c.x - d},${cy} ${c.x},${cy}`, k, w.index, "w", w.reads.includes(k));
+    }
+    for (const r of g.genes.filter((x) => x.reads.includes(k))) {
+      const b = gplaced.get(r.index), x0 = c.x + CHAN.w, x1 = b.x, y1 = b.y + 14 + slot(r.index, "L") * 8;
+      // Back to the left edge of the reader: the curve loops out of the channel and in from the left.
+      wire(`M${x0},${cy} C${x0 + 60},${cy} ${x1 - 60},${y1} ${x1},${y1}`, k, r.index, "r", r.writes.includes(k));
+    }
+  }
+}
+
+// Search the genome by ordinal, kind, label text, substance or signal; what does not match fades, nothing is hidden.
+function applyGenomeSearch() {
+  const g = genomeData, q = ($("gsearch").value || "").trim().toLowerCase();
+  if (!g) return;
+  let n = 0;
+  for (const el of $("genome").querySelectorAll(".gene")) {
+    const x = g.genes.find((z) => z.index === +el.dataset.index);
+    const hay = `${x.index} ${x.kind} ${x.title} ${x.text} m${x.module} ${x.reads.map((k) => `s${k}`).join(" ")} ${x.writes.map((k) => `s${k}`).join(" ")} ${x.active ? "active" : "inactive"} ${x.expressed ? "" : "dormant"}`.toLowerCase();
+    const hit = !q || hay.includes(q);
+    el.classList.toggle("nomatch", !hit);
+    n += hit ? 1 : 0;
+  }
+  $("gfound").textContent = q ? `${n} of ${g.genes.length} match` : "";
+}
+$("gsearch").oninput = applyGenomeSearch;
 
 function selectGene(i) {
   genomeSel = i;
   const g = genomeData, x = g && g.genes.find((q) => q.index === i);
   for (const el of $("genome").querySelectorAll(".gene")) el.classList.toggle("sel", +el.dataset.index === i);
+  const hotSig = new Set();
   for (const p of $("genome").querySelectorAll(".wire")) {
-    const on = x && (+p.dataset.from === i || +p.dataset.to === i);
+    const on = x && +p.dataset.gene === i;
+    if (on) hotSig.add(p.dataset.sig);
     p.classList.toggle("hot", !!on);
     p.classList.toggle("dim", !!x && !on);
   }
+  for (const c of $("genome").querySelectorAll(".chan")) { c.classList.toggle("hot", hotSig.has(c.dataset.sig)); c.classList.toggle("dim", !!x && !hotSig.has(c.dataset.sig)); }
   selection = x ? { world: $("world").value, kind: "gene", entity: g.entity, index: i } : null;
   renderParm();
 }

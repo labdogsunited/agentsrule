@@ -84,3 +84,37 @@ fn history_says_how_it_was_sampled_and_asking_changes_nothing() {
     assert_eq!(h["samples"].as_array().unwrap().len(), 121);
     assert_eq!(engine.run(&a).unwrap().digest(), engine.run(&b).unwrap().digest(), "observation does not change the trajectory");
 }
+
+const LOOPER: &str = include_str!("fixtures/looper-lineage.em");
+
+/// Genome inspection, stage G1 (`proposals/genome-editor.md` §13): an authored genome with two
+/// writers of one signal, a gene that reads its own output, and a signal nothing reads. Every
+/// writer and reader must be in the answer, in gene order, with nothing invented.
+#[test]
+fn the_genome_graph_lists_every_writer_and_reader_including_self_feedback() {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": format!("{DISH}\n{LOOPER}"), "lineages": ["Looper"], "seed": 1, "mutation": false})).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 2})).unwrap();
+    let g = engine.call("genome.graph", &json!({"world": w})).unwrap();
+    let genes = g["genes"].as_array().unwrap();
+    assert_eq!(genes.iter().map(|x| x["index"].as_u64().unwrap()).collect::<Vec<_>>(), (0..genes.len() as u64).collect::<Vec<_>>(), "genes in execution order, numbered");
+    let find = |text: &str| genes.iter().find(|x| x["title"] == text || x["text"].as_str().unwrap().contains(text)).unwrap_or_else(|| panic!("no gene {text}"));
+    let signals_of = |x: &Value, key: &str| x[key].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect::<Vec<_>>();
+    // A signal's writers and readers, over the whole genome.
+    let writers = |k: u64| genes.iter().filter(|x| signals_of(x, "writes").contains(&k)).count();
+    let readers = |k: u64| genes.iter().filter(|x| signals_of(x, "reads").contains(&k)).count();
+    let weighs: Vec<&Value> = genes.iter().filter(|x| x["title"] == "weigh").collect();
+    assert_eq!(weighs.len(), 3);
+    // `memory` is the signal the first two weigh genes write; the first also reads it (self-feedback).
+    let memory = signals_of(weighs[0], "writes")[0];
+    assert_eq!(signals_of(weighs[1], "writes"), vec![memory], "a second writer of the same signal");
+    assert!(signals_of(weighs[0], "reads").contains(&memory), "the self-feedback is in the answer");
+    assert_eq!((writers(memory), readers(memory)), (2, 2), "two writers; the feedback weigh and the turn action read it");
+    let unused = signals_of(weighs[2], "writes")[0];
+    assert_eq!((writers(unused), readers(unused)), (1, 0), "a signal nothing reads is still listed");
+    assert!(find("turn").is_object());
+    for x in genes {
+        assert!(x["expressed"].is_boolean() && x["active"].is_boolean() && x["module"].is_number());
+    }
+    assert!(g["modules"].as_array().unwrap().len() >= 2);
+}
