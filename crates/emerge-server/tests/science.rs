@@ -529,3 +529,32 @@ fn reaction_flows_follow_the_formula_and_keep_operations_apart() {
     let g = engine.call("reactions.flow", &json!({"world": w})).unwrap();
     assert!(g["reactions"].as_array().unwrap().iter().any(|r| r["blocked"].is_object()));
 }
+
+/// Stage S5 (`proposals/science-panels.md` §10): a cohort's size is the births recorded in its ticks (the history's
+/// own birth counts), its members are alive (censored), starved or aged and nothing else, and the living ones
+/// are exactly the living creatures born in those ticks.
+#[test]
+fn a_cohort_is_the_births_of_its_ticks_with_the_living_counted_as_censored() {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": true})).unwrap()["world"].as_str().unwrap().to_string();
+    engine.call("run.step", &json!({"world": w, "ticks": 100})).unwrap();
+    let l = engine.call("life.query", &json!({"world": w, "from": 30, "to": 60})).unwrap();
+    let h = engine.call("history.query", &json!({"world": w})).unwrap();
+    let births: u64 = h["samples"].as_array().unwrap().iter().filter(|s| (31..=61).contains(&s["tick"].as_u64().unwrap())).map(|s| s["births"].as_u64().unwrap()).sum();
+    let c = &l["cohort"];
+    assert_eq!(c["size"].as_u64().unwrap(), births, "the cohort is the births of ticks 30 to 60 (a birth in tick t is in the sample taken after it, at t + 1)");
+    assert_eq!(c["size"].as_u64().unwrap(), c["starved"].as_u64().unwrap() + c["aged"].as_u64().unwrap() + c["alive_censored"].as_u64().unwrap());
+    let all = engine.call("entities.query", &json!({"world": w, "limit": 1_000_000})).unwrap();
+    let mut living = 0;
+    for e in all["entities"].as_array().unwrap() {
+        let a = engine.call("ancestry.query", &json!({"world": w, "entity": e["id"]})).unwrap();
+        if let Some(b) = a["entity"]["born"].as_u64() { living += u64::from((30..=60).contains(&b)); }
+    }
+    assert_eq!(c["alive_censored"].as_u64().unwrap(), living, "the censored are the living born in those ticks");
+    let surv = c["survival"].as_array().unwrap();
+    assert_eq!(surv[0]["alive"], c["size"], "everyone is alive at age zero");
+    assert!(surv.windows(2).all(|p| p[1]["alive"].as_u64() <= p[0]["alive"].as_u64()), "survival never rises");
+    let ages: u64 = l["snapshot"]["ages"].as_array().unwrap().iter().flat_map(|a| a["bins"].as_array().unwrap()).map(|b| b.as_u64().unwrap()).sum();
+    assert_eq!(ages, all["total"].as_u64().unwrap(), "the age distribution covers every living creature");
+    assert!(l["source"].as_str().unwrap().contains("founders"));
+}

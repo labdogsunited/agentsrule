@@ -706,6 +706,13 @@ impl Engine {
                     "units": "extent in µ of reaction; amounts in µ; elements in µ of element (composition × amount)",
                     "meaning": "extent is how far a reaction ran, summed over every cell or creature and tick; multiplied by the coefficients it gives the amount of each substance consumed and made. Gross circulation, not net accumulation: a cycle shows each of its reactions running."}))
             }
+            "life.query" => {
+                let e = self.entry(p)?;
+                let (from, to) = (p["from"].as_u64().unwrap_or(0), p["to"].as_u64().unwrap_or(e.run.tick()));
+                if from > to { return Err(bad("`from` is after `to`")); }
+                let bins = p["bins"].as_u64().unwrap_or(10).clamp(2, 100) as usize;
+                e.run.life(from, to, bins).map_err(bad)
+            }
             "genome.census" => Ok(self.entry(p)?.run.census()),
             "genome.compare" => {
                 // Two living entities' genes side by side, matched by kind and text; read-only. Genes in

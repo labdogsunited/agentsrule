@@ -758,6 +758,66 @@ impl Run {
             "scope": "only requests of the ticks after the start, within the cap; nothing before the start can be recovered"}))
     }
 
+    /// Life histories (`life.query`, `proposals/science-panels.md` §10): the age and carried-stock distributions of
+    /// the living, by lineage (the whole population), and the cohort born in ticks `from` to `to`: its size, how
+    /// it has fared (still alive counts as censored, never as dead), survival by age, age at first child and
+    /// offspring so far. From the CPU runner's complete birth and death events.
+    pub fn life(&self, from: u64, to: u64, bins: usize) -> Result<Value, String> {
+        if !matches!(self.backend, Backend::Cpu) { return Err("life histories come from the CPU runner's events".into()); }
+        use emerge_ref::world::Event;
+        let w = &self.live.world;
+        let now = w.tick;
+        let ns = w.chem.substances.len();
+        let n = self.spec.lineages.len();
+        let max_age = w.entities.iter().map(|e| e.age).max().unwrap_or(0).max(1);
+        let width = (max_age / bins as u64 + 1).max(1);
+        let mut ages = vec![vec![0u64; bins]; n];
+        let mut stock: Vec<Vec<u64>> = vec![vec![]; n];
+        for e in &w.entities {
+            ages[e.lineage][((e.age / width) as usize).min(bins - 1)] += 1;
+            stock[e.lineage].push(e.store.amounts[..ns].iter().map(|&a| u64::from(a)).sum::<u64>());
+        }
+        let stock_rows: Vec<Value> = stock.iter_mut().enumerate().map(|(i, v)| { v.sort_unstable(); let k = v.len(); json!({"lineage": self.spec.lineages[i], "creatures": k, "total_carried_mu": if k == 0 { Value::Null } else { json!({"min": v[0], "median": v[k / 2], "max": v[k - 1], "mean": v.iter().sum::<u64>() as f64 / k as f64}) }}) }).collect();
+        // Cohort: creatures born in [from, to], by their birth events.
+        let mut born: std::collections::HashMap<u64, u64> = Default::default();
+        let mut parent_of: std::collections::HashMap<u64, u64> = Default::default();
+        let mut died: std::collections::HashMap<u64, (u64, bool)> = Default::default();
+        let mut first_child: std::collections::HashMap<u64, u64> = Default::default();
+        let mut kids: std::collections::HashMap<u64, u64> = Default::default();
+        for ev in &w.events {
+            match ev {
+                Event::Born { tick, parent, child } => { born.insert(*child, *tick); parent_of.insert(*child, *parent); first_child.entry(*parent).or_insert(*tick); *kids.entry(*parent).or_default() += 1; }
+                Event::Died { tick, id, cause } => { died.insert(*id, (*tick, *cause == emerge_ref::Cause::Starved)); }
+            }
+        }
+        let cohort: Vec<u64> = { let mut v: Vec<u64> = born.iter().filter(|(_, t)| **t >= from && **t <= to).map(|(id, _)| *id).collect(); v.sort_unstable(); v };
+        let (mut starved, mut aged, mut alive) = (0u64, 0u64, 0u64);
+        let mut death_ages: Vec<u64> = vec![];
+        let mut first_div: Vec<u64> = vec![];
+        let mut offspring = 0u64;
+        for id in &cohort {
+            let b = born[id];
+            match died.get(id) { Some((t, st)) => { if *st { starved += 1 } else { aged += 1 }; death_ages.push(t - b); } None => alive += 1 }
+            if let Some(t) = first_child.get(id) { first_div.push(t - b); }
+            offspring += kids.get(id).copied().unwrap_or(0);
+        }
+        // Survival by age over ages every member has had the chance to reach: a member born at tick b can be observed to age now-b.
+        let horizon = cohort.iter().map(|id| now - born[id]).min().unwrap_or(0);
+        let step = (horizon / 10).max(1);
+        let survival: Vec<Value> = (0..=horizon).step_by(step as usize).map(|a| json!({"age": a, "alive": cohort.iter().filter(|id| died.get(id).is_none_or(|(t, _)| *t - born[id] > a)).count()})).collect();
+        first_div.sort_unstable();
+        let founders = w.entities.iter().filter(|e| !born.contains_key(&e.id)).count();
+        Ok(json!({"tick": now, "snapshot": {"coverage": "every living creature", "age_bin_width": width, "ages": self.spec.lineages.iter().zip(&ages).map(|(l, a)| json!({"lineage": l, "bins": a})).collect::<Vec<_>>(), "carried": stock_rows,
+                "recent": self.history.samples.last().map(|s| json!({"tick": s.tick, "births_since_previous_sample": s.births, "deaths_since_previous_sample": s.deaths}))},
+            "cohort": {"born_from": from, "born_to": to, "size": cohort.len(), "starved": starved, "aged": aged, "alive_censored": alive,
+                "survival": survival, "survival_note": format!("ages beyond {horizon} ticks are not shown: the youngest member has only been observed that long"),
+                "first_child_age": if first_div.is_empty() { Value::Null } else { json!({"count": first_div.len(), "min": first_div[0], "median": first_div[first_div.len() / 2], "max": first_div[first_div.len() - 1], "of": cohort.len(), "note": "only members that had a child by now; the rest may still"}) },
+                "offspring_so_far": offspring, "offspring_note": "children born to cohort members by now, not lifetime reproductive success while any member lives",
+                "mean_age_at_death": if death_ages.is_empty() { Value::Null } else { json!(death_ages.iter().sum::<u64>() as f64 / death_ages.len() as f64) }, "deaths_are_of_the_dead_only": true},
+            "source": format!("birth and death events kept since tick 0 (a birth in tick t happens during that tick's step and shows in the sample taken at t + 1); {founders} living creatures are founders (no recorded birth) and belong to no cohort"),
+            "death_causes": "starved or aged, as the engine records them; why a creature starved is not recorded"}))
+    }
+
     /// The active-gene count of every living entity, by lineage: the whole population, not a sample
     /// (`genome.census`, `proposals/science-panels.md` S2). Read-only.
     pub fn census(&self) -> Value {

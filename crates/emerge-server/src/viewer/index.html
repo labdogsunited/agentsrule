@@ -192,11 +192,11 @@
   .lnode.ramp .range { display: flex; gap: 4px; }
   .rampbar { grid-column: 1 / 3; height: 16px; border: 1px solid #222; border-radius: 2px; }
   .lnode .err { grid-column: 1 / 3; color: var(--bad); font: 11px system-ui, sans-serif; white-space: pre-wrap; }
-  #stage-rules, #stage-lineage, #stage-census, #stage-budget, #stage-family, #stage-compare, #stage-region, #stage-flow { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
-  #rulesbar, #lineagebar, #censusbar, #budgetbar, #familybar, #comparebar, #regionbar, #flowbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #stage-rules, #stage-lineage, #stage-census, #stage-budget, #stage-family, #stage-compare, #stage-region, #stage-flow, #stage-life { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
+  #rulesbar, #lineagebar, #censusbar, #budgetbar, #familybar, #comparebar, #regionbar, #flowbar, #lifebar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   #rulesbar label, #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
   #rulesbar input, #lineagebar input { width: auto; margin: 0; }
-  #rulesbody, #lineagebody, #censusbody, #budgetbody, #familybody, #comparebody, #regionbody, #flowbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
+  #rulesbody, #lineagebody, #censusbody, #budgetbody, #familybody, #comparebody, #regionbody, #flowbody, #lifebody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
   .lens-phase { margin: 12px 0 4px; font-weight: 600; letter-spacing: .04em; color: var(--accent); text-transform: uppercase; font-size: 11px; }
   .lens-step { margin: 2px 0 2px 8px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
   .lens-step.placed { border-left-color: var(--accent); }
@@ -237,6 +237,11 @@
   #flowbody table { border-collapse: collapse; margin: 6px 0; }
   #flowbody td, #flowbody th { padding: 2px 8px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: left; }
   #flowbar select, #flowbar button { margin-left: 6px; }
+  #lifebody table { border-collapse: collapse; margin: 4px 0 10px; }
+  #lifebody td, #lifebody th { padding: 2px 8px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: left; }
+  #lifebody input { width: 5em; }
+  #lifebody .bar { display: inline-block; width: 7px; background: #89b; margin-right: 1px; vertical-align: bottom; }
+  #lifebody svg { width: 100%; height: 150px; display: block; }
   #lineagebody svg { width: 100%; height: 100%; min-height: 160px; display: block; }
   #lineagebody .legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0; }
   #lineagebody .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; }
@@ -391,6 +396,7 @@
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label><label><input type="radio" name="rmode" value="trace"> trace</label></div><div id="rulesbody"></div></main></div>
+  <div class="editor" id="ed-life"><main id="stage-life"><div id="lifebar"><span id="lifenote"></span></div><div id="lifebody"></div></main></div>
   <div class="editor" id="ed-flow"><main id="stage-flow"><div id="flowbar"><span id="flownote"></span><label>mode <select id="flowmode"><option value="declared">declared</option><option value="measured">measured</option><option value="blocked">blocked</option></select></label><label>quantity <select id="flowqty"></select></label><button id="flowbase">Measure from now</button></div><div id="flowbody"></div></main></div>
   <div class="editor" id="ed-region"><main id="stage-region"><div id="regionbar"><span id="regionnote"></span></div><div id="regionbody"></div></main></div>
   <div class="editor" id="ed-compare"><main id="stage-compare"><div id="comparebar"><span id="comparenote"></span></div><div id="comparebody"></div></main></div>
@@ -456,7 +462,7 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
 // screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false, budget: false, family: false, compare: false, region: false, flow: false };
+const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false, budget: false, family: false, compare: false, region: false, flow: false, life: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
 const stage = stages.picture;   // the picture's stage: the info picker lives there
@@ -1853,17 +1859,17 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 // Tabs move by dragging (to a leaf's middle, or to one of its edges to split it), a leaf can be maximized
 // for a while, editors can be closed and added back, and desktops are named arrangements. One instance of
 // each editor; the arrangement is kept in this browser and checked before it is used again.
-const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget", family: "Ancestry", compare: "Compare Runs", region: "Region", flow: "Flow Map" };
+const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget", family: "Ancestry", compare: "Compare Runs", region: "Region", flow: "Flow Map", life: "Life Histories" };
 const VIEW_OF = { viewport: "picture", network: "graph", genome: "genome" };          // editors with a camera
-const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow" };
+const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life" };
 let tree = null, closed = [], maxLeaf = null, focusLeaf = null, leafSeq = 0;
 const mkLeaf = (tabs, active) => ({ t: "leaf", id: `L${++leafSeq}`, tabs, active: active || tabs[0] });
 const mkSplit = (dir, ratio, a, b) => ({ t: "split", dir, ratio, a, b });
 const BUILTIN = {
-  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow"]))),
-  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow"]))),
-  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow"]), mkLeaf(["params"]))),
-  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "family", "compare", "region", "flow", "details", "genome", "network", "look", "params", "source"]))),
+  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life"]))),
+  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life"]))),
+  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life"]), mkLeaf(["params"]))),
+  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "family", "compare", "region", "flow", "life", "details", "genome", "network", "look", "params", "source"]))),
 };
 const leavesOf = (n = tree) => (n.t === "leaf" ? [n] : [...leavesOf(n.a), ...leavesOf(n.b)]);
 const findLeaf = (id) => leavesOf().find((l) => l.id === id);
@@ -1983,7 +1989,7 @@ function resizeSplit(e, n, box, a, b, bar) {
 let prevVis = {};
 function syncVisible() {
   const on = new Set((maxLeaf ? [findLeaf(maxLeaf)] : leavesOf()).filter(Boolean).filter((l) => document.querySelector(`[data-leaf="${l.id}"]`)).map((l) => l.active));
-  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow" };
+  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life" };
   for (const [v, ed] of Object.entries(map)) visible[v] = on.has(ed);
   document.body.classList.toggle("graph", visible.graph);
   document.body.classList.toggle("genome", visible.genome);
@@ -2007,6 +2013,7 @@ function syncVisible() {
   if (fresh("compare")) loadCompare().catch(oops);
   if (fresh("region")) loadRegion().catch(oops);
   if (fresh("flow")) loadFlow().catch(oops);
+  if (fresh("life")) loadLife().catch(oops);
   if (fresh("source")) loadCode().catch(oops);
   prevVis = { ...visible };
   const fl = findLeaf(focusLeaf), v = fl && VIEW_OF[fl.active];
@@ -2582,6 +2589,38 @@ async function loadRules() {
   body.scrollTop = keep;
 }
 
+// Life Histories (S5): who is alive, by age and by what they carry (every living creature), and one cohort: the
+// creatures born in a span of ticks. Members still alive are censored, never counted as dead; ages beyond what the
+// youngest member has lived are not drawn; offspring so far is not lifetime reproductive success.
+let lifeSpan = null;
+async function loadLife() {
+  const w = $("world").value, note = $("lifenote"), body = $("lifebody");
+  if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
+  const now = (await call("world.list")).worlds.find((x) => x.world === w);
+  const t = now ? now.tick : 0, span = lifeSpan && lifeSpan.world === w ? lifeSpan : { world: w, from: Math.max(0, t - 30), to: t };
+  let r;
+  try { r = await call("life.query", { world: w, from: span.from, to: span.to }); } catch (e) { note.textContent = e.message || String(e); body.textContent = ""; return; }
+  if (w !== $("world").value || !visible.life) return;
+  note.textContent = `${w} · tick ${r.tick} · ${r.source}`;
+  body.textContent = "";
+  const s = r.snapshot, mx = Math.max(1, ...s.ages.flatMap((a) => a.bins));
+  const at = tag("table"); at.innerHTML = `<tr><th colspan="3">Age of the living (bins of ${s.age_bin_width} ticks; ${s.coverage})</th></tr>` + s.ages.map((a) => `<tr><td>${esc(a.lineage)}</td><td>${a.bins.reduce((x, y) => x + y, 0)}</td><td>${a.bins.map((b) => `<span class="bar" style="height:${Math.max(1, Math.round(40 * b / mx))}px" title="${b} creatures"></span>`).join("")}</td></tr>`).join("");
+  body.append(at);
+  if (s.recent) body.append(Object.assign(tag("div"), { textContent: `Latest sample, tick ${s.recent.tick}: ${s.recent.births_since_previous_sample} births and ${s.recent.deaths_since_previous_sample} deaths since the previous one (read the age bars beside these: a young population can mean many births or many early deaths).` }));
+  const ct = tag("table"); ct.innerHTML = '<tr><th>lineage</th><th>creatures</th><th>carried in total (µ): min / median / mean / max</th></tr>' + s.carried.map((c) => `<tr><td>${esc(c.lineage)}</td><td>${c.creatures}</td><td>${c.total_carried_mu ? `${c.total_carried_mu.min.toLocaleString()} / ${c.total_carried_mu.median.toLocaleString()} / ${Math.round(c.total_carried_mu.mean).toLocaleString()} / ${c.total_carried_mu.max.toLocaleString()}` : "none alive"}</td></tr>`).join("");
+  body.append(ct);
+  const c = r.cohort, mk = (k) => { const i = tag("input"); i.type = "number"; i.value = span[k]; i.onchange = () => { lifeSpan = { ...span, [k]: +i.value }; loadLife().catch(oops); }; return i; };
+  const row = tag("div"); row.append("Cohort: creatures born from tick ", mk("from"), " to ", mk("to")); body.append(row);
+  const f = c.first_child_age;
+  body.append(Object.assign(tag("div"), { textContent: `${c.size} born · ${c.alive_censored} still alive (censored) · ${c.starved} starved · ${c.aged} died of age · offspring so far ${c.offspring_so_far} (${c.offspring_note}) · first child: ${f ? `${f.count} of ${f.of} members had one, at age ${f.min} to ${f.max} (median ${f.median}); ${f.note}` : "none had one yet"}${c.mean_age_at_death !== null ? ` · mean age at death ${c.mean_age_at_death.toFixed(1)} among the dead only` : ""}` }));
+  if (c.size && c.survival.length > 1) {
+    const W = 760, H = 150, L = 36, pts = c.survival.map((p) => `${(L + (p.age / Math.max(1, c.survival[c.survival.length - 1].age)) * (W - L - 8)).toFixed(1)},${(H - 18 - (p.alive / c.size) * (H - 30)).toFixed(1)}`).join(" ");
+    const d = tag("div"); d.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><g stroke="#555" fill="#999" font-size="10"><line x1="${L}" x2="${W - 8}" y1="${H - 18}" y2="${H - 18}"/><text x="${L - 4}" y="${H - 14}" text-anchor="end">0</text><text x="${L - 4}" y="16" text-anchor="end">${c.size}</text><text x="${W - 8}" y="${H - 4}" text-anchor="end">age ${c.survival[c.survival.length - 1].age}</text></g><polyline fill="none" stroke="#6a9" stroke-width="1.6" points="${pts}"/></svg>`;
+    body.append(d, Object.assign(tag("div"), { textContent: "Alive by age: " + c.survival_note }));
+  }
+  body.append(Object.assign(tag("div"), { textContent: r.death_causes }));
+}
+
 // Flow Map (S3/S4): substances and reactions as two kinds of node, so a reaction with several inputs is one node,
 // not several conversions. Declared: the formulas. Measured: edge width is the chosen quantity over the interval since
 // "Measure from now" (differences of cumulative extents). Blocked: the recorded limiting outcomes per reaction.
@@ -3022,7 +3061,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); if (visible.flow) loadFlow(); }).catch(oops) };
+$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); if (visible.flow) loadFlow(); if (visible.life) loadLife(); }).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().then(() => { if (visible.look) return loadLook(); }).catch(oops);
 // Space plays and pauses the active world.
 let runningNow = {};
