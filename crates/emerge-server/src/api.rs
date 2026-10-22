@@ -12,6 +12,14 @@ const LANGUAGE: &str = include_str!("../../../language.md");
 const EXAMPLE: &str = include_str!("../../../examples/dish.em");
 const EXAMPLE_VIEWS: &str = include_str!("../../../examples/views/dish.em");
 const LIFE: &str = include_str!("../../../examples/life.em");
+const PRESET_VIEWS: &str = include_str!("../../../examples/views/presets.em");
+const NURSERY: &str = include_str!("../../../examples/presets/nursery.em");
+const LONG_NIGHT: &str = include_str!("../../../examples/presets/long_night.em");
+const LONG_NIGHT_HARSH: &str = include_str!("../../../examples/presets/long_night_harsh.em");
+const LEAN_TIMES: &str = include_str!("../../../examples/presets/lean_times.em");
+const CABINET_LIFE: &str = include_str!("../../../examples/presets/cabinet-life.em");
+const CABINET_HIGHLIFE: &str = include_str!("../../../examples/presets/cabinet-highlife.em");
+const CABINET_SEEDS: &str = include_str!("../../../examples/presets/cabinet-seeds.em");
 const TEST9: &str = include_str!("../../../archive/test9-dish.em");
 
 /// A JSON-RPC error: code, message, and data for a rejected swap.
@@ -388,11 +396,50 @@ impl Engine {
                 Ok(json!({"palettes": list}))
             }
             "docs.query" => Ok(docs(p["query"].as_str().unwrap_or(""))),
-            "docs.examples" => Ok(json!({"examples": [
+            "docs.examples" => {
+                let dish_views = format!("{EXAMPLE_VIEWS}\n{PRESET_VIEWS}");
+                Ok(json!({"examples": [
                 {"id": "dish", "name": "Reference dish", "about": "chemistry, a conserved field, world rules, menus and two lineages (Drifter, Builder)", "source": EXAMPLE, "views": EXAMPLE_VIEWS, "lineages": ["Drifter", "Builder"], "resizable": true},
                 {"id": "life", "name": "Game of Life (glider gun)", "about": "a state field with `life_like`: no creatures, no chemistry; runs on the CPU", "source": LIFE, "views": "", "lineages": [], "resizable": false},
                 {"id": "test9", "name": "Test-9 dish", "about": "the dish of test 9: Drifter must find body synthesis (a body reaction plus take(nitrate))", "source": TEST9, "views": EXAMPLE_VIEWS, "lineages": ["Drifter", "Builder"], "resizable": true},
-            ]})),
+                {"id": "nursery", "name": "Sunlit Nursery", "preset": {"version": 1, "group": "presets", "file": "examples/presets/nursery.em", "needs": "creatures", "controls": [
+                    {"label": "light supply", "target": "rule sunlight, transfer @transfer_light, amount", "live": true, "unit": "mu per cell per tick", "range": [0, 200], "default": 40, "patch": "set rules.sunlight@transfer_light.amount = {v}mu;"},
+                    {"label": "mineral supply", "target": "rule weather, transfer @transfer_nitrate, amount", "live": true, "unit": "mu per cell per tick", "range": [0, 100], "default": 10, "patch": "set rules.weather@transfer_nitrate.amount = {v}mu;", "note": "no visible effect through tick 600 (seeds 1-3 equal at 3mu and 0mu): the initial 20u of nitrate per cell is not used up by then"},
+                    {"label": "diffusion", "target": "rule spread, diffuse_conserved, rate", "live": true, "unit": "bp", "range": [0, 1000], "default": 300, "patch": "set rules.spread@diffuse_conserved.rate = {v}bp;"},
+                    {"label": "initial population", "target": "lineage Builder genesis count", "live": false, "unit": "creatures", "range": [1, 20000], "default": 2000}],
+                    "watch": "population, births and deaths, energy carried; compare the Nitrate and Biolume views", "verified": "seed 1, CPU, mutation off, 1000 ticks: births in every window, 4_000 to 9_000 creatures. Light supply halved (20mu) gives about 40 percent fewer creatures at tick 400 in seeds 1-3; the mineral control showed no effect through tick 600. The successful metabolism was supplied in the seed genome; this is not a discovery."},
+                 "about": "a luminous ecosystem with a working metabolism (Builder, mutation off): what limits population growth?", "source": NURSERY, "views": dish_views, "lineages": ["Builder"], "resizable": false, "mutation": false, "backend": "cpu"},
+                {"id": "long_night", "name": "The Long Night", "preset": {"version": 1, "group": "presets", "file": "examples/presets/long_night.em", "needs": "creatures and tick conditions", "controls": [
+                    {"label": "light supply outside the night", "target": "rule sunlight, transfer @transfer_light, amount", "live": true, "unit": "mu per cell per tick", "range": [0, 200], "default": 40, "patch": "set rules.sunlight@transfer_light.amount = {v}mu;"},
+                    {"label": "blackout start", "target": "rule sunlight, when tick < 300", "live": false, "unit": "tick", "default": 300, "note": "the bound is not a labelled statement, so a patch cannot reach it; edit the source and restart"},
+                    {"label": "blackout end", "target": "rule sunlight, when tick >= 400", "live": false, "unit": "tick", "default": 400, "note": "as for the start"}],
+                    "watch": "population through ticks 300 to 400 and the recovery after; the Light view", "verified": "seeds 1-3, CPU, mutation off, 1000 ticks: about 6_000 creatures at tick 300, 8 to 15 at tick 400, 5_500 to 6_500 at tick 1000. Changes after the start affect future ticks only; restart to compare."},
+                 "about": "sunlight stops for ticks 300 to 399: who survives on stored resources?", "source": LONG_NIGHT, "views": dish_views, "lineages": ["Builder"], "resizable": false, "mutation": false, "backend": "cpu"},
+                {"id": "long_night_harsh", "name": "The Long Night (harsh)", "preset": {"version": 1, "group": "presets", "file": "examples/presets/long_night_harsh.em", "needs": "creatures and tick conditions", "controls": [
+                    {"label": "blackout end", "target": "rule sunlight, when tick >= 450", "live": false, "unit": "tick", "default": 450}],
+                    "watch": "the population reaching zero", "verified": "seeds 1-3, CPU, mutation off: extinct by tick 425 in every seed. Kept as the harsher setting; no rescue injections."},
+                 "about": "the same world with a night to tick 449: extinction", "source": LONG_NIGHT_HARSH, "views": dish_views, "lineages": ["Builder"], "resizable": false, "mutation": false, "backend": "cpu"},
+                {"id": "lean_times", "name": "Lean Times", "preset": {"version": 1, "group": "presets", "file": "examples/presets/lean_times.em", "needs": "creatures", "controls": [
+                    {"label": "base upkeep", "target": "upkeep base", "live": false},
+                    {"label": "per-gene upkeep", "target": "upkeep per_gene", "live": false},
+                    {"label": "per-signal upkeep", "target": "upkeep per_signal", "live": false}],
+                    "watch": "lineage shares over time; open both genomes side by side", "verified": "archived test-6 world reproduced, seed 1, CPU, mutation off: Bloated share 0.23 at tick 100, 0.0 at tick 600. Its eight extra genes are unused on purpose; not evidence that complexity is a liability in general."},
+                 "about": "Builder against Bloated (Builder plus eight unused senses): what does unneeded machinery cost?", "source": LEAN_TIMES, "views": dish_views, "lineages": ["Builder", "Bloated"], "resizable": false, "mutation": false, "backend": "cpu"},
+                {"id": "cabinet_life", "name": "Automata Cabinet: Conway soup", "preset": {"version": 1, "group": "presets", "file": "examples/presets/cabinet-life.em", "needs": "state fields", "controls": [
+                    {"label": "birth counts", "target": "rule conway, life_like born", "live": false},
+                    {"label": "survival counts", "target": "rule conway, life_like survives", "live": false},
+                    {"label": "scatter density", "target": "genesis scatter density", "live": false}],
+                    "watch": "the field settling; step one tick at a time", "verified": "parses, checks and runs on the CPU; outcomes not characterised."},
+                 "about": "Conway rules from a random soup on a wrapping 64 x 64 grid (CPU only)", "source": CABINET_LIFE, "views": "", "lineages": [], "resizable": false, "mutation": false, "backend": "cpu"},
+                {"id": "cabinet_highlife", "name": "Automata Cabinet: birth on 3 and 6", "preset": {"version": 1, "group": "presets", "file": "examples/presets/cabinet-highlife.em", "needs": "state fields", "controls": [
+                    {"label": "birth counts", "target": "rule conway, life_like born", "live": false}],
+                    "watch": "compare with the Conway soup from the same seed", "verified": "parses, checks and runs on the CPU; outcomes not characterised."},
+                 "about": "one extra birth count (6) over Conway, same soup", "source": CABINET_HIGHLIFE, "views": "", "lineages": [], "resizable": false, "mutation": false, "backend": "cpu"},
+                {"id": "cabinet_seeds", "name": "Automata Cabinet: births on 2", "preset": {"version": 1, "group": "presets", "file": "examples/presets/cabinet-seeds.em", "needs": "state fields", "controls": [
+                    {"label": "birth counts", "target": "rule conway, life_like born", "live": false}],
+                    "watch": "a sparse soup where nothing survives", "verified": "parses, checks and runs on the CPU; outcomes not characterised."},
+                 "about": "birth on 2 neighbours, no survival, sparse soup", "source": CABINET_SEEDS, "views": "", "lineages": [], "resizable": false, "mutation": false, "backend": "cpu"},
+            ]}))},
             "docs.example" => Ok(json!({"name": "examples/dish.em", "about": "the reference world: chemistry, a conserved field, world rules, menus and two lineages (Drifter, Builder); a new world is easiest written as a changed copy of it", "source": EXAMPLE, "views": EXAMPLE_VIEWS})),
             _ => Err(fault(-32601, format!("no method `{method}`"))),
         }

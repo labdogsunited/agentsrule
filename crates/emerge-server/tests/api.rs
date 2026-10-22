@@ -556,3 +556,40 @@ fn every_example_world_is_valid_and_starts() {
         assert_eq!(c.ok("run.step", json!({"world": id, "ticks": 10}))["tick"], 10, "{}", x["id"]);
     }
 }
+
+#[test]
+fn presets_carry_their_metadata_and_run_without_hidden_support() {
+    let mut c = server();
+    let list = c.ok("docs.examples", json!({}));
+    let presets: Vec<&Value> = list["examples"].as_array().unwrap().iter().filter(|x| x.get("preset").is_some()).collect();
+    assert!(presets.len() >= 7, "the first-release presets are listed");
+    for x in presets {
+        let p = &x["preset"];
+        assert!(p["version"].as_u64().unwrap() >= 1, "{}", x["id"]);
+        for key in ["watch", "verified", "file", "needs"] {
+            assert!(p[key].as_str().is_some_and(|t| !t.is_empty()), "{} lacks {key}", x["id"]);
+        }
+        assert!(!p["controls"].as_array().unwrap().is_empty(), "{}", x["id"]);
+        assert_eq!(x["mutation"], false, "presets teach with mutation off: {}", x["id"]);
+        assert_eq!(x["backend"], "cpu", "{}", x["id"]);
+        // Creates with mutation off and no partial run: nothing essential is left out silently.
+        let w = c.ok("world.create", json!({"source": x["source"], "lineages": x["lineages"], "seed": 1, "mutation": false}));
+        let id = w["world"].as_str().unwrap();
+        assert_eq!(c.ok("run.step", json!({"world": id, "ticks": 5}))["tick"], 5, "{}", x["id"]);
+        assert_eq!(x["resizable"], false, "a preset's size is a validated configuration, not a slider: {}", x["id"]);
+        // Every control said to be live is accepted by a hot swap at both ends of its range.
+        let mut revision = 0;
+        for ctl in p["controls"].as_array().unwrap() {
+            if ctl["live"] != true {
+                continue;
+            }
+            for v in ctl["range"].as_array().unwrap() {
+                let patch = format!("patch Dish {{\n    {}\n}}\n", ctl["patch"].as_str().unwrap().replace("{v}", &v.to_string()));
+                let r = c.call("world.hotswap", json!({"world": id, "base_revision": revision, "patch": patch, "reason": "preset control"}));
+                assert!(r.get("error").is_none(), "{} / {}: {r}", x["id"], ctl["label"]);
+                revision += 1;
+            }
+        }
+        assert_eq!(c.ok("run.step", json!({"world": id, "ticks": 3}))["tick"], 8, "{}", x["id"]);
+    }
+}

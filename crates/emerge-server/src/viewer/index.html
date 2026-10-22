@@ -2153,7 +2153,7 @@ function renderExample() {
     $("lins").append(l);
   }
   $("size").parentElement.style.display = x.resizable ? "" : "none";
-  $("example").title = x.about;
+  $("example").title = x.about + (x.preset ? `\nWatch: ${x.preset.watch}\n${x.preset.verified}` : "");
 }
 async function loadExamples() {
   examples = (await call("docs.examples")).examples;
@@ -2178,7 +2178,7 @@ async function create() {
   const size = $("size").value;
   let source = x.source;
   if (x.resizable && size !== "256") source = source.replace("Grid(w: 256, h: 256)", `Grid(w: ${size}, h: ${size})`).replace(/count: 2_000;/g, "count: 300;");
-  const { world } = await call("world.create", { source, lineages, seed: +$("seed").value || 1, backend: $("backend").value });
+  const { world } = await call("world.create", { source, lineages, seed: +$("seed").value || 1, backend: x.backend || $("backend").value, mutation: x.mutation !== false });
   await refreshWorlds(world);
   await refreshViews();
   await subscribe();
