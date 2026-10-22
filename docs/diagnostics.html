@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compiler Diagnostics &amp; Error Codes — Emerge — Emerge Documentation</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  
+<header class="houdini-header">
+  <a href="index.html" class="brand">
+    <div class="logo-box">E</div>
+    <span class="title">EMERGE</span>
+    <span class="version">v0.7.9</span>
+  </a>
+
+  <div class="search-container">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="search-input" class="search-input" placeholder="Search functions, attributes, types, contexts... (Press '/' to focus)" autocomplete="off">
+    <span class="search-shortcut">/</span>
+    <div id="search-dropdown" class="search-results-dropdown"></div>
+  </div>
+
+  <nav class="header-links">
+    <a href="index.html#guide/overview" class="header-link">Guide</a>
+    <a href="index.html#functions/transfer" class="header-link">Functions</a>
+    <a href="index.html#attributes" class="header-link">Attributes</a>
+    <a href="index.html#guide/vex-comparison" class="header-link">Houdini VEX</a>
+  </nav>
+</header>
+
+  <div class="houdini-layout">
+    <aside class="houdini-sidebar">
+<div class="sidebar-header">DOCUMENTATION</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>📖 Language Guide</span><span class="count">11</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="guide/overview" href="#guide/overview">Language Overview & Design Goals</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/lexical" href="#guide/lexical">Lexical Structure & Formatting</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/types" href="#guide/types">Value & Reference Types</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/contexts" href="#guide/contexts">Contexts & Execution Scopes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/tick-pipeline" href="#guide/tick-pipeline">The Tick Pipeline & Clock</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/world-declarations" href="#guide/world-declarations">World Declarations & Chemistry</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/genomes" href="#guide/genomes">Genomes, Lineages & Evolution</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/vex-layers" href="#guide/vex-layers">VEX-Style Layer Bodies & Attributes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/grammar" href="#guide/grammar">Grammar Specification</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/diagnostics" href="#guide/diagnostics">Compiler Diagnostics & Error Codes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/vex-comparison" href="#guide/vex-comparison">Houdini VEX vs Emerge Comparison</a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="#attributes" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🏷️ Attributes Reference</a><span class="count">18</span></div>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="#diagnostics" class="nav-link active" style="padding:0;border:0;color:inherit;font:inherit;">⚠️ Diagnostics & Codes</a><span class="count">60</span></div>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="#guide/vex-comparison" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🔄 Houdini VEX Rosetta</a></div>
+</div>
+<div class="sidebar-header" style="margin-top:8px;">FUNCTIONS BY CATEGORY</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Substance Flow</span><span class="count">6</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/transfer" href="#functions/transfer"><span>transfer</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/react" href="#functions/react"><span>react</span><span class="tag">Transform</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/diffuse_conserved" href="#functions/diffuse_conserved"><span>diffuse_conserved</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/take" href="#functions/take"><span>take</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/give" href="#functions/give"><span>give</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/move_to" href="#functions/move_to"><span>move_to</span><span class="tag">Move</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Math & Numeric</span><span class="count">13</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/fit" href="#functions/fit"><span>fit</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/fit_log" href="#functions/fit_log"><span>fit_log</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/clamp" href="#functions/clamp"><span>clamp</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/lerp" href="#functions/lerp"><span>lerp</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/min" href="#functions/min"><span>min</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/max" href="#functions/max"><span>max</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/abs" href="#functions/abs"><span>abs</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/sqrt" href="#functions/sqrt"><span>sqrt</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/sin" href="#functions/sin"><span>sin</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/tanh" href="#functions/tanh"><span>tanh</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/log" href="#functions/log"><span>log</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/uniform" href="#functions/uniform"><span>uniform</span><span class="tag">Restructure / Genesis</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/jitter" href="#functions/jitter"><span>jitter</span><span class="tag">Mutate</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Type Conversions</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/units" href="#functions/units"><span>units</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/amount" href="#functions/amount"><span>amount</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/float" href="#functions/float"><span>float</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Spatial & Grid</span><span class="count">5</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/cap" href="#functions/cap"><span>cap</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/argmin" href="#functions/argmin"><span>argmin</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/argmax" href="#functions/argmax"><span>argmax</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/blur" href="#functions/blur"><span>blur</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/fade" href="#functions/fade"><span>fade</span><span class="tag">Set</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Reductions</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/sum" href="#functions/sum"><span>sum</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/mean" href="#functions/mean"><span>mean</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/count" href="#functions/count"><span>count</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Cellular Automata</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/life_like" href="#functions/life_like"><span>life_like</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/pattern" href="#functions/pattern"><span>pattern</span><span class="tag">Genesis</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/scatter" href="#functions/scatter"><span>scatter</span><span class="tag">Genesis</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Logic & Control</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/select" href="#functions/select"><span>select</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/when" href="#functions/when"><span>when</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/if" href="#functions/if"><span>if</span><span class="tag">Draw</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Agent Senses</span><span class="count">12</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/inventory" href="#functions/inventory"><span>inventory</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/gradient" href="#functions/gradient"><span>gradient</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/probe" href="#functions/probe"><span>probe</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/crowd" href="#functions/crowd"><span>crowd</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/neighbour" href="#functions/neighbour"><span>neighbour</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/clock" href="#functions/clock"><span>clock</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/delta" href="#functions/delta"><span>delta</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/has_gene" href="#functions/has_gene"><span>has_gene</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/genes" href="#functions/genes"><span>genes</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/active_genes" href="#functions/active_genes"><span>active_genes</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/made" href="#functions/made"><span>made</span><span class="tag">Draw / Query</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/lineage" href="#functions/lineage"><span>lineage</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Agent Actions</span><span class="count">9</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/move" href="#functions/move"><span>move</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/turn" href="#functions/turn"><span>turn</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/take_action" href="#functions/take_action"><span>take (action)</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/drop" href="#functions/drop"><span>drop</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/give_action" href="#functions/give_action"><span>give (action)</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/steal" href="#functions/steal"><span>steal</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/guard" href="#functions/guard"><span>guard</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/divide" href="#functions/divide"><span>divide</span><span class="tag">Restructure</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/emit" href="#functions/emit"><span>emit</span><span class="tag">Set</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Visualization</span><span class="count">9</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/ramp" href="#functions/ramp"><span>ramp</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/palette" href="#functions/palette"><span>palette</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/scale" href="#functions/scale"><span>scale</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/arrow" href="#functions/arrow"><span>arrow</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/dot" href="#functions/dot"><span>dot</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/field_view" href="#functions/field_view"><span>field</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/agents_view" href="#functions/agents_view"><span>agents</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/line" href="#functions/line"><span>line</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/ledger" href="#functions/ledger"><span>ledger</span><span class="tag">Draw</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Exploration</span><span class="count">5</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/linspace" href="#functions/linspace"><span>linspace</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/logspace" href="#functions/logspace"><span>logspace</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/enumerate" href="#functions/enumerate"><span>enumerate</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/top" href="#functions/top"><span>top</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/atlas" href="#functions/atlas"><span>atlas</span><span class="tag">Explore</span></a></li>
+  </ul>
+</div>
+</aside>
+    <main class="houdini-main">
+      
+<nav class="breadcrumbs">
+  <a href="index.html">Help</a>
+  <span class="sep">></span>
+  <span>Reference</span>
+  <span class="sep">></span>
+  <span style="color:#fff;">Compiler Diagnostics & Codes</span>
+</nav>
+
+<header class="doc-header">
+  <h1 class="doc-title">Compiler Diagnostics & Error Codes</h1>
+  <p class="doc-summary">Complete taxonomy of E00xx through E10xx error codes, warnings, and static analysis notes generated by <code>emerge check</code>.</p>
+</header>
+
+<div class="admonition note">
+  <div class="admonition-title">ℹ️ STRUCTURED JSON DIAGNOSTICS</div>
+  <p><code>emerge check --json &lt;file.em&gt;</code> prints machine-readable JSON diagnostics with stable codes, spans, human messages, and automated patch fixes that tools and editors can apply directly.</p>
+</div>
+
+<table class="houdini-table">
+  <thead>
+    <tr>
+      <th style="width:15%;">Code</th>
+      <th style="width:12%;">Severity</th>
+      <th style="width:18%;">Domain Area</th>
+      <th>Description & Cause</th>
+    </tr>
+  </thead>
+  <tbody>
+    
+<tr>
+  <td class="arg-name"><code>E0001</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Syntax</span></td>
+  <td>Missing or unexpected token in declaration or statement.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0002</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Syntax</span></td>
+  <td>Unclosed delimiter or bracket pair.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0003</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Syntax</span></td>
+  <td>Unexpected end of file while parsing block.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0004</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Syntax</span></td>
+  <td>Chained comparison operators (e.g. `a &lt; b &lt; c`). Use `and` instead.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0007</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Syntax</span></td>
+  <td>Trailing comment at the end of a block violating formatter rules.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0101</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Lexical</span></td>
+  <td>Amount is not a whole number of micro-units (`mu`). E.g. `0.0005u` is 0.5mu.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0102</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Lexical</span></td>
+  <td>Malformed numeric integer or float literal.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0103</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Lexical</span></td>
+  <td>Malformed rate literal. Rates must be integer basis points (`bp`).</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0104</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Lexical</span></td>
+  <td>Float literal expected where integer was provided (e.g. `0` instead of `0.0`).</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0108</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Lexical</span></td>
+  <td>Unclosed string literal or string containing backslash escape sequences.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0110</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Names</span></td>
+  <td>Declared name collides with a reserved hard keyword or contextual keyword.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0111</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Names</span></td>
+  <td>Duplicate declared identifier name within the same world namespace.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0112</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Names</span></td>
+  <td>Signal name in genome collides with an existing declared world name.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0113</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Names</span></td>
+  <td>Reserved generated identifier pattern (e.g. `s17`, `m3`) used in seed genome.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0114</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Names</span></td>
+  <td>Unresolved reference: unknown substance, field, reaction, source, sink, or lineage.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0115</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Names</span></td>
+  <td>Unknown world setting or configuration block name.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0116</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Declarations</span></td>
+  <td>Required declaration or mandatory parameter argument is missing.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0117</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Lineages</span></td>
+  <td>Invalid `extends` target: base must be in same world and cannot extend another.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0118</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Lineages</span></td>
+  <td>Extension collision: duplicate signal name, repeated label, or `after` outside `extends`.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0119</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Constants</span></td>
+  <td>Circular dependency loop detected between constants (`const A = B; const B = A;`).</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0201</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Types</span></td>
+  <td>Substance mismatch in amount arithmetic (e.g. `self.carbon + self.light`).</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0202</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Types</span></td>
+  <td>Wrong substance amount passed where another substance was expected.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0203</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Values</span></td>
+  <td>Value outside valid range (e.g. `second_law.min_drop` &lt; 1 or negative amount).</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0204</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Values</span></td>
+  <td>Rate exceeds maximum 10_000bp (100%) or amount exceeds exact f32 precision.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0205</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Types</span></td>
+  <td>Expression evaluates to an invalid type or unexpected kind.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0301</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Contexts</span></td>
+  <td>Physical effect, mutation, or read operation not permitted in this context.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0302</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Contexts</span></td>
+  <td>Assignment to a conserved substance amount (`self.carbon = 5u`). Matter is conserved.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0303</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Contexts</span></td>
+  <td>Mixed physical effect kinds in a rule. Rules must be purely transfers, reactions, or signals.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0304</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Contexts</span></td>
+  <td>Rule contains no physical effect statements.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0305</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Contexts</span></td>
+  <td>Signal field written by multiple rules without a declared `combine` policy.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0401</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Chemistry</span></td>
+  <td>Chemical reaction is not stoichiometrically balanced across elemental compositions.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0402</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Chemistry</span></td>
+  <td>Reaction is not strictly downhill: ΔG must decrease by at least `min_drop`.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0403</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Chemistry</span></td>
+  <td>Substance declared without specifying an elemental formula or thermodynamic potential.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0404</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Chemistry</span></td>
+  <td>Reaction formula not in canonical declaration order. Run `emerge fmt` to fix.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0406</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Chemistry</span></td>
+  <td>Generated reaction space exceeds maximum capacity limit.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0501</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Menus</span></td>
+  <td>Unknown sense, action, or regulation kind not declared in world menus.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0502</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Menus</span></td>
+  <td>Argument name is not a valid parameter of the target menu item.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0601</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Genomes</span></td>
+  <td>Gene parameter, weight, or input count is outside the menu&#x27;s permitted range.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0602</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Genomes</span></td>
+  <td>Reaction gene references a reaction not present in the reaction space `include` list.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0605</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Genomes</span></td>
+  <td>Signal is read by a gene but never written by any gene in the seed genome.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0701</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Routes</span></td>
+  <td>Invalid upkeep route: `pay` and `becomes` composition mismatch, or sink rejects.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0702</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Routes</span></td>
+  <td>Upkeep `base` fee must be strictly greater than 0mu.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0703</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Routes</span></td>
+  <td>Source boundary emits a substance it did not declare in its emission list.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0704</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Routes</span></td>
+  <td>Sink boundary rejects the substance directed to it.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0705</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Routes</span></td>
+  <td>`remains` sink does not accept all world substances.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0706</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Routes</span></td>
+  <td>Conserved field `holds` list does not declare capacity for this substance.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0707</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Routes</span></td>
+  <td>Genesis initial endowment exceeds cell storage capacity cap.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0801</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Limits</span></td>
+  <td>Seed genome size exceeds the limits configured in the lineage profile.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0802</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Limits</span></td>
+  <td>Active population count exceeds the world `limits.max_entities` ceiling.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0803</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Limits</span></td>
+  <td>Genesis entity placement coordinates lie outside space bounds.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0901</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Patches</span></td>
+  <td>Patch removes a substance or lowers a cap without specifying `move_to:` sink.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0902</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Patches</span></td>
+  <td>Redundant full path prefix inside relative `patch World { ... }` block.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0903</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Patches</span></td>
+  <td>File provided to `--patch` contains non-patch declarations.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0904</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Patches</span></td>
+  <td>Patch operation not currently supported on static file patches.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E1001</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Runner</span></td>
+  <td>Valid language construct not yet supported by current runner execution engine.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E1002</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Runner</span></td>
+  <td>Simulation cannot execute on this runner backend without `--partial` flag.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>W1001</code></td>
+  <td><span class="badge badge-conserved">warning</span></td>
+  <td><span class="badge badge-context">Runner</span></td>
+  <td>Partial execution: unsupported language constructs omitted during run.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>W1201</code></td>
+  <td><span class="badge badge-conserved">warning</span></td>
+  <td><span class="badge badge-context">Views</span></td>
+  <td>View or chart references valid attribute not yet computed by simulation.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>N1101</code></td>
+  <td><span class="badge badge-gpu">note</span></td>
+  <td><span class="badge badge-context">Analysis</span></td>
+  <td>Static proof: substance can never appear (no store starts with it and no inflow adds it).</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>N1102</code></td>
+  <td><span class="badge badge-gpu">note</span></td>
+  <td><span class="badge badge-context">Analysis</span></td>
+  <td>Static proof: reaction can never execute because required reactants can never appear.</td>
+</tr>
+
+  </tbody>
+</table>
+
+    </main>
+    
+<nav class="houdini-toc">
+  <div class="toc-title">ON THIS PAGE</div>
+  <ul class="toc-list">
+    <li class="toc-item"><a class="toc-link" href="#top">Overview</a></li>
+  </ul>
+</nav>
+
+  </div>
+  <script src="help.js"></script>
+</body>
+</html>

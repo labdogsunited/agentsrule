@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Value &amp; Reference Types — Emerge Guide — Emerge Documentation</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  
+<header class="houdini-header">
+  <a href="../index.html" class="brand">
+    <div class="logo-box">E</div>
+    <span class="title">EMERGE</span>
+    <span class="version">v0.7.9</span>
+  </a>
+
+  <div class="search-container">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="search-input" class="search-input" placeholder="Search functions, attributes, types, contexts... (Press '/' to focus)" autocomplete="off">
+    <span class="search-shortcut">/</span>
+    <div id="search-dropdown" class="search-results-dropdown"></div>
+  </div>
+
+  <nav class="header-links">
+    <a href="../index.html#guide/overview" class="header-link">Guide</a>
+    <a href="../index.html#functions/transfer" class="header-link">Functions</a>
+    <a href="../index.html#attributes" class="header-link">Attributes</a>
+    <a href="../index.html#guide/vex-comparison" class="header-link">Houdini VEX</a>
+  </nav>
+</header>
+
+  <div class="houdini-layout">
+    <aside class="houdini-sidebar">
+<div class="sidebar-header">DOCUMENTATION</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>📖 Language Guide</span><span class="count">11</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="guide/overview" href="../guide/overview.html">Language Overview & Design Goals</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/lexical" href="../guide/lexical.html">Lexical Structure & Formatting</a></li>
+    <li class="nav-item"><a class="nav-link active" data-id="guide/types" href="../guide/types.html">Value & Reference Types</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/contexts" href="../guide/contexts.html">Contexts & Execution Scopes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/tick-pipeline" href="../guide/tick-pipeline.html">The Tick Pipeline & Clock</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/world-declarations" href="../guide/world-declarations.html">World Declarations & Chemistry</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/genomes" href="../guide/genomes.html">Genomes, Lineages & Evolution</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/vex-layers" href="../guide/vex-layers.html">VEX-Style Layer Bodies & Attributes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/grammar" href="../guide/grammar.html">Grammar Specification</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/diagnostics" href="../guide/diagnostics.html">Compiler Diagnostics & Error Codes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/vex-comparison" href="../guide/vex-comparison.html">Houdini VEX vs Emerge Comparison</a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="../attributes.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🏷️ Attributes Reference</a><span class="count">18</span></div>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="../diagnostics.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">⚠️ Diagnostics & Codes</a><span class="count">60</span></div>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="../vex-comparison.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🔄 Houdini VEX Rosetta</a></div>
+</div>
+<div class="sidebar-header" style="margin-top:8px;">FUNCTIONS BY CATEGORY</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Substance Flow</span><span class="count">6</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/transfer" href="../functions/transfer.html"><span>transfer</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/react" href="../functions/react.html"><span>react</span><span class="tag">Transform</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/diffuse_conserved" href="../functions/diffuse_conserved.html"><span>diffuse_conserved</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/take" href="../functions/take.html"><span>take</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/give" href="../functions/give.html"><span>give</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/move_to" href="../functions/move_to.html"><span>move_to</span><span class="tag">Move</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Math & Numeric</span><span class="count">13</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/fit" href="../functions/fit.html"><span>fit</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/fit_log" href="../functions/fit_log.html"><span>fit_log</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/clamp" href="../functions/clamp.html"><span>clamp</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/lerp" href="../functions/lerp.html"><span>lerp</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/min" href="../functions/min.html"><span>min</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/max" href="../functions/max.html"><span>max</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/abs" href="../functions/abs.html"><span>abs</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/sqrt" href="../functions/sqrt.html"><span>sqrt</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/sin" href="../functions/sin.html"><span>sin</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/tanh" href="../functions/tanh.html"><span>tanh</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/log" href="../functions/log.html"><span>log</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/uniform" href="../functions/uniform.html"><span>uniform</span><span class="tag">Restructure / Genesis</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/jitter" href="../functions/jitter.html"><span>jitter</span><span class="tag">Mutate</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Type Conversions</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/units" href="../functions/units.html"><span>units</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/amount" href="../functions/amount.html"><span>amount</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/float" href="../functions/float.html"><span>float</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Spatial & Grid</span><span class="count">5</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/cap" href="../functions/cap.html"><span>cap</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/argmin" href="../functions/argmin.html"><span>argmin</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/argmax" href="../functions/argmax.html"><span>argmax</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/blur" href="../functions/blur.html"><span>blur</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/fade" href="../functions/fade.html"><span>fade</span><span class="tag">Set</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Reductions</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/sum" href="../functions/sum.html"><span>sum</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/mean" href="../functions/mean.html"><span>mean</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/count" href="../functions/count.html"><span>count</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Cellular Automata</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/life_like" href="../functions/life_like.html"><span>life_like</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/pattern" href="../functions/pattern.html"><span>pattern</span><span class="tag">Genesis</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/scatter" href="../functions/scatter.html"><span>scatter</span><span class="tag">Genesis</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Logic & Control</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/select" href="../functions/select.html"><span>select</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/when" href="../functions/when.html"><span>when</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/if" href="../functions/if.html"><span>if</span><span class="tag">Draw</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Agent Senses</span><span class="count">12</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/inventory" href="../functions/inventory.html"><span>inventory</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/gradient" href="../functions/gradient.html"><span>gradient</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/probe" href="../functions/probe.html"><span>probe</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/crowd" href="../functions/crowd.html"><span>crowd</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/neighbour" href="../functions/neighbour.html"><span>neighbour</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/clock" href="../functions/clock.html"><span>clock</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/delta" href="../functions/delta.html"><span>delta</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/has_gene" href="../functions/has_gene.html"><span>has_gene</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/genes" href="../functions/genes.html"><span>genes</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/active_genes" href="../functions/active_genes.html"><span>active_genes</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/made" href="../functions/made.html"><span>made</span><span class="tag">Draw / Query</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/lineage" href="../functions/lineage.html"><span>lineage</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Agent Actions</span><span class="count">9</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/move" href="../functions/move.html"><span>move</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/turn" href="../functions/turn.html"><span>turn</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/take_action" href="../functions/take_action.html"><span>take (action)</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/drop" href="../functions/drop.html"><span>drop</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/give_action" href="../functions/give_action.html"><span>give (action)</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/steal" href="../functions/steal.html"><span>steal</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/guard" href="../functions/guard.html"><span>guard</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/divide" href="../functions/divide.html"><span>divide</span><span class="tag">Restructure</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/emit" href="../functions/emit.html"><span>emit</span><span class="tag">Set</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Visualization</span><span class="count">9</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/ramp" href="../functions/ramp.html"><span>ramp</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/palette" href="../functions/palette.html"><span>palette</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/scale" href="../functions/scale.html"><span>scale</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/arrow" href="../functions/arrow.html"><span>arrow</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/dot" href="../functions/dot.html"><span>dot</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/field_view" href="../functions/field_view.html"><span>field</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/agents_view" href="../functions/agents_view.html"><span>agents</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/line" href="../functions/line.html"><span>line</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/ledger" href="../functions/ledger.html"><span>ledger</span><span class="tag">Draw</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Exploration</span><span class="count">5</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/linspace" href="../functions/linspace.html"><span>linspace</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/logspace" href="../functions/logspace.html"><span>logspace</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/enumerate" href="../functions/enumerate.html"><span>enumerate</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/top" href="../functions/top.html"><span>top</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/atlas" href="../functions/atlas.html"><span>atlas</span><span class="tag">Explore</span></a></li>
+  </ul>
+</div>
+</aside>
+    <main class="houdini-main">
+      
+<nav class="breadcrumbs">
+  <a href="../index.html">Help</a>
+  <span class="sep">></span>
+  <a href="../index.html#guide/overview">Emerge Language Guide</a>
+  <span class="sep">></span>
+  <span style="color:#fff;">Value & Reference Types</span>
+</nav>
+
+<div class="guide-content">
+  <header class="doc-header"><h1 class="doc-title">Type System</h1></header>
+<p>Emerge features a dual type system: <strong>Value Types</strong> representing quantities computed during simulation, and <strong>Reference Types</strong> identifying physical declarations within the world.</p>
+<h2>Value Types</h2>
+<table class="houdini-table"><thead><tr><th>Type</th><th>Representation</th><th>Literals</th><th>Permitted Operations</th></tr></thead><tbody><tr><td><code>amount[s]</code></td><td><code>u32</code> micro-units (<code>mu</code>)</td><td><ul class="cell-list"><li><code>5u</code></li><li><code>250mu</code></li></ul></td><td><ul class="cell-list"><li><code>+</code>, <code>-</code> (with same substance <code>s</code>)</li><li><code>* rate</code></li><li><code>/ int</code></li><li>Comparisons (<code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>)</li></ul></td></tr><tr><td><code>rate</code></td><td><code>u32</code> basis points (<code>bp</code>)</td><td><ul class="cell-list"><li><code>50bp</code></li><li><code>1000bp</code></li></ul></td><td><ul class="cell-list"><li><code>amount * rate</code></li><li>Parameter passing in menus and rules</li></ul></td></tr><tr><td><code>int</code></td><td><code>i32</code> (folded as <code>i64</code>)</td><td><ul class="cell-list"><li><code>3</code></li><li><code>20_000</code></li></ul></td><td><ul class="cell-list"><li>Arithmetic: <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code></li><li>Comparisons (<code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>)</li></ul></td></tr><tr><td><code>f32</code></td><td>32-bit float</td><td><ul class="cell-list"><li><code>0.5</code></li><li><code>1e-3</code></li></ul></td><td><ul class="cell-list"><li>Arithmetic: <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code></li><li>Math built-ins (<code>sin</code>, <code>tanh</code>, <code>fit</code>, <code>clamp</code>, <code>lerp</code>)</li><li>Comparisons</li></ul></td></tr><tr><td><code>bool</code></td><td>Boolean truth value</td><td><ul class="cell-list"><li><code>true</code></li><li><code>false</code></li></ul></td><td><ul class="cell-list"><li>Logical operators: <code>and</code>, <code>or</code>, <code>not</code></li><li>Conditional branches (<code>select</code>, <code>when</code>, <code>if</code>)</li></ul></td></tr><tr><td><code>vec2</code></td><td>2D vector coordinate</td><td>From <code>uniform(x: ..., y: ...)</code></td><td><ul class="cell-list"><li>Assignment to <code>@P</code> / <code>position</code></li><li>Vector components <code>.x</code>, <code>.y</code></li></ul></td></tr><tr><td><code>string</code></td><td>Single-line UTF-8 text</td><td><code>&quot;bo$2bo$3o!&quot;</code></td><td><ul class="cell-list"><li>Pattern RLE string input</li><li>Palette selection names in <code>ramp()</code></li></ul></td></tr></tbody></table>
+<h2>Reference Types</h2>
+<table class="houdini-table"><thead><tr><th>Type</th><th>Target Declared</th><th>Example</th><th>Used In</th></tr></thead><tbody><tr><td><code>substance</code></td><td>A declared physical substance</td><td><ul class="cell-list"><li><code>carbon</code></li><li><code>sugar</code></li></ul></td><td><ul class="cell-list"><li>Menu parameters</li><li>Transfers</li><li>Reactions</li></ul></td></tr><tr><td><code>reaction</code></td><td>A declared chemical reaction</td><td><ul class="cell-list"><li><code>rot</code></li><li><code>build</code></li></ul></td><td><ul class="cell-list"><li>Reaction rules</li><li>Reaction genes</li></ul></td></tr><tr><td><code>field</code></td><td>A spatial grid or signal field</td><td><ul class="cell-list"><li><code>cells</code></li><li><code>scent</code></li><li><code>life</code></li></ul></td><td><ul class="cell-list"><li>Rules (<code>on field</code>)</li><li>Senses</li><li>Views</li></ul></td></tr><tr><td><code>quantity</code></td><td>Substance in field, or signal field</td><td><ul class="cell-list"><li><code>cells.light</code></li><li><code>scent</code></li></ul></td><td><ul class="cell-list"><li>Sense probes</li><li>Gradients</li><li>View layers</li></ul></td></tr><tr><td><code>source</code> / <code>sink</code></td><td>Environmental boundary</td><td><ul class="cell-list"><li><code>rock</code></li><li><code>sun</code></li><li><code>void</code></li></ul></td><td><ul class="cell-list"><li>Physical transfer origins</li><li>Overflows</li></ul></td></tr><tr><td><code>store</code></td><td>Physical container</td><td><ul class="cell-list"><li><code>self</code></li><li><code>above</code></li><li><code>below</code></li><li><code>cell</code></li></ul></td><td><ul class="cell-list"><li>Transfers</li><li>Arbitration targets</li></ul></td></tr><tr><td><code>neighbour</code></td><td>Ranked nearby entity</td><td>Selected by proximity</td><td><ul class="cell-list"><li>Social actions (<code>give</code>, <code>steal</code>, <code>guard</code>)</li></ul></td></tr></tbody></table>
+<h3>Substance-Parameterized Amounts</h3>
+<p>Amounts carry the substance name in their type signature:</p>
+<div class="synopsis-box"><pre class="synopsis-content"><code><span class="k">self</span>.carbon + <span class="k">self</span>.carbon; <span class="c">// Valid: amount[carbon]</span>
+<span class="k">self</span>.carbon + <span class="k">self</span>.light;  <span class="c">// Compile Error E0201: mismatched substances!</span>
+<span class="k">self</span>.carbon &gt; <span class="n">0u</span>;          <span class="c">// Valid: 0u is universal zero</span>
+<span class="k">self</span>.carbon * <span class="n">50bp</span>;        <span class="c">// Valid: yields amount[carbon], floored</span></code></pre></div>
+<h3>No Implicit Conversions</h3>
+<p>There are no automatic type coercions. Conversions are explicit built-in functions:</p>
+<ul class="guide-list"><li><code>units(amount[s]) -&gt; f32</code>: Converts amount to dimensionless floating-point units.</li><li><code>amount(substance, units: f32) -&gt; amount[s]</code>: Converts float units into typed substance amount.</li><li><code>float(int) -&gt; f32</code>: Converts integer to float.</li></ul>
+<h3>Numeric Contract</h3>
+<ul class="guide-list"><li><strong>Amount & Integer Arithmetic Saturates:</strong> Overflow stops at type limits; underflow stops at <code>0mu</code>.</li><li><strong>Division by Zero:</strong> Division by zero returns <code>0</code> (or <code>0.0</code> for floats).</li><li><strong>Non-Finite Floats:</strong> NaN and ±Inf are clamped to <code>0.0</code>.</li></ul>
+</div>
+
+    </main>
+    
+<nav class="houdini-toc">
+  <div class="toc-title">ON THIS PAGE</div>
+  <ul class="toc-list">
+    <li class="toc-item"><a class="toc-link" href="#top">Overview</a></li>
+  </ul>
+</nav>
+
+  </div>
+  <script src="../help.js"></script>
+</body>
+</html>

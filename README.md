@@ -40,11 +40,15 @@ Run the tests in release mode: `cargo test --release --workspace --no-fail-fast`
 | `spec-v0.7.9.md` | runtime behaviour, the engine API, the roadmap; `core.md` is the core language it is being restructured around |
 | `proposals/plan-next.md` | the active plan; `proposals/decisions-for-review.md` is the queue of decisions and what was decided |
 | `proposals/*.md` | one document per design (node editor, live viewer, rule conditions, checked schedule IR, catalyst experiment, …) with its pass rules and results |
+| [`proposals/world-presets.md`](proposals/world-presets.md) | proposed world presets, their visual character, controls, capability requirements, and validation plan |
+| [`proposals/science-panels.md`](proposals/science-panels.md) | proposed rule, lineage, genome, resource, and experiment panels with observation requirements |
+| [`proposals/genome-editor.md`](proposals/genome-editor.md) | genome editor design: seed authoring, signal wiring, modules, captures, and test runs |
 | `crates/emerge-lang` | parser, checker, formatter, patches, the checked schedule, the graph model |
 | `crates/emerge-ref` | the CPU reference runner |
 | `crates/emerge-gpu` | the GPU runtime |
 | `crates/emerge-server` | the engine API (JSON-RPC over WebSocket, MCP), journals, the browser viewer |
 | `crates/emerge-view` | the renderer |
+| `docs/` | Houdini VEX-style HTML help system and function reference; open `docs/index.html` or view via `/help` in the browser viewer |
 | `examples/`, `gallery/` | worlds and pictures |
 | `archive/` | old specs, reviews and finished experiments |
 

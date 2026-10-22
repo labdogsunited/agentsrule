@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compiler Diagnostics &amp; Error Codes — Emerge Guide — Emerge Documentation</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  
+<header class="houdini-header">
+  <a href="../index.html" class="brand">
+    <div class="logo-box">E</div>
+    <span class="title">EMERGE</span>
+    <span class="version">v0.7.9</span>
+  </a>
+
+  <div class="search-container">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="search-input" class="search-input" placeholder="Search functions, attributes, types, contexts... (Press '/' to focus)" autocomplete="off">
+    <span class="search-shortcut">/</span>
+    <div id="search-dropdown" class="search-results-dropdown"></div>
+  </div>
+
+  <nav class="header-links">
+    <a href="../index.html#guide/overview" class="header-link">Guide</a>
+    <a href="../index.html#functions/transfer" class="header-link">Functions</a>
+    <a href="../index.html#attributes" class="header-link">Attributes</a>
+    <a href="../index.html#guide/vex-comparison" class="header-link">Houdini VEX</a>
+  </nav>
+</header>
+
+  <div class="houdini-layout">
+    <aside class="houdini-sidebar">
+<div class="sidebar-header">DOCUMENTATION</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>📖 Language Guide</span><span class="count">11</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="guide/overview" href="../guide/overview.html">Language Overview & Design Goals</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/lexical" href="../guide/lexical.html">Lexical Structure & Formatting</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/types" href="../guide/types.html">Value & Reference Types</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/contexts" href="../guide/contexts.html">Contexts & Execution Scopes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/tick-pipeline" href="../guide/tick-pipeline.html">The Tick Pipeline & Clock</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/world-declarations" href="../guide/world-declarations.html">World Declarations & Chemistry</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/genomes" href="../guide/genomes.html">Genomes, Lineages & Evolution</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/vex-layers" href="../guide/vex-layers.html">VEX-Style Layer Bodies & Attributes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/grammar" href="../guide/grammar.html">Grammar Specification</a></li>
+    <li class="nav-item"><a class="nav-link active" data-id="guide/diagnostics" href="../guide/diagnostics.html">Compiler Diagnostics & Error Codes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/vex-comparison" href="../guide/vex-comparison.html">Houdini VEX vs Emerge Comparison</a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="../attributes.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🏷️ Attributes Reference</a><span class="count">18</span></div>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="../diagnostics.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">⚠️ Diagnostics & Codes</a><span class="count">60</span></div>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="../vex-comparison.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🔄 Houdini VEX Rosetta</a></div>
+</div>
+<div class="sidebar-header" style="margin-top:8px;">FUNCTIONS BY CATEGORY</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Substance Flow</span><span class="count">6</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/transfer" href="../functions/transfer.html"><span>transfer</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/react" href="../functions/react.html"><span>react</span><span class="tag">Transform</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/diffuse_conserved" href="../functions/diffuse_conserved.html"><span>diffuse_conserved</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/take" href="../functions/take.html"><span>take</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/give" href="../functions/give.html"><span>give</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/move_to" href="../functions/move_to.html"><span>move_to</span><span class="tag">Move</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Math & Numeric</span><span class="count">13</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/fit" href="../functions/fit.html"><span>fit</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/fit_log" href="../functions/fit_log.html"><span>fit_log</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/clamp" href="../functions/clamp.html"><span>clamp</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/lerp" href="../functions/lerp.html"><span>lerp</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/min" href="../functions/min.html"><span>min</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/max" href="../functions/max.html"><span>max</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/abs" href="../functions/abs.html"><span>abs</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/sqrt" href="../functions/sqrt.html"><span>sqrt</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/sin" href="../functions/sin.html"><span>sin</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/tanh" href="../functions/tanh.html"><span>tanh</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/log" href="../functions/log.html"><span>log</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/uniform" href="../functions/uniform.html"><span>uniform</span><span class="tag">Restructure / Genesis</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/jitter" href="../functions/jitter.html"><span>jitter</span><span class="tag">Mutate</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Type Conversions</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/units" href="../functions/units.html"><span>units</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/amount" href="../functions/amount.html"><span>amount</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/float" href="../functions/float.html"><span>float</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Spatial & Grid</span><span class="count">5</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/cap" href="../functions/cap.html"><span>cap</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/argmin" href="../functions/argmin.html"><span>argmin</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/argmax" href="../functions/argmax.html"><span>argmax</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/blur" href="../functions/blur.html"><span>blur</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/fade" href="../functions/fade.html"><span>fade</span><span class="tag">Set</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Reductions</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/sum" href="../functions/sum.html"><span>sum</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/mean" href="../functions/mean.html"><span>mean</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/count" href="../functions/count.html"><span>count</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Cellular Automata</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/life_like" href="../functions/life_like.html"><span>life_like</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/pattern" href="../functions/pattern.html"><span>pattern</span><span class="tag">Genesis</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/scatter" href="../functions/scatter.html"><span>scatter</span><span class="tag">Genesis</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Logic & Control</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/select" href="../functions/select.html"><span>select</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/when" href="../functions/when.html"><span>when</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/if" href="../functions/if.html"><span>if</span><span class="tag">Draw</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Agent Senses</span><span class="count">12</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/inventory" href="../functions/inventory.html"><span>inventory</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/gradient" href="../functions/gradient.html"><span>gradient</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/probe" href="../functions/probe.html"><span>probe</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/crowd" href="../functions/crowd.html"><span>crowd</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/neighbour" href="../functions/neighbour.html"><span>neighbour</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/clock" href="../functions/clock.html"><span>clock</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/delta" href="../functions/delta.html"><span>delta</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/has_gene" href="../functions/has_gene.html"><span>has_gene</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/genes" href="../functions/genes.html"><span>genes</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/active_genes" href="../functions/active_genes.html"><span>active_genes</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/made" href="../functions/made.html"><span>made</span><span class="tag">Draw / Query</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/lineage" href="../functions/lineage.html"><span>lineage</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Agent Actions</span><span class="count">9</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/move" href="../functions/move.html"><span>move</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/turn" href="../functions/turn.html"><span>turn</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/take_action" href="../functions/take_action.html"><span>take (action)</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/drop" href="../functions/drop.html"><span>drop</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/give_action" href="../functions/give_action.html"><span>give (action)</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/steal" href="../functions/steal.html"><span>steal</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/guard" href="../functions/guard.html"><span>guard</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/divide" href="../functions/divide.html"><span>divide</span><span class="tag">Restructure</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/emit" href="../functions/emit.html"><span>emit</span><span class="tag">Set</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Visualization</span><span class="count">9</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/ramp" href="../functions/ramp.html"><span>ramp</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/palette" href="../functions/palette.html"><span>palette</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/scale" href="../functions/scale.html"><span>scale</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/arrow" href="../functions/arrow.html"><span>arrow</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/dot" href="../functions/dot.html"><span>dot</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/field_view" href="../functions/field_view.html"><span>field</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/agents_view" href="../functions/agents_view.html"><span>agents</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/line" href="../functions/line.html"><span>line</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/ledger" href="../functions/ledger.html"><span>ledger</span><span class="tag">Draw</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Exploration</span><span class="count">5</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/linspace" href="../functions/linspace.html"><span>linspace</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/logspace" href="../functions/logspace.html"><span>logspace</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/enumerate" href="../functions/enumerate.html"><span>enumerate</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/top" href="../functions/top.html"><span>top</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/atlas" href="../functions/atlas.html"><span>atlas</span><span class="tag">Explore</span></a></li>
+  </ul>
+</div>
+</aside>
+    <main class="houdini-main">
+      
+<nav class="breadcrumbs">
+  <a href="../index.html">Help</a>
+  <span class="sep">></span>
+  <a href="../index.html#guide/overview">Emerge Language Guide</a>
+  <span class="sep">></span>
+  <span style="color:#fff;">Compiler Diagnostics & Error Codes</span>
+</nav>
+
+<div class="guide-content">
+  <header class="doc-header"><h1 class="doc-title">Compiler Diagnostics & Error Reference</h1></header>
+<p><code>emerge check</code> reports structured JSON diagnostics with stable error codes, file positions, explanations, and automated patches.</p>
+<table class="houdini-table"><thead><tr><th>Code Range</th><th>Area</th><th>Description</th></tr></thead><tbody><tr><td><strong><code>E0001</code>–<code>E0007</code></strong></td><td>Syntax</td><td><ul class="cell-list"><li>Missing braces or delimiters</li><li>Unexpected tokens</li><li>Chained comparisons</li></ul></td></tr><tr><td><strong><code>E0101</code>–<code>E0108</code></strong></td><td>Lexical</td><td><ul class="cell-list"><li>Invalid amount precision</li><li>Unclosed string literals</li><li>Invalid units</li></ul></td></tr><tr><td><strong><code>E0110</code>–<code>E0119</code></strong></td><td>Names & Constants</td><td><ul class="cell-list"><li>Colliding names or duplicate definitions</li><li>Reserved keyword usage</li><li>Circular constants (<code>E0119</code>)</li></ul></td></tr><tr><td><strong><code>E0201</code>–<code>E0205</code></strong></td><td>Types</td><td><ul class="cell-list"><li>Mismatched substances (<code>E0201</code>)</li><li>Invalid casts or arithmetic</li><li>Rate overflows (<code>E0204</code>)</li></ul></td></tr><tr><td><strong><code>E0301</code>–<code>E0305</code></strong></td><td>Contexts</td><td><ul class="cell-list"><li>Effect in unauthorized context (<code>E0301</code>)</li><li>Assignment to amount (<code>E0302</code>)</li><li>Mixed rule kinds (<code>E0303</code>)</li></ul></td></tr><tr><td><strong><code>E0401</code>–<code>E0406</code></strong></td><td>Chemistry</td><td><ul class="cell-list"><li>Unbalanced reaction (<code>E0401</code>)</li><li>Reaction not downhill (<code>E0402</code>)</li><li>Missing potential (<code>E0403</code>)</li></ul></td></tr><tr><td><strong><code>E0501</code>–<code>E0502</code></strong></td><td>Menus</td><td><ul class="cell-list"><li>Unknown action or sense (<code>E0501</code>)</li><li>Invalid parameter argument (<code>E0502</code>)</li></ul></td></tr><tr><td><strong><code>E0601</code>–<code>E0605</code></strong></td><td>Genomes</td><td><ul class="cell-list"><li>Out-of-bounds weight (<code>E0601</code>)</li><li>Unwritten signal read by mind (<code>E0605</code>)</li></ul></td></tr><tr><td><strong><code>E0701</code>–<code>E0707</code></strong></td><td>Routes & Caps</td><td><ul class="cell-list"><li>Invalid upkeep payment route (<code>E0701</code>)</li><li>Cap exceeded</li><li>Unaccepted sink substance</li></ul></td></tr><tr><td><strong><code>E0801</code>–<code>E0803</code></strong></td><td>Capacity Limits</td><td><ul class="cell-list"><li>Seed genome exceeds profile size (<code>E0801</code>)</li><li>Population limit exceeded</li></ul></td></tr><tr><td><strong><code>E0901</code>–<code>E0904</code></strong></td><td>Patches</td><td><ul class="cell-list"><li>Stale patch base revision</li><li>Patch missing destination <code>move_to:</code></li></ul></td></tr><tr><td><strong><code>E1001</code>–<code>E1002</code></strong></td><td>Runner Support</td><td><ul class="cell-list"><li>Valid language feature not yet supported by current backend runner</li></ul></td></tr><tr><td><strong><code>W1001</code>, <code>W1201</code></strong></td><td>Warnings</td><td><ul class="cell-list"><li>Partial execution omission (<code>W1001</code>)</li><li>Uncomputed view metric (<code>W1201</code>)</li></ul></td></tr><tr><td><strong><code>N1101</code>, <code>N1102</code></strong></td><td>Static Notes</td><td><ul class="cell-list"><li>Dead substances or unexecutable reactions proved unreachable by static closure</li></ul></td></tr></tbody></table>
+</div>
+
+    </main>
+    
+<nav class="houdini-toc">
+  <div class="toc-title">ON THIS PAGE</div>
+  <ul class="toc-list">
+    <li class="toc-item"><a class="toc-link" href="#top">Overview</a></li>
+  </ul>
+</nav>
+
+  </div>
+  <script src="../help.js"></script>
+</body>
+</html>

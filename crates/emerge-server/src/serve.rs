@@ -245,9 +245,12 @@ fn same(a: &[u8], b: &[u8]) -> bool {
 }
 
 const PAGE: &str = include_str!("viewer/index.html");
+const HELP_PAGE: &str = include_str!("../../../docs/index.html");
+const HELP_CSS: &str = include_str!("../../../docs/style.css");
+const HELP_JS: &str = include_str!("../../../docs/help.js");
 
 /// With a viewer, a request that is not a WebSocket upgrade is plain HTTP: `GET /` gets the page,
-/// anything else 404. Returns true if it answered (the connection is then done).
+/// `/help` gets the language help docs, anything else 404. Returns true if it answered (the connection is then done).
 fn answer_http(stream: &mut TcpStream) -> bool {
     let mut head = [0u8; 4096];
     let mut seen = 0;
@@ -266,6 +269,12 @@ fn answer_http(stream: &mut TcpStream) -> bool {
     let _ = stream.read(&mut head[..seen]);
     let reply = if text.starts_with("get / ") {
         format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{PAGE}", PAGE.len())
+    } else if text.starts_with("get /help ") || text.starts_with("get /help/ ") || text.starts_with("get /docs ") || text.starts_with("get /docs/ ") {
+        format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{HELP_PAGE}", HELP_PAGE.len())
+    } else if text.starts_with("get /style.css ") {
+        format!("HTTP/1.1 200 OK\r\nContent-Type: text/css; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{HELP_CSS}", HELP_CSS.len())
+    } else if text.starts_with("get /help.js ") {
+        format!("HTTP/1.1 200 OK\r\nContent-Type: application/javascript; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{HELP_JS}", HELP_JS.len())
     } else {
         "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
     };
