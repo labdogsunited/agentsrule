@@ -189,6 +189,15 @@
   #parm details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 6px; }
   #parm summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; padding: 4px 0; }
   #sel { padding-bottom: 6px; }
+  #pinbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+  #pinbar button { padding: 2px 8px; margin-left: auto; }
+  #pinbar.pinned { color: var(--ink); }
+  #pinbar.pinned #pintext::before { content: "\25C6  "; color: var(--accent); }
+  .box.pin { outline: 2px dashed var(--accent); outline-offset: 2px; }
+  #picked .state { font: 11px system-ui, sans-serif; color: var(--accent); margin: 4px 0; }
+  #picked input.dirty { border-color: var(--accent); }
+  #picked input.pending { opacity: 0.6; }
+  #picked input:disabled { opacity: 0.6; }
   #playbar { flex: none; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--panel); border-top: 1px solid var(--line); }
   #playbar button { padding: 4px 12px; }
   #playbar input { width: 64px; padding: 4px 6px; }
@@ -246,6 +255,7 @@
       <div id="parm">
         <div id="sel">
       <h2>Selected</h2>
+      <div id="pinbar"><span id="pintext">Following the selection</span><button id="pinbtn" title="Keep Parameters on this node while you select others">Pin</button></div>
       <div id="picked">Click a box in the graph.</div>
       <label for="decls">Other declarations</label>
       <select id="decls"><option value="">–</option></select>
@@ -541,6 +551,7 @@ async function loadCode() {
   const w = codeWorld();
   if (!w || !codeOpen()) return;
   const r = await call("world.source", { world: w });
+  if (w !== codeWorld()) return;
   const prev = w === codeWorldName ? codeLines : null;
   codeWorldName = w;
   codeRev = r.revision;
@@ -768,8 +779,8 @@ function drawGraph() {
   const cam = cams.graph;
   if (cam.fit || cam.w !== maxX || cam.h !== maxY) { cam.w = maxX; cam.h = maxY; if (cam.fit) fitCam(cam); }
   drawWires();
-  if (selected && !dirty) select(selected);
-  else for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === selected);
+  for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === selected);
+  if (!$("picked").contains(document.activeElement)) renderParm();
   if (isShown("graph")) applyCam(cam);
   const other = g.nodes.filter((n) => !["store", "reaction", "transfer", "react", "diffuse", "signal", "code", "rule"].includes(n.kind));
   $("decls").innerHTML = `<option value="">${other.length} declarations</option>` + other.map((n) => `<option value="${n.id}"></option>`).join("");
@@ -867,80 +878,269 @@ for (const b of document.querySelectorAll("#palette button[data-kind]")) b.oncli
 // patch and swaps the running world (`world.graph_edit`); a refused edit changes nothing and its
 // reason is shown. Other boxes are read-only so far.
 // The settable arguments of a box, each an edit of its own (a `set` patch that keeps comments).
-function paramsGrid(n) {
+// ---- W2: selection, follow/pin, drafts and the commit lifecycle (proposals/houdini-workspace.md §5.3, §6, §7).
+// A selection is a record (world, kind, target); Parameters follows it unless pinned. An unapplied
+// statement edit is a draft that belongs to (world, node, base revision), not to the textarea, so it
+// survives selecting something else and coming back. A draft is clean, draft, pending, rejected, stale
+// or unknown; a stale one is never sent again by itself, and a lost connection leaves the outcome unknown.
+const drafts = new Map();          // `${world}\0${id}` -> { world, id, applied, base, text, state, msg, sent }
+const notes = new Map();           // the last outcome shown for a target: { cls, text }
+let selection = null;              // { world, kind: "node", id } | { world, kind: "gene", entity, index }
+let pinned = null;                 // { world, id, name }
+const inflight = new Set();        // worlds with a source edit in flight from this page
+let lastFrame = { tick: null, revision: null };
+const dkey = (w, id) => `${w}\0${id}`;
+const parmNode = (t) => (t && graphData && $("world").value === t.world ? graphData.nodes.find((x) => x.id === t.id) : null);
+const normText = (t) => t.replace(/\s+/g, " ").trim();
+function viewportNote(rev) {
+  return lastFrame.revision != null && lastFrame.revision < rev ? ` · the viewport still shows revision ${lastFrame.revision}` : "";
+}
+
+function paramsGrid(n, locked) {
   const grid = document.createElement("div");
   grid.className = "params";
+  const w = $("world").value;
   for (const [name, value] of n.params) {
     const l = document.createElement("label"), inp = document.createElement("input");
     l.textContent = name;
     inp.value = value;
     inp.spellcheck = false;
-    inp.onchange = () => { if (inp.value !== value) graphOp({ op: "set_param", id: n.id, param: name, value: inp.value }); };
+    if (locked) { inp.disabled = true; inp.title = "This statement has an unapplied draft: apply or revert it first"; }
+    inp.oninput = () => { if (inp.dataset.base === undefined) inp.dataset.base = graphData.revision; inp.classList.add("dirty"); };
+    inp.onkeydown = (e) => { if (e.key === "Escape") { inp.value = value; inp.classList.remove("dirty"); delete inp.dataset.base; inp.blur(); } };
+    // One request when the field is committed (Enter or leaving it); Escape restores the applied value and sends nothing.
+    inp.onchange = async () => {
+      if (inp.value === value) { inp.classList.remove("dirty"); return; }
+      const base = +(inp.dataset.base ?? graphData.revision);
+      delete inp.dataset.base;
+      if (inflight.has(w)) { inp.value = value; return oops("Another edit is being applied; try again when it finishes."); }
+      inflight.add(w);
+      inp.classList.add("pending");
+      oops();
+      try {
+        const r = await call("world.graph_op", { world: w, base_revision: base, op: { op: "set_param", id: n.id, param: name, value: inp.value } });
+        await loadGraph();
+        await loadCode().catch(() => {});
+        notes.set(dkey(w, n.id), { cls: "ok", text: `Applied ${name}, revision ${graphData.revision}${viewportNote(graphData.revision)}.` });
+        if (r.selected && $("world").value === w) select(r.selected);
+      } catch (e) {
+        inp.value = value;
+        notes.set(dkey(w, n.id), { cls: "bad", text: paramFailure(e, name) });
+        await loadGraph().catch(() => {});
+      } finally {
+        inflight.delete(w);
+        renderParm();
+      }
+    };
     grid.append(l, inp);
   }
   return grid;
 }
+function paramFailure(e, name) {
+  const m = String(e.message || e);
+  if (e.lost) return `Outcome unknown: the connection was lost while ${name} was sent. Check the revision before trying again.`;
+  if (/^stale/.test(m)) return `Not applied: ${m}. The field shows the current value; enter it again to apply it to the current revision.`;
+  const swap = /^not swappable: (.+?);/.exec(m);
+  return swap ? `The engine cannot swap this into a running world (${swap[1]} changed). The world is unchanged.` : `Rejected: ${m}`;
+}
 
-let dirty = false;
+// Parameters follows the selection, or the pinned node.
+function parmTarget() { return pinned || (selection && selection.kind === "node" ? selection : null); }
 function select(id) {
   selected = id;
-  dirty = false;
   highlightCode(id);
   for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("sel", el.dataset.id === id);
-  const n = graphData && graphData.nodes.find((x) => x.id === id);
+  selection = id ? { world: $("world").value, kind: "node", id } : null;
+  renderParm();
+}
+function renderPinBar() {
+  const t = parmTarget(), n = parmNode(t);
+  $("pintext").textContent = pinned ? `Pinned: ${pinned.name} (${pinned.world})` : "Following the selection";
+  $("pinbtn").textContent = pinned ? "Unpin" : "Pin";
+  $("pinbtn").disabled = !pinned && !(selection && selection.kind === "node");
+  $("pinbar").classList.toggle("pinned", !!pinned);
+  for (const el of $("graph").querySelectorAll(".box")) el.classList.toggle("pin", !!pinned && pinned.world === $("world").value && el.dataset.id === pinned.id);
+  return n;
+}
+// Drafts live in this page only: say so before it is closed or reloaded.
+window.addEventListener("beforeunload", (e) => { if (drafts.size) { e.preventDefault(); e.returnValue = ""; } });
+$("pinbtn").onclick = () => {
+  if (pinned) pinned = null;
+  else if (selection && selection.kind === "node") {
+    const n = parmNode(selection);
+    pinned = { world: selection.world, id: selection.id, name: n ? n.title : selection.id };
+  }
+  renderParm();
+};
+function renderParm() {
   const picked = $("picked");
   picked.textContent = "";
-  if (!n) { picked.textContent = "Click a box in the graph."; return; }
-  const small = document.createElement("small");
-  small.textContent = `${n.id}${n.step ? ` · runs in ${n.step}` : ""} · line ${n.line}`;
-  picked.append(small);
-  if (!n.group) {
-    if (n.params && n.params.length) picked.append(paramsGrid(n));
-    picked.append(document.createTextNode(n.text));
+  renderPinBar();
+  const t = parmTarget();
+  if (!t) {
+    if (selection && selection.kind === "gene") return renderGeneParm();
+    picked.textContent = "Click a box in the graph.";
     return;
   }
-  if (n.params && n.params.length) picked.append(paramsGrid(n));
-  const ta = document.createElement("textarea"), msg = document.createElement("div"), row = document.createElement("div");
-  const apply = document.createElement("button"), revert = document.createElement("button");
-  ta.value = n.text;
+  if (t.world !== $("world").value) {
+    picked.append(document.createTextNode(`${pinned ? "Pinned to" : "Selected in"} ${t.name || t.id} in ${t.world}. The active world is ${$("world").value || "none"}.`));
+    const b = document.createElement("button");
+    b.textContent = `Make ${t.world} the active world`;
+    b.onclick = () => { $("world").value = t.world; $("world").onchange(); };
+    picked.append(document.createElement("br"), b);
+    return;
+  }
+  const n = parmNode(t);
+  const d = drafts.get(dkey(t.world, t.id));
+  if (!n) {
+    picked.append(document.createTextNode(`Node no longer exists${pinned ? `: last known ${pinned.name}` : ""}.${d ? " Its unapplied draft is kept below." : ""}`));
+    if (d) picked.append(document.createElement("br"), draftBlock(null, d));
+    return;
+  }
+  if (d && d.state !== "pending" && d.state !== "unknown" && n.text !== d.applied && graphData.revision !== d.base && d.state !== "stale") d.state = "stale";
+  const small = document.createElement("small");
+  small.textContent = `${n.id}${n.step ? ` · runs in ${n.step}` : ""} · line ${n.line} · world ${t.world}`;
+  picked.append(small);
+  if (!n.group) {
+    if (n.params && n.params.length) picked.append(paramsGrid(n, false));
+    picked.append(document.createTextNode(n.text));
+    return noteFor(t);
+  }
+  if (n.params && n.params.length) picked.append(paramsGrid(n, !!d && d.state !== "pending" ? true : !!d));
+  picked.append(draftBlock(n, d));
+  noteFor(t);
+}
+function noteFor(t) {
+  const note = notes.get(dkey(t.world, t.id));
+  if (!note) return;
+  const m = document.createElement("div");
+  m.className = `msg ${note.cls}`;
+  m.textContent = note.text;
+  $("picked").append(m);
+}
+// The statement editor: the draft's text if there is one, else the applied text.
+function draftBlock(n, d) {
+  const box = document.createElement("div");
+  const t = parmTarget() || (d && { world: d.world, id: d.id });
+  const world = t.world, id = t.id;
+  const ta = document.createElement("textarea"), msg = document.createElement("div"), row = document.createElement("div"), state = document.createElement("div");
+  const apply = document.createElement("button"), revert = document.createElement("button"), del = document.createElement("button");
+  const applied = n ? n.text : d.applied;
+  ta.value = d ? d.text : applied;
   ta.spellcheck = false;
-  ta.rows = Math.min(8, Math.max(3, Math.ceil(n.text.length / 34)));
-  ta.oninput = () => { dirty = ta.value !== n.text; ta.classList.toggle("dirty", dirty); };
+  ta.rows = Math.min(8, Math.max(3, Math.ceil(ta.value.length / 34)));
+  state.className = "state";
+  const label = { draft: "● Unapplied draft", pending: "◌ Applying…", rejected: "▲ Rejected: kept as a draft", stale: "◆ Stale: the world moved on", unknown: "? Outcome unknown" };
+  state.textContent = d ? `${label[d.state] || d.state} · written against revision ${d.base}` : "";
+  state.hidden = !d;
+  ta.disabled = !!d && d.state === "pending";
+  ta.classList.toggle("dirty", !!d);
+  ta.oninput = () => {
+    let cur = drafts.get(dkey(world, id));
+    if (ta.value === applied && (!cur || cur.state === "draft")) { drafts.delete(dkey(world, id)); ta.classList.remove("dirty"); state.hidden = true; return; }
+    if (!cur) { cur = { world, id, applied, base: graphData.revision, text: ta.value, state: "draft", msg: null }; drafts.set(dkey(world, id), cur); }
+    cur.text = ta.value;
+    if (cur.state === "rejected") cur.state = "draft";
+    ta.classList.add("dirty");
+    state.hidden = false;
+    state.textContent = `${label[cur.state]} · written against revision ${cur.base}`;
+    apply.disabled = cur.state !== "draft";
+    revert.disabled = false;
+    for (const inp of $("picked").querySelectorAll(".params input")) { inp.disabled = true; inp.title = "This statement has an unapplied draft: apply or revert it first"; }
+  };
   msg.className = "msg";
+  if (d && d.msg) { msg.className = `msg ${d.msg.cls}`; msg.textContent = d.msg.text; }
   row.className = "edit";
   apply.textContent = "Apply";
   apply.className = "primary";
-  revert.textContent = "Revert";
-  const del = document.createElement("button");
+  apply.title = "Apply the draft to the running world (Ctrl+Enter)";
+  apply.disabled = !d || d.state === "pending" || d.state === "stale" || d.state === "unknown";
+  revert.textContent = "Revert draft";
+  revert.title = "Throw the draft away and show the applied text";
+  revert.disabled = !d || d.state === "pending";
+  revert.onclick = () => { drafts.delete(dkey(world, id)); renderParm(); };
   del.textContent = "Delete";
   del.title = "Remove this statement (its rule too, if it is the only one)";
-  del.onclick = () => { if (confirm(`Delete ${n.title}?`)) graphOp({ op: "delete", id: n.id }); };
-  const doApply = async () => {
-    msg.className = "msg";
-    msg.textContent = "";
-    try {
-      await call("world.graph_edit", { world: $("world").value, id: n.id, text: ta.value, base_revision: graphData.revision });
-      dirty = false;
-      await loadGraph();
-      await loadCode().catch(() => {});
-      const m = $("picked").querySelector(".msg");
-      if (m) { m.className = "msg ok"; m.textContent = `Applied: the world runs the new text (revision ${graphData.revision}).`; }
-    } catch (e) {
-      msg.className = "msg bad";
-      msg.textContent = String(e.message || e);
-    }
-  };
+  del.disabled = !n;
+  if (n) del.onclick = () => { if (confirm(`Delete ${n.title}?`)) graphOp({ op: "delete", id: n.id }); };
+  const doApply = () => { const cur = drafts.get(dkey(world, id)); if (cur) commitDraft(cur); };
   apply.onclick = doApply;
   ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doApply(); } };
-  revert.onclick = () => select(n.id);
   row.append(apply, revert, del);
-  picked.append(ta, row, msg);
+  if (d && d.state === "stale") {
+    const cur = document.createElement("div");
+    cur.className = "msg";
+    cur.textContent = n ? `The world is at revision ${graphData.revision}. Current applied text:\n${n.text}` : "The node no longer exists.";
+    const re = document.createElement("button");
+    re.textContent = "Keep my draft on the current revision";
+    re.title = "Re-base the draft on what the world has now; it is not sent until you press Apply";
+    re.disabled = !n;
+    re.onclick = () => { d.base = graphData.revision; d.applied = n.text; d.state = "draft"; d.msg = null; renderParm(); };
+    row.append(re);
+    msg.append(cur);
+  }
+  if (d && d.state === "unknown") {
+    const chk = document.createElement("button");
+    chk.textContent = "Check the world";
+    chk.onclick = () => reconcile(d);
+    row.append(chk);
+  }
+  box.append(ta, state, row, msg);
+  return box;
+}
+function renderIf(world, id) {
+  const t = parmTarget();
+  if (t && t.world === world && t.id === id) renderParm();
+}
+async function commitDraft(d) {
+  if (inflight.has(d.world)) { d.msg = { cls: "bad", text: "Another edit is being applied; apply this one when it has finished." }; return renderIf(d.world, d.id); }
+  inflight.add(d.world);
+  d.state = "pending";
+  d.msg = null;
+  d.sent = d.text;
+  const { world, id, sent, base } = d;   // what is submitted is frozen here
+  renderIf(world, id);
+  try {
+    await call("world.graph_edit", { world, id, text: sent, base_revision: base });
+    drafts.delete(dkey(world, id));
+    if ($("world").value === world) { await loadGraph(); await loadCode().catch(() => {}); }
+    notes.set(dkey(world, id), { cls: "ok", text: `Applied, revision ${graphData && $("world").value === world ? graphData.revision : "?"}${graphData ? viewportNote(graphData.revision) : ""}.` });
+  } catch (e) {
+    const m = String(e.message || e);
+    if (e.lost) { d.state = "unknown"; d.msg = { cls: "bad", text: "The connection was lost while this was sent: it may or may not have been applied. Reconnect, then check the world. Nothing is retried automatically." }; }
+    else if (/^stale/.test(m)) { d.state = "stale"; d.msg = { cls: "bad", text: m }; if ($("world").value === world) await loadGraph().catch(() => {}); }
+    else { d.state = "rejected"; d.msg = { cls: "bad", text: m }; }
+  } finally {
+    inflight.delete(world);
+    renderIf(world, id);
+  }
+}
+// After a lost connection: look at what the world has now. The result may not prove which request made it.
+async function reconcile(d) {
+  try {
+    await loadGraph();
+    const n = graphData && graphData.nodes.find((x) => x.id === d.id);
+    if (n && normText(n.text) === normText(d.sent) && graphData.revision > d.base) {
+      drafts.delete(dkey(d.world, d.id));
+      notes.set(dkey(d.world, d.id), { cls: "ok", text: `The world has this text at revision ${graphData.revision}. It is not proven that this request made it.` });
+    } else if (n && n.text === d.applied && graphData.revision === d.base) {
+      d.state = "draft";
+      d.msg = { cls: "", text: "The world is unchanged: the edit was not applied. You can apply it again." };
+    } else {
+      d.msg = { cls: "bad", text: `The world is at revision ${graphData.revision} and the text differs from both versions. Inspect it before applying again.` };
+    }
+  } catch (e) {
+    d.msg = { cls: "bad", text: `Cannot check: ${e.message || e}` };
+  }
+  renderIf(d.world, d.id);
 }
 
 async function loadGraph() {
   const w = $("world").value;
   if (!w) return;
-  graphData = await call("world.graph", { world: w });
+  const g = await call("world.graph", { world: w });
+  if (w !== $("world").value) return;   // a late answer for a world that is no longer the active one
+  graphData = g;
   graphRev = graphData.revision;
   drawGraph();
   updateHistory();
@@ -1115,11 +1315,17 @@ function selectGene(i) {
     p.classList.toggle("hot", !!on);
     p.classList.toggle("dim", !!x && !on);
   }
-  const picked = $("picked");
-  picked.textContent = "";
-  if (!x) { picked.textContent = "Click a gene."; return; }
+  selection = x ? { world: $("world").value, kind: "gene", entity: g.entity, index: i } : null;
+  renderParm();
+}
+
+// A gene is inspected, not edited: its text and the signals it reads and writes, with the creature it belongs to.
+function renderGeneParm() {
+  const picked = $("picked"), sel = selection, g = genomeData;
+  const x = g && sel && g.entity === sel.entity && g.genes.find((q) => q.index === sel.index);
+  if (!x) { picked.textContent = "That creature's genome is not shown any more."; return; }
   const small = document.createElement("small");
-  small.textContent = `#${g.entity} ${g.lineage} · gene ${x.index} · module m${x.module}${x.active ? "" : x.expressed ? " (dormant module)" : " (dormant gene)"}`;
+  small.textContent = `#${g.entity} ${g.lineage} · gene ${x.index} · module m${x.module}${x.active ? "" : x.expressed ? " (dormant module)" : " (dormant gene)"} · read-only`;
   const sig = (l) => (l.length ? l.map((k) => `s${k}`).join(", ") : "none");
   picked.append(small, document.createTextNode(`${x.title}: ${x.text}\n\nreads ${sig(x.reads)}\nwrites ${sig(x.writes)}`));
 }
@@ -1314,6 +1520,7 @@ function onFrame(buf) {
     img.style.display = "block";
     $("empty").style.display = "none";
   }
+  lastFrame = { tick: header.tick, revision: header.revision };
   $("where").textContent = `${header.world} · tick ${header.tick} · revision ${header.revision}`;
 }
 
@@ -1450,6 +1657,7 @@ function connect() {
   ws.onclose = () => {
     clearInterval(poll);
     sub = null;
+    for (const p of pending.values()) { const e = new Error("the connection was lost"); e.lost = true; p.reject(e); }
     pending.clear();
     if (leaving === "stop") return say("server stopped: close this tab, or run `agentsrule web` again", "bad");
     say(leaving === "restart" ? "restarting…" : "disconnected", "bad");
@@ -1459,7 +1667,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).catch(oops);
+$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().catch(oops);
 $("play").onclick = () => call("run.resume", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
 $("pause").onclick = () => call("run.pause", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
