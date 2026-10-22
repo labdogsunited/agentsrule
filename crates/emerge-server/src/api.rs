@@ -99,6 +99,8 @@ pub struct Engine {
     /// Where journals are written, as `<world>.jsonl` (set by whoever starts the server). A caller
     /// never names a path: the API can be reached by other programs, and must not write files they choose.
     journal_dir: Option<std::path::PathBuf>,
+    /// Pairs the user declared between worlds (`runs.pair`): their relationship is recorded, never inferred from position.
+    pairs: Vec<(String, String, String)>,
 }
 
 /// The longest one `run.step` call runs, so that a client waiting on it does not time out.
@@ -560,6 +562,50 @@ impl Engine {
                 };
                 let limit = p["limit"].as_u64().unwrap_or(200).min(5000) as usize;
                 self.entry(p)?.run.ancestry(id, limit).map_err(bad)
+            }
+            "runs.pair" => {
+                let (a, b) = (text(p, "a")?.to_string(), text(p, "b")?.to_string());
+                for x in [&a, &b] { if !self.runs.contains_key(x) { return Err(fault(-32004, format!("no world `{x}`"))); } }
+                if a == b { return Err(bad("a world cannot be paired with itself")); }
+                let relation = p["relation"].as_str().unwrap_or("matched trials").to_string();
+                self.pairs.retain(|(x, y, _)| !((x == &a && y == &b) || (x == &b && y == &a)));
+                self.pairs.push((a, b, relation));
+                Ok(json!({"pairs": self.pairs.iter().map(|(a, b, r)| json!({"a": a, "b": b, "relation": r})).collect::<Vec<_>>()}))
+            }
+            "runs.outcomes" => {
+                // Every world kept as one row of a grid (`proposals/science-panels.md` §12): its setup, how far it ran, how
+                // it stands, with extinct and unfinished ones still in. No averages: setup groups say how many trials they
+                // hold, and a pair is only what the user declared.
+                let only: Option<Vec<String>> = p["worlds"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect());
+                let common = self.runs.iter().filter(|(k, _)| only.as_ref().is_none_or(|o| o.contains(k))).map(|(_, e)| e.run.tick()).min().unwrap_or(0);
+                let mut rows = vec![];
+                let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+                for (id, e) in self.runs.iter().filter(|(k, _)| only.as_ref().is_none_or(|o| o.contains(k))) {
+                    let r = &e.run;
+                    let hash = format!("{:016x}", crate::journal::fnv(&r.live.source));
+                    let counts: Vec<u64> = r.history.samples.last().map(|s| s.by_lineage.clone()).unwrap_or_default();
+                    let at_common = r.history.samples.iter().find(|s| s.tick == common).map(|s| s.by_lineage.clone());
+                    let extinct: Vec<&String> = r.spec.lineages.iter().zip(&counts).filter(|(_, c)| **c == 0).map(|(l, _)| l).collect();
+                    groups.entry(format!("{hash}|{}|{}", r.spec.mutation, r.device)).or_default().push(id.clone());
+                    rows.push(json!({"world": id, "seed": r.spec.seed, "mutation": r.spec.mutation, "backend": r.device, "source_hash": hash, "revision": r.revision(), "tick": r.tick(),
+                        "status": if !r.alive() { "ended: nothing can change" } else if e.running { "running" } else { "paused" },
+                        "lineages": r.spec.lineages, "population_now": counts, "population_at_common_tick": at_common, "extinct": extinct}));
+                }
+                let setups: Vec<Value> = groups.iter().map(|(k, v)| { let seeds: Vec<u64> = v.iter().filter_map(|id| self.runs.get(id).map(|e| e.run.spec.seed)).collect(); let mut uniq = seeds.clone(); uniq.sort_unstable(); uniq.dedup();
+                    json!({"setup": k.split('|').next(), "worlds": v, "trials": v.len(), "distinct_seeds": uniq.len(), "note": if uniq.len() < v.len() { "some worlds share a seed and a setup: repeating a deterministic run tests reproducibility, it is not a new trial" } else { "the seeds differ: each is one trial of this setup" }}) }).collect();
+                Ok(json!({"common_tick": common, "rows": rows, "setups": setups, "pairs": self.pairs.iter().map(|(a, b, r)| json!({"a": a, "b": b, "relation": r})).collect::<Vec<_>>(),
+                    "caution": "worlds stopped at different ticks are compared at the common tick only; creatures within one world are not independent replicates; a paired summary counts each pair once, not twice"}))
+            }
+            "export.provenance" => {
+                // What an exported figure or table must carry (`proposals/science-panels.md` §14): which run, which build and
+                // source, what was measured and how, so a screenshot is never the only record.
+                let e = self.entry(p)?;
+                let r = &e.run;
+                Ok(json!({"engine": concat!("emerge-server ", env!("CARGO_PKG_VERSION")), "world": text(p, "world")?, "backend": r.device, "contract": r.spec.contract, "mutation": r.spec.mutation, "seed": r.spec.seed,
+                    "lineages": r.spec.lineages, "revision": r.revision(), "tick": r.tick(), "source_hash": format!("{:016x}", crate::journal::fnv(&r.live.source)),
+                    "history": {"every": r.history.every, "base_every": r.history.base_every, "thinned": r.history.every > r.history.base_every, "samples": r.history.samples.len()},
+                    "metrics": {"population": "living creatures by founding lineage at each sample", "births_deaths": "totals between neighbouring samples", "unit_amount": "µ (millionths of a unit)"},
+                    "exported_at_tick": r.tick()}))
             }
             "runs.compare" => {
                 // Two worlds side by side, read-only (`proposals/science-panels.md` §12): what differs in how

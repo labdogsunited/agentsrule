@@ -9,5 +9,11 @@ export default async (page) => {
   const txt = await page.eval(`document.getElementById("comparebody").innerText`);
   ok(/Differences: seed \(\d against \d\)/.test(txt) && /single trials/.test(txt), "setup difference named: " + txt.slice(0, 160).replace(/\n/g, " "));
   ok(await page.eval(`document.querySelectorAll("#comparebody polyline[stroke-dasharray='5 4']").length > 0`), "B drawn dashed");
+  ok(/Outcomes: every world/.test(txt + await page.eval(`document.getElementById("comparebody").innerText`)), "the outcome grid is shown");
+  await page.eval(`(() => { const i = document.querySelector("#comparebody input[type=text]"); i.value = "same source, seeds 1 and 2"; [...document.querySelectorAll("#comparebody button")].find((b) => /pair/.test(b.textContent)).click(); })()`);
+  await page.wait(1000);
+  const after = await page.eval(`document.getElementById("comparebody").innerText`);
+  ok(/Declared pair: w\d and w\d \(same source, seeds 1 and 2\)/.test(after), "a declared pair is shown as declared");
+  ok(await page.eval(`[...document.querySelectorAll("#comparebody button")].some((b) => /Export CSV/.test(b.textContent)) && [...document.querySelectorAll("#comparebody button")].some((b) => /Export SVG/.test(b.textContent))`), "exports offered");
   await page.shot(S + "compare.png");
 };

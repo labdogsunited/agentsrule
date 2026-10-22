@@ -597,3 +597,29 @@ fn the_notebook_keeps_its_evidence_and_the_timeline_says_only_what_was_sampled()
     assert_eq!(x["entries"].as_array().unwrap().len(), 1);
     assert!(x["run"]["header"]["source_hash"].is_string());
 }
+
+/// Stage S6 (`proposals/science-panels.md` §12): the outcome grid keeps every world (an extinct one and a short one too),
+/// compares at the common tick only, counts trials per setup without calling a repeat of one seed a new trial, and
+/// holds only the pairs a user declared. The provenance says which run an export came from.
+#[test]
+fn the_outcome_grid_keeps_every_trial_and_pairs_are_only_declared() {
+    let mut engine = Engine::new();
+    let mk = |seed: u64| json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": seed, "mutation": true});
+    let ids: Vec<String> = [1u64, 1, 2, 3].iter().map(|s| engine.call("world.create", &mk(*s)).unwrap()["world"].as_str().unwrap().to_string()).collect();
+    for (id, t) in ids.iter().zip([200u64, 200, 200, 50]) { engine.call("run.step", &json!({"world": id, "ticks": t})).unwrap(); }
+    let o = engine.call("runs.outcomes", &json!({})).unwrap();
+    assert_eq!(o["rows"].as_array().unwrap().len(), 4, "every world is a row");
+    assert_eq!(o["common_tick"], 50, "worlds that ran different lengths are compared at the shortest");
+    assert!(o["rows"].as_array().unwrap().iter().all(|r| r["population_at_common_tick"].is_array()));
+    let setups = o["setups"].as_array().unwrap();
+    assert_eq!(setups.len(), 1);
+    assert_eq!((setups[0]["trials"].as_u64().unwrap(), setups[0]["distinct_seeds"].as_u64().unwrap()), (4, 3));
+    assert!(setups[0]["note"].as_str().unwrap().contains("reproducibility"));
+    assert!(o["pairs"].as_array().unwrap().is_empty(), "nothing is paired until the user says so");
+    engine.call("runs.pair", &json!({"a": ids[0], "b": ids[2], "relation": "same source, seeds 1 and 2"})).unwrap();
+    assert_eq!(engine.call("runs.outcomes", &json!({})).unwrap()["pairs"][0]["relation"], "same source, seeds 1 and 2");
+    assert!(engine.call("runs.pair", &json!({"a": ids[0], "b": ids[0]})).is_err());
+    let p = engine.call("export.provenance", &json!({"world": ids[0]})).unwrap();
+    assert_eq!(p["tick"], 200);
+    assert!(p["source_hash"].as_str().unwrap().len() == 16 && p["engine"].as_str().unwrap().starts_with("emerge-server"));
+}

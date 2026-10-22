@@ -2734,6 +2734,18 @@ async function loadRegion() {
   body.append(t);
 }
 
+// Exports (S6): the plotted data with the run, build, source, scale and definitions it came from; a picture alone is
+// not the record. CSV and JSON carry the provenance; SVG carries it as a comment and a title.
+function download(name, text, type) { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); }
+async function exportButtons(host, world, stem, rows, header, svgOf) {
+  const prov = await call("export.provenance", { world });
+  const meta = "# " + JSON.stringify(prov);
+  const csv = () => meta + "\n" + header.join(",") + "\n" + rows.map((r) => r.join(",")).join("\n") + "\n";
+  const bar = tag("div");
+  for (const [label, fn] of [["CSV", () => download(`${stem}.csv`, csv(), "text/csv")], ["JSON", () => download(`${stem}.json`, JSON.stringify({ provenance: prov, columns: header, rows }, null, 2), "application/json")], ...(svgOf ? [["SVG", () => { const svg = svgOf(); if (svg) download(`${stem}.svg`, svg.outerHTML.replace("<svg", `<!-- ${meta.replace(/--/g, "- -")} --><svg xmlns="http://www.w3.org/2000/svg"`), "image/svg+xml"); }]] : [])]) { const b = tag("button"); b.textContent = "Export " + label; b.onclick = fn; bar.append(b, " "); }
+  host.append(bar);
+}
+
 // Compare Runs (S6): two worlds' population histories on the ticks both sampled, with every difference in how
 // they were made listed first. B is dashed. Read-only; both worlds stay as they are.
 let cmpWorlds = { a: "", b: "" };
@@ -2765,6 +2777,18 @@ async function loadCompare() {
   g += `<text x="${L}" y="${H - 4}">tick ${T0}</text><text x="${W - 6}" y="${H - 4}" text-anchor="end">tick ${T1}</text></g>`;
   c.series.forEach((x, i) => { for (const [k, dash] of [["a", ""], ["b", "5 4"]]) { const pts = x[k].map((v, j) => (v === null ? null : `${X(T[j]).toFixed(1)},${Y(v).toFixed(1)}`)).filter(Boolean); if (pts.length) g += `<polyline fill="none" stroke="${col(i)}" stroke-width="1.6" stroke-dasharray="${dash}" points="${pts.join(" ")}"/>`; } });
   const wrap = tag("div"); wrap.innerHTML = g + "</svg>"; body.append(wrap);
+  const rows = c.series.flatMap((x) => x.ticks.map((t, j) => [t, x.lineage, x.a[j] === null ? "" : x.a[j], x.b[j] === null ? "" : x.b[j]]));
+  await exportButtons(body, cmpWorlds.a, `compare-${cmpWorlds.a}-${cmpWorlds.b}`, rows, ["tick", "lineage", `count_${cmpWorlds.a}`, `count_${cmpWorlds.b}`], () => wrap.querySelector("svg"));
+  const pairRel = tag("input"); pairRel.type = "text"; pairRel.placeholder = "how A and B are related (e.g. same source, seeds 1 and 2)"; pairRel.style.width = "26em";
+  const pb = tag("button"); pb.textContent = "Declare A and B a pair"; pb.onclick = async () => { await call("runs.pair", { a: cmpWorlds.a, b: cmpWorlds.b, relation: pairRel.value || "matched trials" }).catch(oops); loadCompare().catch(oops); };
+  body.append(pairRel, " ", pb);
+  const o = await call("runs.outcomes", {});
+  if (!visible.compare) return;
+  const ot = tag("table"); ot.className = "grid";
+  ot.innerHTML = `<tr><th>world</th><th>seed</th><th>mutation</th><th>backend</th><th>setup</th><th>status</th><th>tick</th><th>alive now (${esc(c.series.map((x) => x.lineage).join(" / "))})</th><th>at tick ${o.common_tick}</th><th>extinct</th></tr>` + o.rows.map((r) => `<tr><td>${esc(r.world)}</td><td>${r.seed}</td><td>${r.mutation ? "on" : "off"}</td><td>${esc(r.backend)}</td><td>${esc(r.source_hash.slice(0, 6))}</td><td>${esc(r.status)}</td><td>${r.tick}</td><td>${r.population_now.join(" / ")}</td><td>${r.population_at_common_tick ? r.population_at_common_tick.join(" / ") : "not sampled"}</td><td>${r.extinct.length ? esc(r.extinct.join(", ")) : "–"}</td></tr>`).join("");
+  body.append(Object.assign(tag("div"), { textContent: `Outcomes: every world, including extinct and unfinished ones. ${o.caution}` }), ot);
+  for (const st of o.setups) body.append(Object.assign(tag("div"), { textContent: `Setup ${st.setup.slice(0, 6)}: ${st.trials} worlds, ${st.distinct_seeds} distinct seeds. ${st.note}.` }));
+  for (const p of o.pairs) body.append(Object.assign(tag("div"), { textContent: `Declared pair: ${p.a} and ${p.b} (${p.relation}). Pairs count once in a summary.` }));
 }
 
 // Ancestry (S5): one living creature's ancestors back to a founder, from the CPU runner's recorded births,
@@ -2944,6 +2968,7 @@ async function loadLineage() {
   wrap.style.height = "320px";
   const read = el("legend");
   body.append(wrap, read);
+  await exportButtons(body, w, `history-${w}`, S.map((s) => [s.tick, s.revision, ...s.counts, s.births, s.deaths]), ["tick", "revision", ...h.lineages, "births", "deaths"], () => wrap.querySelector("svg"));
   wrap.onpointermove = (e) => {
     const r = wrap.getBoundingClientRect(), t = T0 + ((e.clientX - r.left) / r.width * W - L) / (W - L - 6) * (T1 - T0);
     const s = S.reduce((a, b) => (Math.abs(b.tick - t) < Math.abs(a.tick - t) ? b : a));
