@@ -109,7 +109,7 @@ pub fn plots(panel: &Panel, h: &History, frame: &Frame) -> Vec<Plot> {
 fn fill(pm: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, c: Rgb) {
     let mut p = Paint::default();
     p.set_color_rgba8(c[0], c[1], c[2], 255);
-    if let Some(r) = Rect::from_xywh(x, y, w.max(1.0), h.max(1.0)) {
+    if let Some(r) = Rect::from_xywh(x.round(), y.round(), w.round().max(1.0), h.round().max(1.0)) {
         pm.fill_rect(r, &p, Transform::identity(), None);
     }
 }
