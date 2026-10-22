@@ -269,6 +269,56 @@ impl Engine {
                 Ok(json!({"world": name, "revision": e.run.revision(), "tick": e.run.tick(), "creatures": sched.creatures, "steps": steps, "unplaced": unplaced, "waste": sched.waste.iter().map(|(a, b)| json!({"substance": a, "sink": b})).collect::<Vec<_>>(),
                     "disposal": sched.disposal.as_ref().map(|d| json!({"decompose": d.decompose, "remains": d.remains})), "source": "checked schedule (the one `emerge order` prints)"}))
             }
+            "rules.matrix" => {
+                // Which rules touch which declarations (`proposals/science-panels.md` §3.2). Found by
+                // name in the checked statements' text, so it is a lower bound: a dependency hidden
+                // behind a `let` or an expression is not followed, and a blank cell is "none found".
+                let e = self.entry(p)?;
+                let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+                let name = file.items.iter().find_map(|i| match &i.node {
+                    emerge_lang::ast::Item::World(w) => Some(w.name.clone()),
+                    _ => None,
+                });
+                let name = name.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+                let prepared = emerge_lang::prepare(&file).map_err(|d| fault(-32005, format!("{}: {}: {}", d.code, d.path, d.message)))?;
+                let sched = emerge_lang::schedule::lower(&prepared, &name).map_err(|m| fault(-32005, m))?;
+                let world = prepared.items.iter().find_map(|i| match &i.node {
+                    emerge_lang::ast::Item::World(w) if w.name == name => Some(w),
+                    _ => None,
+                }).ok_or_else(|| fault(-32005, "no world".to_string()))?;
+                let mut cols: Vec<(String, &'static str)> = vec![];
+                let mut formulas: std::collections::HashMap<String, (Vec<String>, Vec<String>)> = Default::default();
+                for d in &world.decls {
+                    use emerge_lang::ast::WDecl::*;
+                    match &d.node {
+                        Substance { name, .. } => cols.push((name.clone(), "substance")),
+                        Field { name, .. } => cols.push((name.clone(), "field")),
+                        Source { name, .. } => cols.push((name.clone(), "source")),
+                        Sink { name, .. } => cols.push((name.clone(), "sink")),
+                        Reaction { name, formula, .. } => {
+                            cols.push((name.clone(), "reaction"));
+                            formulas.insert(name.clone(), (formula.inputs.iter().map(|t| t.name.clone()).collect(), formula.outputs.iter().map(|t| t.name.clone()).collect()));
+                        }
+                        _ => {}
+                    }
+                }
+                let col_of = |n: &str| cols.iter().position(|(c, _)| c == n);
+                let mut rows = Vec::new();
+                for r in &sched.rules {
+                    for (k, st) in r.stmts.iter().enumerate() {
+                        let cells = stmt_cells(&st.text, &col_of, &formulas, &cols);
+                        let step = st.slot.as_ref().ok().or(r.slot.as_ref().ok()).and_then(|slot| sched.steps.iter().find(|s| s.slot == *slot)).map(|s| s.name);
+                        let path = match &st.label { Some(_) => r.path(&name, st), None => format!("{name}.rules.{}#{k}", r.name) };
+                        rows.push(json!({"rule": r.name, "on": r.on, "line": st.pos.line, "path": path, "step": step, "text": st.text,
+                            "cells": cells.iter().map(|(c, kinds)| json!({"col": c, "kinds": kinds})).collect::<Vec<_>>(),
+                            "opaque": st.text.contains("let ")}));
+                    }
+                }
+                Ok(json!({"world": name, "revision": e.run.revision(), "tick": e.run.tick(),
+                    "columns": cols.iter().map(|(n, k)| json!({"name": n, "kind": k})).collect::<Vec<_>>(), "rows": rows,
+                    "kinds": {"condition": "read by a `when` condition (start-of-tick snapshot)", "transfer": "the substance moved by a transfer", "from": "source of a transfer", "to": "destination of a transfer", "overflow": "where a transfer's excess goes", "react": "a reaction the rule runs", "consumes": "an input of a reaction the rule runs", "produces": "an output of a reaction the rule runs", "diffuse": "spread between neighbouring cells", "mentions": "named in the statement in another way"},
+                    "completeness": "names found in the checked statements; dependencies behind `let` variables or expressions are not followed, so a blank cell means none found, not none exist"}))
+            }
             "history.query" => {
                 // The sampled counts behind the charts, with their labels: what was sampled, how
                 // often, and whether older samples were merged (`proposals/science-panels.md` §5).
@@ -619,4 +669,35 @@ pub fn docs(query: &str) -> Value {
     let q = query.to_lowercase();
     let hits: Vec<Value> = sections.iter().filter(|(h, t)| h.to_lowercase().contains(&q) || t.to_lowercase().contains(&q)).take(4).map(|(h, t)| json!({"section": h, "text": t.trim()})).collect();
     json!({"query": query, "sections": hits})
+}
+
+/// The declarations a rule statement names and how (`rules.matrix`): by name in its one-line text.
+fn stmt_cells(text: &str, col_of: &dyn Fn(&str) -> Option<usize>, formulas: &std::collections::HashMap<String, (Vec<String>, Vec<String>)>, cols: &[(String, &'static str)]) -> Vec<(String, Vec<&'static str>)> {
+    let mut out: Vec<(usize, &'static str)> = vec![];
+    let ids = |seg: &str| -> Vec<String> { seg.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|t| !t.is_empty()).map(String::from).collect() };
+    let mut add = |n: &str, kind: &'static str, out: &mut Vec<(usize, &'static str)>| if let Some(c) = col_of(n) { if !out.contains(&(c, kind)) { out.push((c, kind)); } };
+    let (cond, body) = match text.strip_prefix("when ") { Some(rest) => match rest.split_once('{') { Some((c, b)) => (c, b), None => (rest, "") }, None => ("", text) };
+    for n in ids(cond) { add(&n, "condition", &mut out); }
+    // Each call: the first argument, and the `from:`, `to:` and `overflow:` names.
+    for (call, kind) in [("transfer(", "transfer"), ("react(", "react"), ("diffuse_conserved([", "diffuse")] {
+        let mut rest = body;
+        while let Some(i) = rest.find(call) {
+            rest = &rest[i + call.len()..];
+            let end = rest.find(if kind == "diffuse" { ']' } else { ')' }).unwrap_or(rest.len());
+            let args = &rest[..end];
+            if kind == "diffuse" { for n in ids(args) { add(&n, kind, &mut out); } continue; }
+            let first = args.split(',').next().unwrap_or("");
+            for n in ids(first) { add(&n, kind, &mut out); if kind == "react" { if let Some((ins, outs)) = formulas.get(&n) { ins.iter().for_each(|x| add(x, "consumes", &mut out)); outs.iter().for_each(|x| add(x, "produces", &mut out)); } } }
+            for (key, k) in [("from:", "from"), ("to:", "to"), ("overflow:", "overflow")] {
+                if let Some(j) = args.find(key) { if let Some(n) = ids(args[j + key.len()..].split(',').next().unwrap_or("")).first() { add(n, k, &mut out); } }
+            }
+        }
+    }
+    let seen: Vec<usize> = out.iter().map(|(c, _)| *c).collect();
+    for n in ids(body) { if let Some(c) = col_of(&n) { if !seen.contains(&c) { add(&n, "mentions", &mut out); } } }
+    let mut by: Vec<(String, Vec<&'static str>)> = vec![];
+    for (c, k) in out {
+        match by.iter_mut().find(|(n, _)| *n == cols[c].0) { Some((_, v)) => v.push(k), None => by.push((cols[c].0.clone(), vec![k])) }
+    }
+    by
 }

@@ -193,3 +193,35 @@ fn the_census_is_exact_and_a_comparison_matches_genes_by_kind_and_text() {
     assert!(n("only_a") + n("only_b") > 0, "Drifter and Builder differ");
     assert_eq!(engine.run(&w).unwrap().digest(), engine.run(&twin).unwrap().digest(), "asking leaves the trajectory unchanged");
 }
+
+/// Stage S4 (`proposals/science-panels.md` §3.2): the read/write matrix finds, by name, what each
+/// statement of the Long Night touches and says how. Asking changes nothing.
+#[test]
+fn the_rule_matrix_names_what_each_statement_touches() {
+    let mut engine = Engine::new();
+    let w = engine.call("world.create", &json!({"source": small(NIGHT), "lineages": ["Builder"], "seed": 1, "mutation": false})).unwrap()["world"].as_str().unwrap().to_string();
+    let m = engine.call("rules.matrix", &json!({"world": w})).unwrap();
+    let cell = |path: &str, col: &str| -> Vec<String> {
+        let row = m["rows"].as_array().unwrap().iter().find(|r| r["path"] == path).unwrap_or_else(|| panic!("no row {path}"));
+        row["cells"].as_array().unwrap().iter().find(|c| c["col"] == col).map(|c| c["kinds"].as_array().unwrap().iter().map(|k| k.as_str().unwrap().to_string()).collect()).unwrap_or_default()
+    };
+    assert_eq!(cell("Dish.rules.sunlight#0", "light"), ["transfer"]);
+    assert_eq!(cell("Dish.rules.sunlight#0", "sun"), ["from"]);
+    assert_eq!(cell("Dish.rules.sunlight#0", "void"), ["overflow"]);
+    assert_eq!(cell("Dish.rules.rotting@react_rot", "rot"), ["react"]);
+    assert_eq!(cell("Dish.rules.rotting@react_rot", "body"), ["consumes"]);
+    assert_eq!(cell("Dish.rules.rotting@react_rot", "carbon"), ["produces"]);
+    assert_eq!(cell("Dish.rules.spread@diffuse_conserved", "sugar"), ["diffuse"]);
+    assert!(cell("Dish.rules.weather@transfer_carbon", "sun").is_empty(), "nothing is invented");
+    assert!(m["completeness"].as_str().unwrap().contains("not none exist"));
+    // A condition that reads a substance is marked as a condition read.
+    let cond = small(NIGHT).replace("when tick < 300 or tick >= 400", "when self.nitrate < 25u");
+    let w2 = engine.call("world.create", &json!({"source": cond, "lineages": ["Builder"], "seed": 1, "mutation": false}));
+    {
+        let w2 = w2.expect("the condition variant is a valid world");
+        let m2 = engine.call("rules.matrix", &json!({"world": w2["world"]})).unwrap();
+        let row = m2["rows"].as_array().unwrap().iter().find(|r| r["path"] == "Dish.rules.sunlight#0").unwrap();
+        let k: Vec<&Value> = row["cells"].as_array().unwrap().iter().filter(|c| c["col"] == "nitrate").map(|c| &c["kinds"]).collect();
+        assert_eq!(k, [&json!(["condition"])], "{row}");
+    }
+}

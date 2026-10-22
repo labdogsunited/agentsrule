@@ -194,8 +194,8 @@
   .lnode .err { grid-column: 1 / 3; color: var(--bad); font: 11px system-ui, sans-serif; white-space: pre-wrap; }
   #stage-rules, #stage-lineage, #stage-census { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
   #rulesbar, #lineagebar, #censusbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
-  #lineagebar input { width: auto; margin: 0; }
+  #rulesbar label, #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
+  #rulesbar input, #lineagebar input { width: auto; margin: 0; }
   #rulesbody, #lineagebody, #censusbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
   .lens-phase { margin: 12px 0 4px; font-weight: 600; letter-spacing: .04em; color: var(--accent); text-transform: uppercase; font-size: 11px; }
   .lens-step { margin: 2px 0 2px 8px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
@@ -210,6 +210,12 @@
   #censusbody .bar { display: inline-block; height: 8px; background: var(--accent, #6aa); vertical-align: middle; margin-right: 4px; }
   #censusbody .only-a td:first-child { border-left: 3px solid #d98; } #censusbody .only-b td:first-child { border-left: 3px solid #8ad; }
   #censusbody select { max-width: 220px; }
+  #rulesbody table.mx { border-collapse: collapse; }
+  #rulesbody .mx td, #rulesbody .mx th { padding: 1px 5px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: center; white-space: nowrap; }
+  #rulesbody .mx td:nth-child(-n+2), #rulesbody .mx th:nth-child(-n+2) { text-align: left; }
+  #rulesbody .mx th.vcol { writing-mode: vertical-rl; transform: rotate(180deg); cursor: pointer; height: 7em; }
+  #rulesbody .mx .on { background: rgba(230, 170, 70, 0.25); }
+  #rulesbody .legend { margin-bottom: 6px; color: var(--muted); }
   #lineagebody svg { width: 100%; height: 100%; min-height: 160px; display: block; }
   #lineagebody .legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0; }
   #lineagebody .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; }
@@ -363,7 +369,7 @@
   <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
-  <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span></div><div id="rulesbody"></div></main></div>
+  <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label></div><div id="rulesbody"></div></main></div>
   <div class="editor" id="ed-census"><main id="stage-census"><div id="censusbar"><span id="censusnote"></span></div><div id="censusbody"></div></main></div>
   <div class="editor" id="ed-lineage"><main id="stage-lineage"><div id="lineagebar"><span id="lineagenote"></span><label><input type="radio" name="lmode" value="count" checked> counts</label><label><input type="radio" name="lmode" value="share"> share</label></div><div id="lineagebody"></div></main></div>
   <div class="editor" id="ed-details"><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main></div>
@@ -2426,9 +2432,35 @@ function drawDetails() {
 // Rule Lens (proposals/science-panels.md §3.1): the checked schedule of the running world, as `emerge order` prints it.
 // Static: it says what can happen in a tick, not what did. Reloads when the revision changes.
 let rulesRev = null;
+// Read/write matrix (S4): rows are the checked statements in schedule order, columns the declarations they
+// name. A blank cell means none found by name, not none exist (the note says so). Clicking a column marks it.
+const MX = { condition: "?", transfer: "T", from: "←", to: "→", overflow: "⌀", react: "R", consumes: "−", produces: "+", diffuse: "~", mentions: "·" };
+let mxCol = null;
+async function loadMatrix(w) {
+  const r = await call("rules.matrix", { world: w }), note = $("rulesnote"), body = $("rulesbody");
+  if (w !== $("world").value || !visible.rules) return;
+  rulesRev = r.revision;
+  note.textContent = `${w} · revision ${r.revision} (tick ${r.tick}) · ${r.completeness}`;
+  const keep = body.scrollTop; body.textContent = "";
+  const lg = tag("div", "legend"); lg.textContent = Object.entries(r.kinds).map(([k, v]) => `${MX[k]} ${v}`).join("  ·  "); body.append(lg);
+  const used = r.columns.filter((c) => r.rows.some((x) => x.cells.some((y) => y.col === c.name)));
+  const t = tag("table", "mx");
+  const head = tag("tr"); head.innerHTML = "<th>step</th><th>statement</th>" + used.map((c) => `<th class="vcol${mxCol === c.name ? " on" : ""}" data-c="${esc(c.name)}" title="${esc(c.kind)} ${esc(c.name)}">${esc(c.name)}</th>`).join("");
+  t.append(head);
+  for (const x of r.rows) {
+    const tr = tag("tr");
+    tr.innerHTML = `<td>${esc(x.step || "not placed")}</td><td class="lens-stmt" title="${esc(x.path)}">${esc(x.text.length > 70 ? x.text.slice(0, 70) + "…" : x.text)}${x.opaque ? " ⚠ uses let: not followed" : ""}</td>` +
+      used.map((c) => { const hit = x.cells.find((y) => y.col === c.name); return `<td class="mxc${mxCol === c.name ? " on" : ""}" data-c="${esc(c.name)}"${hit ? ` title="${esc(hit.kinds.map((k) => r.kinds[k]).join("; "))}"` : ""}>${hit ? hit.kinds.map((k) => MX[k]).join("") : ""}</td>`; }).join("");
+    tr.querySelector(".lens-stmt").onclick = () => { setMode("graph"); loadGraph().then(() => select(x.path)).catch(oops); };
+    t.append(tr);
+  }
+  t.onclick = (ev) => { const c = ev.target.closest("[data-c]"); if (!c) return; mxCol = mxCol === c.dataset.c ? null : c.dataset.c; loadMatrix(w).catch(oops); };
+  body.append(t); body.scrollTop = keep;
+}
 async function loadRules() {
   const w = $("world").value, note = $("rulesnote"), body = $("rulesbody");
   if (!w) { note.textContent = "Create a world, or pick one."; body.textContent = ""; return; }
+  if (document.querySelector('input[name="rmode"]:checked').value === "matrix") return loadMatrix(w);
   const r = await call("rules.lens", { world: w });
   if (w !== $("world").value || !visible.rules) return;
   rulesRev = r.revision;
@@ -2552,6 +2584,7 @@ async function loadLineage() {
   };
 }
 for (const r of document.querySelectorAll('input[name="lmode"]')) r.onchange = () => loadLineage().catch(oops);
+for (const r of document.querySelectorAll('input[name="rmode"]')) r.onchange = () => loadRules().catch(oops);
 
 async function refreshWorlds(select) {
   const gen = ++worldGen;
