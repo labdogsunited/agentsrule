@@ -18,6 +18,7 @@ export default async (page) => {
   await page.wait(500);
   await page.eval(`activate("network")`);
   await page.wait(1500);
+  await page.eval(`loadGraph()`);
   const W = `document.getElementById("world").value`;
   // the world network: one crumb, a menu of all networks
   let c = await j(`({ ctx, crumbs: document.getElementById("netcrumbs").innerText, opts: [...document.getElementById("netctx").options].map(o => o.value) })`);

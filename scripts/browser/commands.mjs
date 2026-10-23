@@ -19,6 +19,7 @@ export default async (page) => {
   await page.wait(500);
   await page.eval(`activate("network")`);
   await page.wait(1500);
+  await page.eval(`loadGraph()`);
   await page.eval(`mode = "graph"`);
   const state = () => j(`({ rev: graphData.revision, n: graphData.nodes.filter(n => ["transfer", "react", "diffuse", "code"].includes(n.kind)).length, undo: graphData.history.undo.length, sel: selected, msg: document.getElementById("error").textContent })`);
   const s0 = await state();

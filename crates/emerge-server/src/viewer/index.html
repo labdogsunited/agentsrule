@@ -217,7 +217,7 @@
   #rulesbar, #lineagebar, #censusbar, #budgetbar, #familybar, #comparebar, #regionbar, #flowbar, #lifebar, #bookbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   #rulesbar label, #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
   #rulesbar input, #lineagebar input { width: auto; margin: 0; }
-  #rulesbody, #lineagebody, #censusbody, #budgetbody, #familybody, #comparebody, #regionbody, #flowbody, #lifebody, #bookbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
+  #inspbody, #rulesbody, #lineagebody, #censusbody, #budgetbody, #familybody, #comparebody, #regionbody, #flowbody, #lifebody, #bookbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
   .lens-phase { margin: 12px 0 4px; font-weight: 600; letter-spacing: .04em; color: var(--accent); text-transform: uppercase; font-size: 11px; }
   .lens-step { margin: 2px 0 2px 8px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
   .lens-step.placed { border-left-color: var(--accent); }
@@ -254,6 +254,18 @@
   #regionbody table { border-collapse: collapse; margin: 4px 0 10px; }
   #regionbody td, #regionbody th { padding: 2px 8px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: left; }
   #regionbody input { width: 5em; }
+  #inspbody h3 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); display: flex; gap: 8px; align-items: baseline; }
+  #inspbody h3 small { text-transform: none; letter-spacing: 0; font-weight: normal; }
+  #inspbody .kind-declared h3 { color: #7eb7f5; }
+  #inspbody .kind-observed h3 { color: #6fcf97; }
+  #inspbody .kind-measured h3 { color: #e0a458; }
+  #inspbody table { border-collapse: collapse; margin: 4px 0; }
+  #inspbody td, #inspbody th { padding: 2px 10px 2px 0; border-bottom: 1px solid var(--line); text-align: left; font-weight: normal; vertical-align: top; }
+  #inspbody td.n { text-align: right; font-family: ui-monospace, monospace; }
+  #inspbody pre { margin: 4px 0; white-space: pre-wrap; font: 11px/1.4 ui-monospace, monospace; color: var(--muted); }
+  #inspbody .stale { color: #e0a458; }
+  #inspbody a.go { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  #inspbar { display: flex; gap: 10px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
   #flowbody svg { width: 100%; height: 420px; display: block; }
   #flowbody table { border-collapse: collapse; margin: 6px 0; }
   #flowbody td, #flowbody th { padding: 2px 8px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: left; }
@@ -430,6 +442,7 @@
   <div class="editor" id="ed-budget"><main id="stage-budget"><div id="budgetbar"><span id="budgetnote"></span><label>split by who makes substance <input id="budgetflux" placeholder="e.g. body" style="width:6em"></label><button id="budgetstart">Start a budget window now</button><label>or follow the clade of creature # <input type="number" id="budgetclade" style="width:6em"></label><button id="budgetcladego">Start</button><label>or import an accounts file <input type="file" id="budgetfile" accept=".csv,text/csv,text/plain"></label></div><div id="budgetbody"></div></main></div>
   <div class="editor" id="ed-census"><main id="stage-census"><div id="censusbar"><span id="censusnote"></span></div><div id="censusbody"></div></main></div>
   <div class="editor" id="ed-lineage"><main id="stage-lineage"><div id="lineagebar"><span id="lineagenote"></span><label><input type="radio" name="lmode" value="count" checked> counts</label><label><input type="radio" name="lmode" value="share"> share</label></div><div id="lineagebody"></div></main></div>
+  <div class="editor" id="ed-inspect"><main id="stage-inspect"><div id="inspbar"><span id="inspnote"></span><button id="insphold" title="Keep the values on screen as they are, with the tick and revision they were read at">Hold this observation</button></div><div id="inspbody"></div></main></div>
   <div class="editor" id="ed-details"><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main></div>
   <div class="editor" id="ed-source"><section id="code">
     <div id="codehandle"></div>
@@ -488,7 +501,7 @@ const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
 // screen; the network pane shows the graph or the genome (or the code, `codebtn`).
 let mode = "picture";
-const visible = { picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false, budget: false, family: false, compare: false, region: false, flow: false, life: false, book: false };
+const visible = { inspect: false, picture: false, graph: false, genome: false, details: false, look: false, source: false, rules: false, lineage: false, census: false, budget: false, family: false, compare: false, region: false, flow: false, life: false, book: false };
 const isShown = (v) => visible[v];
 const stages = { picture: $("stage-picture"), graph: $("stage-graph"), genome: $("stage-genome") };   // the canvases
 const stage = stages.picture;   // the picture's stage: the info picker lives there
@@ -1727,6 +1740,7 @@ function select(id) {
   markSel();
   selection = id ? { world: $("world").value, kind: "node", id } : null;
   renderParm();
+  if (visible.inspect && !inspHeld) loadInspect().catch(() => {});
 }
 function renderPinBar() {
   const t = parmTarget(), n = parmNode(t);
@@ -2180,17 +2194,17 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 // Tabs move by dragging (to a leaf's middle, or to one of its edges to split it), a leaf can be maximized
 // for a while, editors can be closed and added back, and desktops are named arrangements. One instance of
 // each editor; the arrangement is kept in this browser and checked before it is used again.
-const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget", family: "Ancestry", compare: "Compare Runs", region: "Region", flow: "Flow Map", life: "Life Histories", book: "Notebook" };
+const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", inspect: "Inspector", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget", family: "Ancestry", compare: "Compare Runs", region: "Region", flow: "Flow Map", life: "Life Histories", book: "Notebook" };
 const VIEW_OF = { viewport: "picture", network: "graph", genome: "genome" };          // editors with a camera
-const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life", book: "book" };
+const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", inspect: "inspect", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life", book: "book" };
 let tree = null, closed = [], maxLeaf = null, focusLeaf = null, leafSeq = 0;
 const mkLeaf = (tabs, active) => ({ t: "leaf", id: `L${++leafSeq}`, tabs, active: active || tabs[0] });
 const mkSplit = (dir, ratio, a, b) => ({ t: "split", dir, ratio, a, b });
 const BUILTIN = {
-  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]))),
-  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "details", "genome", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]))),
-  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]), mkLeaf(["params"]))),
-  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "family", "compare", "region", "flow", "life", "book", "details", "genome", "network", "look", "params", "source"]))),
+  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "inspect", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]))),
+  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "inspect", "details", "genome", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]))),
+  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "inspect", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]), mkLeaf(["params"]))),
+  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "family", "compare", "region", "flow", "life", "book", "details", "inspect", "genome", "network", "look", "params", "source"]))),
 };
 const leavesOf = (n = tree) => (n.t === "leaf" ? [n] : [...leavesOf(n.a), ...leavesOf(n.b)]);
 const findLeaf = (id) => leavesOf().find((l) => l.id === id);
@@ -2310,7 +2324,7 @@ function resizeSplit(e, n, box, a, b, bar) {
 let prevVis = {};
 function syncVisible() {
   const on = new Set((maxLeaf ? [findLeaf(maxLeaf)] : leavesOf()).filter(Boolean).filter((l) => document.querySelector(`[data-leaf="${l.id}"]`)).map((l) => l.active));
-  const map = { picture: "viewport", graph: "network", genome: "genome", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life", book: "book" };
+  const map = { picture: "viewport", graph: "network", genome: "genome", inspect: "inspect", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life", book: "book" };
   for (const [v, ed] of Object.entries(map)) visible[v] = on.has(ed);
   document.body.classList.toggle("graph", visible.graph);
   document.body.classList.toggle("genome", visible.genome);
@@ -2325,6 +2339,7 @@ function syncVisible() {
   if (fresh("graph")) loadGraph().then(() => { if (cams.graph.fit) fitCam(cams.graph); applyCam(cams.graph); }).catch(oops);
   if (fresh("genome")) loadEntities().then(() => loadGenome()).then(() => { if (cams.genome.fit) fitCam(cams.genome); applyCam(cams.genome); }).catch(oops);
   if (fresh("details")) loadDetails().catch(oops);
+  if (fresh("inspect")) loadInspect().catch(oops);
   if (fresh("look")) loadLook().catch(oops);
   if (fresh("rules")) loadRules().catch(oops);
   if (fresh("lineage")) loadLineage().catch(oops);
@@ -2789,6 +2804,138 @@ function drawDetails() {
   $("detailstable").scrollTop = keep;
 }
 
+// ---- Inspector (`proposals/houdini-node-system.md` §10): what the selected box is, what the world holds in it, and what the
+// runner counted for it, kept apart. DECLARED comes from the source (stamped with the revision it was read at); OBSERVED is a
+// reading of the running world at one tick; MEASURED is what the runner counted over an interval, from when it began counting.
+// Nothing here is estimated from the picture of a wire, and a reading the backend cannot give says so.
+let inspHeld = null;   // { world, id, data, tick, revision }: values kept on screen while the world moves on
+const mu = (x) => (x == null ? "–" : (x / 1e6).toLocaleString(undefined, { maximumFractionDigits: 3 }));
+async function inspectRead(n) {
+  const w = $("world").value, g = graphData, out = { world: w, id: n.id, revision: g.revision, tick: null, observed: null, measured: null, stamps: {} };
+  const st = await call("stats.query", { world: w });
+  out.tick = st.tick;
+  const wiresOf = g.wires.filter((x) => x.from === n.id || x.to === n.id);
+  if (n.group && !n.isNested) {
+    // a statement of a world rule: the runner's counters for it, from the tick it began counting
+    try {
+      const a = await call("rules.activity", { world: w });
+      const row = a.rows.find((r) => r.path === n.id);
+      out.measured = row ? { kind: "statement", row, since: a.since_tick, ticks: a.ticks, stamp: a.observation } : { kind: "none", why: "this statement is not one of the runner's world laws (a `when` is counted through the statements it holds)" };
+    } catch (e) { out.measured = { kind: "none", why: String(e.message || e) }; }
+  } else if (n.kind === "reaction") {
+    try {
+      const f = await call("reactions.flow", { world: w });
+      const r = f.reactions.find((x) => x.name === n.title);
+      out.measured = r ? { kind: "reaction", r, since: f.world_rules_since, stamp: f.observation, creatures_since: 0 } : { kind: "none", why: "no such reaction in the runner" };
+    } catch (e) { out.measured = { kind: "none", why: String(e.message || e) }; }
+  } else if (/\.sources\./.test(n.id)) {
+    try {
+      const a = await call("rules.activity", { world: w });
+      const mine = g.wires.filter((x) => x.from === n.id).map((x) => x.to);
+      out.measured = { kind: "source", rows: a.rows.filter((r) => mine.includes(r.path)), since: a.since_tick, ticks: a.ticks, stamp: a.observation };
+    } catch (e) { out.measured = { kind: "none", why: String(e.message || e) }; }
+  }
+  if (n.kind === "store" && /\.fields\./.test(n.id)) {
+    try {
+      const probe = await call("region.query", { world: w, x: [0, 1], y: [0, 1] });
+      const full = await call("region.query", { world: w, x: [0, probe.world.w], y: [0, probe.world.h] });
+      out.observed = full.cells && full.cells.unavailable ? { kind: "none", why: full.cells.unavailable, stamp: full.observation } : { kind: "field", cells: full.cells, stamp: full.observation };
+    } catch (e) { out.observed = { kind: "none", why: String(e.message || e) }; }
+  }
+  out.wires = wiresOf.map((x) => ({ from: x.from, to: x.to, substance: x.substance, kind: x.kind, from_port: x.from_port, to_port: x.to_port }));
+  return out;
+}
+function inspTable(rows, head) {
+  const t = document.createElement("table");
+  if (head) { const tr = t.insertRow(); for (const h of head) { const th = document.createElement("th"); th.textContent = h; tr.append(th); } }
+  for (const r of rows) { const tr = t.insertRow(); r.forEach((c, i) => { const td = tr.insertCell(); if (c instanceof Node) td.append(c); else td.textContent = c; if (i > 0 && typeof c === "string" && /^[\d,.\-–% µ/]+$/.test(c)) td.className = "n"; }); }
+  return t;
+}
+function inspGo(id, label) { const a = document.createElement("a"); a.className = "go"; a.textContent = label || id.split(".").slice(1).join("."); a.title = `Select ${id}`; a.onclick = () => select(id); return a; }
+function inspSection(kind, title, stamp) {
+  const box = document.createElement("div"), h = document.createElement("h3"), sm = document.createElement("small");
+  box.className = `kind-${kind}`;
+  h.textContent = title; sm.textContent = stamp || ""; h.append(sm); box.append(h);
+  return box;
+}
+function renderInspect(d, held) {
+  const g = graphData, body = $("inspbody"), n = g && (g.nodes.find((x) => x.id === d.id) || (g.nested || []).map((x) => ({ ...x, isNested: true })).find((x) => x.id === d.id));
+  body.textContent = "";
+  if (!n) { body.textContent = held ? "The box is no longer in the world." : "Select a box in the Network."; return; }
+  const c = n.contract || {};
+  const title = document.createElement("div");
+  title.innerHTML = `<b></b> <small></small>`;
+  title.firstChild.textContent = n.title; title.lastChild.textContent = `${n.kind}${n.group ? " of " + n.group.split(".").pop() : ""} · ${n.id}`;
+  body.append(title);
+  // declared
+  const decl = inspSection("declared", "Declared", `from the source, revision ${d.revision}`);
+  const pre = document.createElement("pre"); pre.textContent = n.text; decl.append(pre);
+  const facts = [];
+  if (n.step) facts.push(["runs in", `${n.step} (the checked schedule's step)`]);
+  if (n.when) facts.push(["runs only where", n.when]);
+  if (c.summary) facts.push(["rule", `on ${c.summary.on}: ${c.summary.statements} statements${c.summary.nested ? `, ${c.summary.nested} inside a when` : ""}; steps ${c.summary.steps.join(", ")}`]);
+  if (c.deps) {
+    const dp = c.deps, none = dp.complete ? "none" : "none found (not every part of this statement is followed)";
+    facts.push(["reads", dp.reads.join(", ") || none], ["writes", dp.writes.join(", ") || none], ["references", dp.references.join(", ") || none]);
+    if (dp.conditions.length) facts.push(["its conditions read", dp.conditions.join(", ")]);
+  }
+  if (c.params && c.params.length) for (const p of c.params) facts.push([p.key, `${p.text}${p.unit && !p.text.endsWith(p.unit) ? " " + p.unit : ""}${p.editable ? "" : " (fixed: " + (p.why_not || "") + ")"}`]);
+  if (facts.length) decl.append(inspTable(facts));
+  const links = d.wires.map((w) => { const other = w.from === n.id ? w.to : w.from, dir = w.from === n.id ? "→" : "←"; return [`${dir} ${w.substance || ""}`, inspGo(other), `${w.kind || ""}${w.from === n.id ? w.from_port : w.to_port ? " into " + w.to_port : ""}`]; });
+  if (links.length) { const h = document.createElement("div"); h.textContent = "Connected to:"; decl.append(h, inspTable(links)); }
+  const can = c.can ? Object.entries(c.can).map(([k, v]) => `${k}: ${v ? "yes" : "no" + ((c.why_not || {})[k] ? " (" + c.why_not[k] + ")" : "")}`) : [];
+  if (can.length) { const sm = document.createElement("small"); sm.textContent = can.join(" · "); decl.append(sm); }
+  body.append(decl);
+  // observed
+  const ob = inspSection("observed", "Observed", d.observed && d.observed.stamp ? `tick ${d.observed.stamp.tick}, revision ${d.observed.stamp.revision}, ${d.observed.stamp.backend}` : "");
+  if (d.observed && d.observed.kind === "field") {
+    const holds = d.observed.cells.amounts_mu || {};
+    ob.append(inspTable(Object.entries(holds).map(([k, v]) => [k, mu(v), `${mu(v / d.observed.cells.count)} per cell`]), ["substance", "total (units)", "mean"]));
+    const sm = document.createElement("small"); sm.textContent = `${d.observed.cells.count} cells, read in one call so all amounts are of the same tick`; ob.append(sm);
+  } else if (d.observed && d.observed.kind === "none") ob.append(document.createTextNode(`Not available: ${d.observed.why}`));
+  else ob.append(document.createTextNode("A box of this kind holds no state of its own. Its effect shows in the stores it fills and in the creature panels."));
+  body.append(ob);
+  // measured
+  const m = d.measured, ms = inspSection("measured", "Measured", m && m.stamp ? `counted since tick ${m.since}, read at tick ${m.stamp.tick}` : "");
+  if (m && m.kind === "statement") {
+    const r = m.row;
+    ms.append(inspTable([["cells looked at", String(r.cells)], ["cells it ran in", `${r.passed} (${r.cells ? Math.round(100 * r.passed / r.cells) : 0}%)`], ["requests", String(r.requests)], ["asked for (units)", mu(r.requested_mu)], ["delivered (units)", mu(r.delivered_mu)], ["cut to what the origin held", String(r.cut_by_origin)], ["cut to the room the destination had", String(r.cut_by_dest)], ["reaction ran in cells", String(r.ran)], ["reaction extent (units)", mu(r.extent)]]));
+    const sm = document.createElement("small"); sm.textContent = `over ${m.ticks} ticks by the ${m.stamp.backend} runner; a count, not an estimate from the wire`; ms.append(sm);
+  } else if (m && m.kind === "reaction") {
+    ms.append(inspTable(m.r.measured.map((x) => [x.by, String(x.extent), `${x.cells_reacting ?? "–"} cells`]), ["by", "extent (µ of reaction)", "where"]));
+  } else if (m && m.kind === "source") {
+    ms.append(inspTable(m.rows.map((r) => [inspGo(r.path), mu(r.requested_mu), mu(r.delivered_mu)]), ["statement", "asked (units)", "delivered (units)"]));
+  } else ms.append(document.createTextNode(m && m.why ? `Not counted: ${m.why}` : "Nothing is counted for a box of this kind."));
+  body.append(ms);
+}
+async function loadInspect() {
+  const w = $("world").value, note = $("inspnote");
+  if (!w) { note.textContent = "Create a world, or pick one."; $("inspbody").textContent = ""; return; }
+  if (!graphData || graphData.world === undefined) await loadGraph().catch(() => {});
+  if (inspHeld && inspHeld.world === w) { renderInspect(inspHeld.data, true); inspNote(); return; }
+  const id = parmTarget() && parmTarget().id, n = id && graphData && (graphData.nodes.find((x) => x.id === id) || (graphData.nested || []).map((x) => ({ ...x, isNested: true })).find((x) => x.id === id));
+  if (!n) { note.textContent = `${w}`; $("inspbody").textContent = "Select a box in the Network."; return; }
+  const d = await inspectRead(n);
+  if (w !== $("world").value || inspHeld) return;
+  renderInspect(d, false);
+  note.textContent = `${w} · read at tick ${d.tick} · revision ${d.revision}`;
+  note.className = "";
+  $("insphold").textContent = "Hold this observation";
+  inspLast = d;
+}
+let inspLast = null;
+async function inspNote() {
+  const note = $("inspnote"), h = inspHeld;
+  if (!h) return;
+  const st = await call("stats.query", { world: h.world }).catch(() => null), now = st ? st.tick : h.data.tick;
+  note.textContent = `${h.world} · HELD: read at tick ${h.data.tick}, revision ${h.data.revision} · the world is at tick ${now}${now > h.data.tick ? ` (${now - h.data.tick} later)` : ""}`;
+  note.className = now > h.data.tick ? "stale" : "";
+  $("insphold").textContent = "Release";
+}
+$("insphold").onclick = () => {
+  if (inspHeld) { inspHeld = null; loadInspect().catch(oops); return; }
+  if (inspLast) { inspHeld = { world: inspLast.world, id: inspLast.id, data: inspLast }; inspNote(); }
+};
 // Rule Lens (proposals/science-panels.md §3.1): the checked schedule of the running world, as `emerge order` prints it.
 // Static: it says what can happen in a tick, not what did. Reloads when the revision changes.
 let rulesRev = null;
@@ -3370,6 +3517,7 @@ async function stats() {
   const s = await call("stats.query", { world });
   const by = Object.entries(s.population_by_lineage || {}).map(([k, v]) => `  ${k}: ${v}`).join("\n");
   $("stats").textContent = `tick ${s.tick}\npopulation ${s.population}\n${by}\nbirths ${s.births}  deaths ${s.deaths}`;
+  if (inspHeld && visible.inspect) inspNote();
 }
 
 // The worlds to start from (`docs.examples`): the reference dish, Game of Life, the test-9 dish. The
@@ -3451,6 +3599,7 @@ function connect() {
         if (isShown("graph") && w && w.revision !== graphRev) loadGraph().catch(() => {});
         if (isShown("genome") && ++genomeTick % 3 === 0) loadGenome(true).catch(() => {});
         if (isShown("details") && ++genomeTick % 2 === 0) loadDetails().catch(() => {});
+        if (isShown("inspect") && !inspHeld && ++genomeTick % 3 === 0) loadInspect().catch(() => {});
         if (isShown("rules") && w && w.revision !== rulesRev) loadRules().catch(() => {});
         if (isShown("lineage") && ++genomeTick % 2 === 0) loadLineage().catch(() => {});
         if (isShown("census") && ++genomeTick % 4 === 0) loadCensus(true).catch(() => {});
@@ -3473,7 +3622,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => { selection = null; selected = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); if (visible.flow) loadFlow(); if (visible.life) loadLife(); if (visible.book) loadBook(); }).catch(oops) };
+$("world").onchange = () => { selection = null; selected = null; inspHeld = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); if (visible.flow) loadFlow(); if (visible.life) loadLife(); if (visible.book) loadBook(); if (visible.inspect) loadInspect(); }).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().then(() => { if (visible.look) return loadLook(); }).catch(oops);
 // Space plays and pauses the active world.
 let runningNow = {};
