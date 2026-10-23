@@ -144,6 +144,12 @@
   #netcrumbs b { font-weight: 600; }
   #netctx { max-width: 150px; }
   .box.ghost { opacity: 0.6; border-style: dashed; }
+  .box.k-rule .t { background: #c9b26b; } .box.k-rule { border-width: 2px; }
+  #graph .rdot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #2b313b; border: 2px solid #8b93a1; z-index: 3; cursor: move; }
+  #graph .rdot:hover, #graph .rdot.pick { border-color: var(--accent); }
+  #graph .wire.hotwire { stroke-width: 4; opacity: 1; filter: drop-shadow(0 0 3px #6fcf97); }
+  #graph .wire.dep { stroke-dasharray: 2 4; opacity: 0.7; }
+  #netcollapse.on { background: var(--accent); color: #1a1408; border-color: var(--accent); }
   .nwhen { position: absolute; border: 1px dashed #8b93a1; border-radius: 8px; background: rgba(139,147,161,0.06); pointer-events: none; }
   .nwhen span { position: absolute; left: 8px; top: -9px; padding: 0 6px; background: var(--bg, #15181d); font: 10px ui-monospace, monospace; color: var(--muted); max-width: 90%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #picked .batch { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
@@ -404,8 +410,8 @@
   .lbody { flex: 1; min-height: 0; min-width: 0; position: relative; display: flex; }
   .editor { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; }
   .editor > main { flex: 1; min-height: 0; position: relative; overflow: hidden; touch-action: none; cursor: grab; }
-  .etool { flex: none; height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
-  .etool button { padding: 2px 8px; }
+  .etool { flex: none; min-height: 28px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 2px 8px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .etool button { padding: 2px 8px; white-space: nowrap; flex: none; }
   .etool select { width: auto; max-width: 220px; padding: 2px 6px; font-size: 12px; }
   #netgrid.on { color: var(--ink); } #netgrid:not(.on) { text-decoration: line-through; }
   #dropzone { position: fixed; z-index: 50; background: rgba(224, 164, 88, 0.22); border: 2px solid var(--accent); pointer-events: none; display: none; }
@@ -469,7 +475,7 @@
     
 
       </div></div>
-  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><span id="netcrumbs" title="Where you are in the network. Enter (or double-click a statement) goes into its rule; U goes up."></span><select id="netctx" title="Go to a network"></select><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button><button id="netdup" title="Duplicate the selected statements (Ctrl+D). Ctrl+C and Ctrl+V do the same from a copy.">Duplicate</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div><div id="obspalette"><span>Add</span><button data-mode="fixed" title="A Tracker of the selected creature and every quick watch, captured now">Tracker from selection</button><button data-mode="live" title="Whoever matches a condition now">Live query</button><button data-mode="latched" title="Everyone seen matching during a window, kept afterwards">Latched query</button><button data-mode="descendants" title="A creature and the children born to its members">Descendants</button><button data-mode="representative" title="One creature first by a ranking (it may change; each handoff is kept)">Representative</button><span style="width:10px"></span><button id="obsundo" title="Undo the last tracker change">Undo</button><button id="obsredo">Redo</button></div></main></div>
+  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><span id="netcrumbs" title="Where you are in the network. Enter (or double-click a statement) goes into its rule; U goes up."></span><select id="netctx" title="Go to a network"></select><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button><button id="netdup" title="Duplicate the selected statements (Ctrl+D). Ctrl+C and Ctrl+V do the same from a copy; Ctrl+V in another world pastes them there.">Duplicate</button><span class="sep"></span><select id="netarrange" title="Arrange the selected nodes (presentation only: no revision)"><option value="">Arrange…</option><option value="left">Align left edges</option><option value="top">Align top edges</option><option value="cx">Align in a column</option><option value="cy">Align in a row</option><option value="dx">Distribute across</option><option value="dy">Distribute down</option><option value="tidy">Lay out the selection</option></select><button id="netcollapse" title="Show each rule as one box with its statements inside it, or every statement (the whole network only)">Rules as boxes</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div><div id="obspalette"><span>Add</span><button data-mode="fixed" title="A Tracker of the selected creature and every quick watch, captured now">Tracker from selection</button><button data-mode="live" title="Whoever matches a condition now">Live query</button><button data-mode="latched" title="Everyone seen matching during a window, kept afterwards">Latched query</button><button data-mode="descendants" title="A creature and the children born to its members">Descendants</button><button data-mode="representative" title="One creature first by a ranking (it may change; each handoff is kept)">Representative</button><span style="width:10px"></span><button id="obsundo" title="Undo the last tracker change">Undo</button><button id="obsredo">Redo</button></div></main></div>
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><button id="gtrack" title="Track this creature (and select it)">Track</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label><label><input type="radio" name="rmode" value="trace"> trace</label></div><div id="rulesbody"></div></main></div>
@@ -758,6 +764,7 @@ function bindStage(view) {
       drag.box.style.left = `${drag.p.x}px`;
       drag.box.style.top = `${drag.p.y}px`;
       drawWires();
+      if (drag.moved && view === "graph") insertPreview(e, drag);
       return;
     }
     if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > 3) drag.moved = true;
@@ -788,6 +795,8 @@ function bindStage(view) {
     }
     if (drag && drag.group) { if (drag.moved) savePositions(drag.group.map((i) => i.id)); else select(drag.box.dataset.id); }
     if (drag && drag.box && drag.moved) savePosition(drag.box.dataset.id);
+    if (drag && drag.box && drag.insert && drag.insert.ok) { const it = drag.insert; graphOp({ op: "insert", id: drag.box.dataset.id, from: it.from, to: it.to }); }
+    if (drag && drag.box) clearInsertPreview();
     if (drag && drag.wire) {
       clearWirePreview();
       drag.port.classList.remove("hot");
@@ -802,7 +811,11 @@ function bindStage(view) {
   };
   stage.addEventListener("pointerup", drop);
   stage.addEventListener("pointercancel", () => { clearWirePreview(); drag = null; stage.classList.remove("dragging"); });
-  stage.addEventListener("dblclick", (e) => { if (!e.target.closest(".box")) { fitCam(cams[view]); applyCam(cams[view]); } });
+  stage.addEventListener("dblclick", (e) => {
+    if (e.target.closest(".box, .rdot, .nframe, .nnote")) return;
+    if (view === "graph" && ctx !== "observe" && addRouteDot(e)) return;
+    fitCam(cams[view]); applyCam(cams[view]);
+  });
 }
 for (const v of Object.keys(stages)) bindStage(v);
 $("fit").onclick = () => { fitCam(cams.picture); applyCam(cams.picture); };
@@ -1044,11 +1057,26 @@ const BOX = { w: 200, h: 60, gap: 28 };
 const hue = (name) => { let h = 0; for (const c of name || "") h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
 const wireColor = (name) => (name ? `hsl(${hue(name)} 65% 62%)` : "#8b93a1");
 
+// "Rules as boxes": the whole network with one box for each rule (its statements inside it) instead of every statement. A
+// second picture of the same source; the wires of a rule's statements become the rule's.
+let rulesCollapsed = false;
+const netCol = (n) => (n.kind === "obs-agents" ? 0 : n.kind === "obs-out" ? 2 : n.kind === "obs-tracker" ? 1 : n.kind === "reaction" || (n.kind === "store" && /\.sources\./.test(n.id)) ? 0 : n.kind === "store" ? 2 : 1);
+const collapsedView = () => rulesCollapsed && ctx === "world";
+// The wires the network draws: the graph's, or, with rules as boxes, each statement's end moved to its rule (once each).
+function netWires(g) {
+  if (!collapsedView()) return g.wires;
+  const up = (id) => { const n = g.nodes.find((x) => x.id === id); return n && n.group ? n.group : id; }, seen = new Set(), out = [];
+  for (const w of g.wires) {
+    const x = { ...w, from: up(w.from), to: up(w.to), from_port: null, to_port: null }, k = `${x.from}>${x.to}>${x.substance || ""}`;
+    if (x.from !== x.to && !seen.has(k)) { seen.add(k); out.push(x); }
+  }
+  return out;
+}
 function layoutGraph(g) {
   if (ctx !== "world" && !(g.contexts || []).some((c) => c.key === ctx)) ctx = "world";
   for (const k of [...placed.keys()]) if (!k.includes("/")) placed.delete(k);
-  const col = (n) => (n.kind === "obs-agents" ? 0 : n.kind === "obs-out" ? 2 : n.kind === "obs-tracker" ? 1 : n.kind === "reaction" || (n.kind === "store" && /\.sources\./.test(n.id)) ? 0 : n.kind === "store" ? 2 : 1);
-  let drawn = g.nodes.filter((n) => ["store", "reaction", "transfer", "react", "diffuse", "signal", "code", "obs-agents", "obs-tracker", "obs-out"].includes(n.kind));
+  const col = netCol;
+  let drawn = g.nodes.filter((n) => [...collapsedView() ? ["rule"] : ["transfer", "react", "diffuse", "signal", "code"], "store", "reaction", "obs-agents", "obs-tracker", "obs-out"].includes(n.kind));
   ghostIds = new Set();
   if (ctx !== "world" && ctx !== "observe") {
     const mine = drawn.filter((n) => n.contract && n.contract.context === ctx), ids = new Set(mine.map((n) => n.id)), near = new Set();
@@ -1100,9 +1128,11 @@ function drawGraph() {
     el.style.top = `${p.y}px`;
     const t = document.createElement("div"), b = document.createElement("div");
     t.className = "t";
-    t.textContent = /@code_/.test(n.id) ? `code · ${n.title}` : n.group ? `${n.title} · ${n.group.split(".").pop()}` : n.title;
+    t.textContent = /@code_/.test(n.id) ? `code · ${n.title}` : n.group ? `${n.title} · ${n.group.split(".").pop()}` : n.kind === "rule" ? `rule ${n.title}` : n.title;
     b.className = "b";
-    b.textContent = n.text.replace(/\s+/g, " ");
+    const sm = n.kind === "rule" && n.contract && n.contract.summary;
+    b.textContent = sm ? `on ${sm.on} · ${sm.statements} statement${sm.statements === 1 ? "" : "s"}${sm.nested ? ` (+${sm.nested} inside when)` : ""} · ${sm.kinds.join(", ")}${sm.steps.length ? ` · ${sm.steps.join(", ")}` : ""}` : n.text.replace(/\s+/g, " ");
+    if (sm) el.title = "A rule as one box: double-click (or Enter) to go into it";
     el.append(t, b);
     const ports = (n.contract && n.contract.ports) || [];
     if (ports.length) {
@@ -1251,12 +1281,14 @@ function goContext(key, pick) {
   if (saved && !saved.fit) Object.assign(cam, saved); else { cam.fit = true; fitCam(cam); }
   applyCam(cam);
   select(pick && placed.has(pick) ? pick : null);
+  saveNetView();
 }
 function enterBox(id) {
   if (id.startsWith("obs:t")) { details.scope = `tracker:${id.slice(4).split(":")[0]}`; setMode("details"); loadDetails().catch(oops); return true; }
   const n = graphData && graphData.nodes.find((x) => x.id === id);
   if (!n) return false;
   if (ghostIds.has(id)) { goContext("world", id); return true; }
+  if (n.kind === "rule") { goContext(`rule:${n.title}`); return true; }
   const c = n.contract && n.contract.context;
   if (ctx === "world" && c && c.startsWith("rule:")) { goContext(c, id); return true; }
   return false;
@@ -1436,14 +1468,42 @@ async function previewWire(e, from) {
   h.className = ok ? "" : "bad";
   h.textContent = ok ? `would ${text}` : text;
 }
+// Routing dots (`proposals/houdini-node-system.md` §6): points a wire passes through, kept by the context and the wire.
+// Presentation only (`world.layout_set` routes): no revision.
+const wireKey = (w) => `${collapsedView() ? "rules" : ctx}|${w.from}>${w.to}>${w.substance || ""}`;
+function routeOf(w) { const r = graphData && graphData.routes && graphData.routes[wireKey(w)]; return Array.isArray(r) ? r : []; }
+function saveRoutes() { if (graphData) call("world.layout_set", { world: $("world").value, routes: graphData.routes || {} }).catch(oops); }
+// The path of a wire from (x0, y0) to (x1, y1) through its dots: each stretch leaves and arrives level, as a wire does.
+function wirePath(x0, y0, x1, y1, back, dots) {
+  const pts = [[x0, y0], ...dots, [x1, y1]];
+  let d = `M${x0},${y0}`;
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1], [bx, by] = pts[i], k = Math.max(i === 1 || i === pts.length - 1 ? 40 : 16, Math.abs(bx - ax) / 2) * (back && dots.length === 0 ? -1 : bx >= ax ? 1 : -1);
+    d += ` C${ax + k},${ay} ${bx - k},${by} ${bx},${by}`;
+  }
+  return d;
+}
+// The wire under a point of the network (graph units), if one passes within `tol`: sampled along each drawn path.
+function wireAt(gx, gy, tol) {
+  let best = null;
+  for (const p of document.querySelectorAll("#wires path.wire[data-k]")) {
+    const L = p.getTotalLength(), n = Math.max(12, Math.ceil(L / 12));
+    for (let i = 0; i <= n; i++) {
+      const q = p.getPointAtLength((i / n) * L), d = Math.hypot(q.x - gx, q.y - gy);
+      if (d <= tol && (!best || d < best.d)) best = { d, el: p, at: (i / n) * L, len: L };
+    }
+  }
+  return best;
+}
 function drawWires() {
   const g = netData(), svg = $("wires");
   if (!g || !svg) return;
   svg.textContent = "";
+  for (const d of $("graph").querySelectorAll(".rdot")) d.remove();
   const ends = new Map();
   const slot = (id, side) => { const k = id + side, i = ends.get(k) || 0; ends.set(k, i + 1); return i; };
   const NS = "http://www.w3.org/2000/svg";
-  for (const w of g.wires) {
+  for (const w of netWires(g)) {
     const a = placed.get(w.from), b = placed.get(w.to);
     if (!a || !b) continue;
     // A wire runs right to left when its source is to the right of its target (a reaction or a
@@ -1451,13 +1511,28 @@ function drawWires() {
     const back = a.x > b.x;
     const x0 = back ? a.x : a.x + BOX.w, x1 = back ? b.x + BOX.w : b.x;
     const y0 = portY(w.from, w.from_port, "out") ?? a.y + 14 + (slot(w.from, back ? "L" : "R") % 6) * 8, y1 = portY(w.to, w.to_port, "in") ?? b.y + 14 + (slot(w.to, back ? "R" : "L") % 6) * 8;
-    const d = Math.max(40, Math.abs(x1 - x0) / 2) * (back ? -1 : 1);
+    const dots = ctx === "observe" ? [] : routeOf(w);
     const path = document.createElementNS(NS, "path");
-    path.setAttribute("class", "wire");
-    path.setAttribute("d", `M${x0},${y0} C${x0 + d},${y0} ${x1 - d},${y1} ${x1},${y1}`);
+    path.setAttribute("class", `wire${w.kind === "value dependency" ? " dep" : ""}`);
+    path.dataset.k = wireKey(w);
+    path.dataset.from = w.from;
+    path.dataset.to = w.to;
+    path.setAttribute("d", wirePath(x0, y0, x1, y1, back, dots));
     path.setAttribute("stroke", wireColor(w.substance));
-    if (!w.substance) path.setAttribute("stroke-dasharray", "4 4");
+    if (!w.substance && w.kind !== "value dependency") path.setAttribute("stroke-dasharray", "4 4");
+    const tip = document.createElementNS(NS, "title");
+    tip.textContent = `${w.kind || "wire"}${w.substance ? ` · ${w.substance}` : ""}${w.edit ? ` · ${w.edit}` : w.why_not ? ` · ${w.why_not}` : ""}`;
+    path.appendChild(tip);
     svg.appendChild(path);
+    dots.forEach((pt, i) => {
+      const dot = document.createElement("div");
+      dot.className = "rdot";
+      dot.style.left = `${pt[0]}px`; dot.style.top = `${pt[1]}px`;
+      dot.title = "Routing dot: drag to move, double-click to remove";
+      dragHandle(dot, () => ({ x0: pt[0], y0: pt[1] }), (st, dx, dy) => { pt[0] = Math.round(st.x0 + dx); pt[1] = Math.round(st.y0 + dy); dot.style.left = `${pt[0]}px`; dot.style.top = `${pt[1]}px`; const pth = svg.querySelector(`path[data-k="${CSS.escape(wireKey(w))}"]`); if (pth) pth.setAttribute("d", wirePath(x0, y0, x1, y1, back, dots)); }, () => saveRoutes());
+      dot.addEventListener("dblclick", (e) => { e.stopPropagation(); dots.splice(i, 1); if (!dots.length) delete graphData.routes[wireKey(w)]; saveRoutes(); drawWires(); });
+      $("graph").appendChild(dot);
+    });
     // Labels only on the wires into a store from a source or a transfer; the others are told apart by colour.
     if (w.substance && !back && !/^(diffuse|react)$/.test((g.nodes.find((n) => n.id === w.from) || {}).kind)) {
       const t = document.createElementNS(NS, "text");
@@ -1471,6 +1546,117 @@ function drawWires() {
   }
 }
 
+// Dropping a box on a wire inserts it only where that wire has a defined insertion (the server's dry run says so: a sink on
+// a transfer's destination wire becomes its overflow). The wire glows and the hint says what it would write; anywhere else
+// the box only moves.
+function clearInsertPreview() { for (const p of document.querySelectorAll("#wires .hotwire")) p.classList.remove("hotwire"); const h = $("wirehint"); if (h && !wirePrev) h.style.display = "none"; }
+async function insertPreview(e, d) {
+  const n = graphData && graphData.nodes.find((x) => x.id === d.box.dataset.id);
+  if (!n || !/\.sinks\./.test(n.id) || ctx === "observe" || collapsedView()) return;
+  const cam = cams.graph, r = stages.graph.getBoundingClientRect(), gx = (e.clientX - r.left - cam.x) / cam.s, gy = (e.clientY - r.top - cam.y) / cam.s;
+  const hit = wireAt(gx, gy, 14 / cam.s), key = hit ? `${hit.el.dataset.from}>${hit.el.dataset.to}` : null;
+  if (d.insert && d.insert.key === key) return;
+  clearInsertPreview();
+  d.insert = key ? { key, from: hit.el.dataset.from, to: hit.el.dataset.to, ok: false } : null;
+  if (!key) return;
+  const it = d.insert;
+  let h = $("wirehint");
+  if (!h) { h = document.createElement("div"); h.id = "wirehint"; stages.graph.appendChild(h); }
+  h.style.left = `${e.clientX - r.left + 14}px`; h.style.top = `${e.clientY - r.top + 14}px`;
+  try {
+    const res = await call("world.graph_op", { world: $("world").value, base_revision: graphData.revision, dry_run: true, op: { op: "insert", id: n.id, from: it.from, to: it.to } });
+    if (d.insert !== it) return;
+    it.ok = true;
+    hit.el.classList.add("hotwire");
+    h.className = ""; h.textContent = `drop to ${res.what}: what does not fit goes to ${n.title}`; h.style.display = "block";
+  } catch (err) {
+    if (d.insert !== it) return;
+    h.className = "bad"; h.textContent = `${String(err.message || err)} (dropping only moves it)`; h.style.display = "block";
+  }
+}
+// A double-click on a wire puts a routing dot there, between the dots it already passes through.
+function addRouteDot(e) {
+  const cam = cams.graph, r = stages.graph.getBoundingClientRect(), gx = (e.clientX - r.left - cam.x) / cam.s, gy = (e.clientY - r.top - cam.y) / cam.s;
+  const hit = wireAt(gx, gy, 8 / cam.s);
+  if (!hit || !graphData) return false;
+  const k = hit.el.dataset.k, a = hit.el.getPointAtLength(0), b = hit.el.getPointAtLength(hit.len);
+  graphData.routes = graphData.routes || {};
+  const dots = graphData.routes[k] || (graphData.routes[k] = []), p = [Math.round(gx), Math.round(gy)];
+  const pts = [[a.x, a.y], ...dots, [b.x, b.y]], cost = (i) => Math.hypot(pts[i][0] - p[0], pts[i][1] - p[1]) + Math.hypot(pts[i + 1][0] - p[0], pts[i + 1][1] - p[1]) - Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+  let at = 0;
+  for (let i = 1; i < pts.length - 1; i++) if (cost(i) < cost(at)) at = i;
+  if (dots.length >= 32) { oops("A wire passes through at most 32 dots."); return true; }
+  dots.splice(at, 0, p);
+  saveRoutes();
+  drawWires();
+  return true;
+}
+// Arrange (presentation only): align edges or centres, spread evenly, or lay the selection out in its columns.
+function arrange(how) {
+  const ids = [...multi].filter((id) => placed.has(id) && $("graph").querySelector(`.box[data-id="${CSS.escape(id)}"]`));
+  if (ids.length < (how === "tidy" ? 1 : 2)) return oops(how === "tidy" ? "Select the nodes to lay out first." : "Select two or more nodes first: Shift-click them, or Shift-drag a rectangle.");
+  oops();
+  const ps = ids.map((id) => ({ id, p: placed.get(id) }));
+  const min = (f) => Math.min(...ps.map(f)), max = (f) => Math.max(...ps.map(f));
+  if (how === "left") { const x = min((o) => o.p.x); ps.forEach((o) => (o.p.x = x)); }
+  else if (how === "top") { const y = min((o) => o.p.y); ps.forEach((o) => (o.p.y = y)); }
+  else if (how === "cx") { const x = Math.round(ps.reduce((s, o) => s + o.p.x, 0) / ps.length); ps.forEach((o) => (o.p.x = x)); }
+  else if (how === "cy") { const y = Math.round(ps.reduce((s, o) => s + o.p.y, 0) / ps.length); ps.forEach((o) => (o.p.y = y)); }
+  else if (how === "dx" || how === "dy") {
+    const k = how === "dx" ? "x" : "y";
+    ps.sort((a, b) => a.p[k] - b.p[k]);
+    const lo = ps[0].p[k], hi = ps[ps.length - 1].p[k], step = Math.max((hi - lo) / (ps.length - 1), (k === "x" ? BOX.w : BOX.h) + 16);
+    ps.forEach((o, i) => (o.p[k] = Math.round(lo + i * step)));
+  } else if (how === "tidy") {
+    // Each node stays in its column (sources and reactions, statements, stores), stacked in the order it had.
+    const g = netData(), byCol = new Map();
+    for (const o of ps) { const n = g.nodes.find((x) => x.id === o.id) || {}, c = netCol(n); if (!byCol.has(c)) byCol.set(c, []); byCol.get(c).push(o); }
+    const y0 = min((o) => o.p.y), x0 = min((o) => o.p.x), cols = [...byCol.keys()].sort();
+    cols.forEach((c, ci) => byCol.get(c).sort((a, b) => a.p.y - b.p.y).forEach((o, i) => { o.p.x = Math.round(x0 + ci * (BOX.w + 130)); o.p.y = Math.round(y0 + i * (BOX.h + BOX.gap)); }));
+  }
+  for (const o of ps) { const b = $("graph").querySelector(`.box[data-id="${CSS.escape(o.id)}"]`); if (b) { b.style.left = `${o.p.x}px`; b.style.top = `${o.p.y}px`; } }
+  drawWires();
+  savePositions(ids);
+}
+$("netarrange").onchange = () => { const v = $("netarrange").value; $("netarrange").value = ""; if (v) arrange(v); };
+$("netcollapse").onclick = () => {
+  if (ctx !== "world") return oops("Rules as boxes is a picture of the whole network: go up to it first (U).");
+  rulesCollapsed = !rulesCollapsed;
+  $("netcollapse").classList.toggle("on", rulesCollapsed);
+  multi = new Set(); selected = null;
+  drawGraph();
+  const cam = cams.graph; cam.fit = true; fitCam(cam); applyCam(cam);
+  saveNetView();
+  select(null);
+};
+// The network you were in, its camera and whether rules were boxes, kept in this browser for each world (by its name),
+// so a reload comes back to the same place. A per-viewer convenience: nothing here is part of the world.
+function netViews() { try { return JSON.parse(localStorage.getItem("emerge.netview") || "{}"); } catch (_) { return {}; } }
+function saveNetView() {
+  if (!graphData) return;
+  const all = netViews(), c = cams.graph;
+  ctxCams.set(ctx, { x: c.x, y: c.y, s: c.s, fit: c.fit });
+  all[graphData.world] = { ctx, collapsed: rulesCollapsed, cams: Object.fromEntries([...ctxCams.entries()].filter(([k]) => k !== "observe")) };
+  try { localStorage.setItem("emerge.netview", JSON.stringify(all)); } catch (_) {}
+}
+let netViewFor = null;
+function restoreNetView(g) {
+  if (netViewFor === g.world) return;
+  netViewFor = g.world;
+  const v = netViews()[g.world];
+  if (!v) return;
+  ctxCams.clear();
+  for (const [k, c] of Object.entries(v.cams || {})) ctxCams.set(k, c);
+  rulesCollapsed = !!v.collapsed;
+  $("netcollapse").classList.toggle("on", rulesCollapsed);
+  if (v.ctx && v.ctx !== "observe" && (g.contexts || []).some((c) => c.key === v.ctx)) ctx = v.ctx;
+  const saved = ctxCams.get(ctx);
+  if (saved && !saved.fit) Object.assign(cams.graph, saved, { w: 0, h: 0 });
+}
+let netViewTimer = null;
+const saveNetViewSoon = () => { clearTimeout(netViewTimer); netViewTimer = setTimeout(saveNetView, 400); };
+stages.graph.addEventListener("wheel", saveNetViewSoon, { passive: true });
+stages.graph.addEventListener("pointerup", saveNetViewSoon);
 // One edit of the graph: the server makes the patch and swaps the running world. A refused edit
 // changes nothing and its reason is shown.
 async function graphOp(op) {
@@ -1544,13 +1730,24 @@ function copySelection() {
   const ids = [...(multi.size ? multi : selected ? [selected] : [])].filter(dupable);
   if (!ids.length) return oops(dupReason(multi.size ? multi : selected ? [selected] : []));
   oops();
-  netClip = { world: $("world").value, ids };
+  // The statements' text and the field each one's rule works on go with the copy, so it can be pasted into another world
+  // (kept in this browser, so another page of it can paste too).
+  const ruleOn = (n) => { const r = graphData.nodes.find((x) => x.id === n.group), sm = r && r.contract && r.contract.summary; return sm ? sm.on : ""; };
+  const items = ids.map((id) => graphData.nodes.find((x) => x.id === id)).map((n) => ({ on: ruleOn(n), text: n.text }));
+  netClip = { world: $("world").value, run: track.run, name: graphData.world, ids, items };
+  try { localStorage.setItem("emerge.netclip", JSON.stringify(netClip)); } catch (_) {}
   $("netfound").textContent = `${ids.length} copied`;
 }
 async function pasteClip() {
+  if (!netClip) { try { netClip = JSON.parse(localStorage.getItem("emerge.netclip") || "null"); } catch (_) {} }
   if (!netClip) return oops("Nothing copied: select statements and press Ctrl+C.");
-  if (netClip.world !== $("world").value) return oops(`These statements were copied in ${netClip.world}; paste works inside the same world.`);
-  return duplicateIds(netClip.ids);
+  // In the world they came from (the same run), a paste is a duplicate; anywhere else, their text goes into new rules
+  // there, checked by that world (a substance it lacks is refused with the reason, and nothing changes).
+  if (netClip.world === $("world").value && netClip.run === track.run) return duplicateIds(netClip.ids);
+  oops();
+  const r = await graphOp({ op: "paste", items: netClip.items });
+  if (r) $("netfound").textContent = `${netClip.items.length} pasted from ${netClip.name}`;
+  return r;
 }
 $("netdup").onclick = () => duplicateIds(multi.size ? multi : selected ? [selected] : []);
 window.addEventListener("keydown", (e) => {
@@ -2012,6 +2209,7 @@ async function loadGraph() {
   graphData = g;
   graphRev = graphData.revision;
   g.contexts = [...(g.contexts || []), { key: "observe", label: `${(g.contexts || [])[0] ? g.contexts[0].label : "World"} / Observe` }];
+  restoreNetView(g);
   if (ctx === "observe") await loadTrackers().catch(() => {});
   drawGraph();
   updateHistory();

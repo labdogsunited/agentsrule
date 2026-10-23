@@ -404,23 +404,29 @@ fn nested_edit(file: &File, world: &str, id: &str, change: NestedChange, base: u
     Ok(Edit::new(world, base, format!("replace {rel} {{ {} }}", texts(&new)), format!("replace {rel} {{ {} }}", texts(body)), Some(id.to_string())))
 }
 
-/// One statement from source text.
-fn parse_stmt(text: &str) -> Result<Stmt, String> {
+/// Statements from source text, as a rule body holds them.
+fn parse_block(text: &str) -> Result<Block, String> {
     let src = format!("world T {{ rule r on f {{ {text} }} }}");
     let file = crate::parse(&src).map_err(|d| format!("{}: {}", d.code, d.message))?;
     for item in &file.items {
         if let Item::World(w) = &item.node {
             for d in &w.decls {
                 if let WDecl::Rule { body, .. } = &d.node {
-                    return match body.as_slice() {
-                        [one] => Ok(one.node.clone()),
-                        _ => Err("a statement inside a `when` is one statement: write a `when` of its own to hold several".to_string()),
-                    };
+                    return Ok(body.clone());
                 }
             }
         }
     }
     Err("not a statement".to_string())
+}
+
+/// One statement from source text.
+fn parse_stmt(text: &str) -> Result<Stmt, String> {
+    match parse_block(text)?.as_slice() {
+        [one] => Ok(one.node.clone()),
+        [] => Err("no statement".to_string()),
+        _ => Err("this is one statement: write a `when` of its own to hold several".to_string()),
+    }
 }
 
 /// The edit that replaces the text of the statement box `id`, wherever it is: a top-level statement (`edit_text`) or one
@@ -462,6 +468,13 @@ pub enum Op {
     /// Several edits as one: each is worked out against the file the ones before it leave, and the result is one
     /// patch, one revision and one undo.
     Batch { ops: Vec<Op> },
+    /// Statements copied as text (from this world or another), each into a new rule of its own on the field it was on
+    /// (`on`, which this world must have). The checker of this world decides whether they are valid here.
+    Paste { items: Vec<(String, String)> },
+    /// A box dropped on a wire (`proposals/houdini-node-system.md` §6): only where the wire has a defined insertion. The
+    /// one there is: a sink dropped on the wire from a transfer to its destination becomes that transfer's `overflow`
+    /// (what does not fit goes to the sink). Anywhere else the box only moves.
+    Insert { id: String, from: String, to: String },
 }
 
 /// A value as the AST holds it, parsed from source text.
@@ -556,6 +569,43 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<Edit, St
     };
 
     match op {
+        Op::Paste { items } => {
+            if items.is_empty() {
+                return Err("nothing to paste".to_string());
+            }
+            let mut taken: Vec<String> = w.decls.iter().filter_map(|d| crate::check::declared(&d.node).map(|(n, _)| n.to_string())).collect();
+            let fields: Vec<&str> = w.decls.iter().filter_map(|d| match &d.node { WDecl::Field { name, .. } => Some(name.as_str()), _ => None }).collect();
+            let mut place = w.decls.iter().rev().find_map(|d| match &d.node { WDecl::Rule { name, .. } => Some(name.clone()), _ => None });
+            let (mut redo, mut undo) = (Vec::new(), Vec::new());
+            let mut selected = None;
+            for (on, text) in items {
+                if !fields.contains(&on.as_str()) {
+                    return Err(format!("this world has no field `{on}` for the pasted statement to work on (it has {})", fields.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")));
+                }
+                let stmt = parse_stmt(text).map_err(|m| format!("the pasted text: {m}"))?;
+                let name = (1..).map(|k| format!("pasted_{k}")).find(|n| !taken.contains(n)).unwrap();
+                taken.push(name.clone());
+                let at = match &place { Some(p) => format!("add after rules.{p}: "), None => "add ".to_string() };
+                redo.push(format!("{at}rule {name} on {on} {{ {} }}", stmt_text(&stmt)));
+                undo.push(format!("remove rules.{name};"));
+                selected = Some(match &stmt { Stmt::Call { label: Some(l), .. } => format!("{world}.rules.{name}@{l}"), _ => format!("{world}.rules.{name}#0") });
+                place = Some(name);
+            }
+            undo.reverse();
+            Ok(Edit::new(world, base, redo.join(" "), undo.join(" "), selected))
+        }
+        Op::Insert { id, from, to } => {
+            let (n, a, b) = (node(id)?, node(from)?, node(to)?);
+            let wired = g.wires.iter().any(|x| x.from == *from && x.to == *to);
+            if !wired {
+                return Err(format!("there is no wire from `{}` to `{}`", a.title, b.title));
+            }
+            let sink = n.kind == Kind::Store && n.id.starts_with(&format!("{world}.sinks."));
+            if !(sink && a.kind == Kind::Transfer && b.kind == Kind::Store) {
+                return Err(format!("no insertion is defined for `{}` on the wire from `{}` to `{}`: a sink dropped on a transfer's destination wire becomes its overflow; anything else only moves", n.title, a.title, b.title));
+            }
+            set_arg(from, "overflow", short(id))
+        }
         Op::SetParam { id, param, value } if id.contains('/') => nested_edit(file, world, id, NestedChange::Arg(param.clone(), value.clone()), base),
         Op::Delete { id } if id.contains('/') => nested_edit(file, world, id, NestedChange::Delete, base),
         Op::Batch { ops } => op_batch(file, world, ops, base),

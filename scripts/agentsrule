@@ -1,6 +1,8 @@
 #!/bin/sh
-# agentsrule web [--port N] [--no-open] [--journal-dir DIR]
+# agentsrule web [--port N] [--no-open] [--journal-dir DIR] [--state-dir DIR]
 #   Without --port, the first free port from 7878 up; with --port, that port or an error.
+#   What outlives a server (each world's network organisation, the template and operator library) is kept in
+#   --state-dir, by default ${XDG_DATA_HOME:-~/.local/share}/emerge.
 #   Starts the browser viewer (emerge-server serve --viewer) and opens it. The page has Restart and
 #   Stop buttons; Ctrl-C here stops it too. A restart keeps the address, so an open page reconnects.
 #
@@ -11,7 +13,7 @@ here=$(dirname "$(readlink -f "$0")")
 repo=$(dirname "$here")
 
 usage() {
-  echo "usage: agentsrule web [--port N] [--no-open] [--journal-dir DIR]" >&2
+  echo "usage: agentsrule web [--port N] [--no-open] [--journal-dir DIR] [--state-dir DIR]" >&2
   exit 2
 }
 
@@ -30,11 +32,13 @@ web() {
   port=""
   open=1
   journals=""
+  state="${XDG_DATA_HOME:-$HOME/.local/share}/emerge"
   while [ $# -gt 0 ]; do
     case "$1" in
       --port) [ $# -ge 2 ] || usage; port=$2; shift 2 ;;
       --no-open) open=0; shift ;;
       --journal-dir) [ $# -ge 2 ] || usage; journals=$2; shift 2 ;;
+      --state-dir) [ $# -ge 2 ] || usage; state=$2; shift 2 ;;
       *) usage ;;
     esac
   done
@@ -60,9 +64,9 @@ web() {
   first=1
   while :; do
     if [ -n "$journals" ]; then
-      "$server" serve --viewer --port "$port" --journal-dir "$journals" &
+      "$server" serve --viewer --port "$port" --state-dir "$state" --journal-dir "$journals" &
     else
-      "$server" serve --viewer --port "$port" &
+      "$server" serve --viewer --port "$port" --state-dir "$state" &
     fi
     pid=$!
     if [ "$first" = 1 ]; then

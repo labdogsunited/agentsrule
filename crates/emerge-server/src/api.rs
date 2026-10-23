@@ -64,6 +64,11 @@ struct Entry {
     /// only, by id, in the same sidecar as `layout`. Never part of the source, never a revision.
     notes: serde_json::Map<String, Value>,
     frames: serde_json::Map<String, Value>,
+    /// Routing dots of the node editor: by wire (`from>to>substance`), the points a wire passes through. Presentation only.
+    routes: serde_json::Map<String, Value>,
+    /// The world's declared name (`world Dish`): its network's organisation is kept under it in the state directory, so
+    /// it comes back when the same world is created again after a restart.
+    name: String,
     /// The graph edits made, newest last, and the ones undone (`world.undo`, `world.redo`).
     undo: Vec<Step>,
     redo: Vec<Step>,
@@ -103,6 +108,14 @@ pub struct Engine {
     pairs: Vec<(String, String, String)>,
     /// This engine's incarnation: a run's ID is this and its world handle, so a restarted server's `w1` is another run.
     session: String,
+    /// Where what outlives the server is kept (`layouts/<world name>.json`, the library), if anywhere. Chosen by whoever
+    /// starts the server, never by a caller.
+    state_dir: Option<std::path::PathBuf>,
+}
+
+/// The organisation of a network kept across restarts: `<state>/layouts/<world name>.json`.
+fn layout_path(state: &std::path::Path, name: &str) -> std::path::PathBuf {
+    state.join("layouts").join(format!("{name}.json"))
 }
 
 /// The longest one `run.step` call runs, so that a client waiting on it does not time out.
@@ -127,6 +140,17 @@ fn graph_op(v: &Value) -> Result<(emerge_lang::graph::Op, String), Fault> {
         }
         Some("label") => (Op::Label { id: get("id")?, label: get("label")? }, format!("label {} as {}", get("id")?, get("label")?)),
         Some("unwire") => (Op::Unwire { id: get("id")?, port: get("port")? }, format!("cut {} of {}", get("port")?, get("id")?)),
+        Some("paste") => {
+            let list = v["items"].as_array().ok_or_else(|| bad("`op.items` must be a list of {on, text}"))?;
+            let mut items = Vec::new();
+            for it in list {
+                let (Some(on), Some(t)) = (it["on"].as_str(), it["text"].as_str()) else { return Err(bad("each pasted item needs `on` (a field) and `text` (one statement)")) };
+                items.push((on.to_string(), t.to_string()));
+            }
+            let n = items.len();
+            (Op::Paste { items }, format!("paste {n} statement{}", if n == 1 { "" } else { "s" }))
+        }
+        Some("insert") => (Op::Insert { id: get("id")?, from: get("from")?, to: get("to")? }, format!("insert {} on the wire from {} to {}", get("id")?, get("from")?, get("to")?)),
         Some("batch") => {
             let list = v["ops"].as_array().ok_or_else(|| bad("`op.ops` must be a list of edits"))?;
             let mut ops = Vec::new();
@@ -137,7 +161,7 @@ fn graph_op(v: &Value) -> Result<(emerge_lang::graph::Op, String), Fault> {
             let n = ops.len();
             (Op::Batch { ops }, format!("{n} edits together"))
         }
-        _ => return Err(bad("`op.op` must be set_param, wire, delete, add_rule, add_connected, duplicate, label, unwire or batch")),
+        _ => return Err(bad("`op.op` must be set_param, wire, delete, add_rule, add_connected, duplicate, label, unwire, paste, insert or batch")),
     })
 }
 
@@ -160,6 +184,12 @@ impl Engine {
     /// An engine that journals every world to `dir/<world>.jsonl`.
     pub fn with_journals(dir: std::path::PathBuf) -> Engine {
         Engine { journal_dir: Some(dir), session: session_id(), ..Engine::default() }
+    }
+
+    /// The same engine, keeping what outlives it in `dir`.
+    pub fn with_state_dir(mut self, dir: std::path::PathBuf) -> Engine {
+        self.state_dir = Some(dir);
+        self
     }
 
     /// The run of world `id`, to change (tests that need a state the API cannot make, such as entity IDs above 2^53).
@@ -313,8 +343,16 @@ impl Engine {
                 };
                 let mut run = Run::create(spec, journal).map_err(|e| rejected(&e))?;
                 run.run_id = format!("{}-{id}", self.session);
-                let out = json!({"world": id, "run": run.run_id, "revision": 0, "tick": 0, "population": run.population(), "backend": run.device});
-                self.runs.insert(id, Entry { run, running: false, layout: Default::default(), notes: Default::default(), frames: Default::default(), undo: Vec::new(), redo: Vec::new(), notebook: Vec::new() });
+                let mut out = json!({"world": id, "run": run.run_id, "revision": 0, "tick": 0, "population": run.population(), "backend": run.device});
+                let name = emerge_lang::parse(&run.live.source).ok().and_then(|f| f.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) => Some(w.name.clone()), _ => None })).unwrap_or_default();
+                let mut entry = Entry { run, running: false, layout: Default::default(), notes: Default::default(), frames: Default::default(), routes: Default::default(), name, undo: Vec::new(), redo: Vec::new(), notebook: Vec::new() };
+                // The organisation this world's network had when it was last arranged (by its name), if it was kept.
+                if let Some(saved) = self.state_dir.as_ref().and_then(|d| std::fs::read_to_string(layout_path(d, &entry.name)).ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
+                    let map = |k: &str| saved[k].as_object().cloned().unwrap_or_default();
+                    (entry.layout, entry.notes, entry.frames, entry.routes) = (map("positions"), map("notes"), map("frames"), map("routes"));
+                    out["layout_restored"] = json!(entry.name);
+                }
+                self.runs.insert(id, entry);
                 Ok(out)
             }
             "world.validate" => {
@@ -347,6 +385,7 @@ impl Engine {
                     "positions": e.layout,
                     "notes": e.notes,
                     "frames": e.frames,
+                    "routes": e.routes,
                     "history": {"undo": e.undo.iter().map(|s| s.what.clone()).collect::<Vec<_>>(), "redo": e.redo.iter().map(|s| s.what.clone()).collect::<Vec<_>>()},
                     "nodes": g.nodes.iter().map(|n| { let c = contract.nodes.get(&n.id); json!({"id": n.id, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "step": n.step, "group": n.group, "line": n.line, "params": n.params, "contract": c.map(node_contract_json)}) }).collect::<Vec<_>>(),
                     "wires": g.wires.iter().zip(&contract.wires).map(|(w, c)| json!({"from": w.from, "to": w.to, "substance": w.substance, "kind": c.kind, "from_port": c.from_port, "to_port": c.to_port, "derived": c.derived, "edit": c.edit, "why_not": c.why_not})).collect::<Vec<_>>(),
@@ -580,7 +619,21 @@ impl Engine {
                 };
                 let notes = checked("notes", &["x", "y"], &[("text", 2000)])?;
                 let frames = checked("frames", &["x", "y", "w", "h"], &[("label", 200)])?;
-                let dir = self.journal_dir.clone();
+                // `routes` replaces the whole map: a wire's key, then the points it passes through ([[x, y], …], at most 32).
+                let routes = if p["routes"].is_null() { None } else {
+                    let m = p["routes"].as_object().ok_or_else(|| bad("`routes` must be an object of wire: [[x, y], …]"))?;
+                    if m.len() > 500 {
+                        return Err(bad("`routes` holds at most 500 wires"));
+                    }
+                    for (k, v) in m {
+                        let ok = v.as_array().is_some_and(|pts| pts.len() <= 32 && pts.iter().all(|q| q.as_array().is_some_and(|a| a.len() == 2 && a.iter().all(|n| n.as_f64().is_some_and(f64::is_finite)))));
+                        if !ok {
+                            return Err(bad(format!("route `{k}` must be at most 32 points [x, y]")));
+                        }
+                    }
+                    Some(m.clone())
+                };
+                let (dir, state) = (self.journal_dir.clone(), self.state_dir.clone());
                 let e = self.entry(p)?;
                 for (k, v) in positions {
                     e.layout.insert(k, v);
@@ -591,11 +644,18 @@ impl Engine {
                 if let Some(f) = frames {
                     e.frames = f;
                 }
-                if let Some(dir) = dir {
-                    let body = serde_json::to_string_pretty(&json!({"world": id, "positions": e.layout, "notes": e.notes, "frames": e.frames})).unwrap_or_default();
-                    std::fs::write(dir.join(format!("{id}.meta.json")), body).map_err(|err| fault(-32603, format!("could not write the layout: {err}")))?;
+                if let Some(r) = routes {
+                    e.routes = r;
                 }
-                Ok(json!({"saved": e.layout.len(), "notes": e.notes.len(), "frames": e.frames.len()}))
+                let body = |world: &str| serde_json::to_string_pretty(&json!({"world": world, "positions": e.layout, "notes": e.notes, "frames": e.frames, "routes": e.routes})).unwrap_or_default();
+                if let Some(dir) = dir {
+                    std::fs::write(dir.join(format!("{id}.meta.json")), body(&id)).map_err(|err| fault(-32603, format!("could not write the layout: {err}")))?;
+                }
+                if let (Some(state), false) = (state, e.name.is_empty()) {
+                    let path = layout_path(&state, &e.name);
+                    std::fs::create_dir_all(path.parent().unwrap()).and_then(|_| std::fs::write(&path, body(&e.name))).map_err(|err| fault(-32603, format!("could not keep the layout: {err}")))?;
+                }
+                Ok(json!({"saved": e.layout.len(), "notes": e.notes.len(), "frames": e.frames.len(), "routes": e.routes.len()}))
             }
             "world.hotswap" => {
                 let (patch, reason) = (text(p, "patch")?.to_string(), p["reason"].as_str().unwrap_or("").to_string());

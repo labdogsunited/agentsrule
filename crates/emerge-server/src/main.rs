@@ -1,8 +1,10 @@
 //! `emerge-server exit2 DISH [--gpu] [--ticks N] [--journal FILE]`: exit test 2 (40 swaps, the ledger
 //! checked every tick).
 //! `emerge-server replay JOURNAL`: rebuilds a run from its journal and checks it.
-//! `emerge-server serve [--port N] [--journal-dir DIR] [--viewer]`: the JSON-RPC API over WebSocket on 127.0.0.1
-//! (default port 7878); with `--journal-dir`, every world's journal is written there as `<world>.jsonl`.
+//! `emerge-server serve [--port N] [--journal-dir DIR] [--state-dir DIR] [--viewer]`: the JSON-RPC API over WebSocket on 127.0.0.1
+//! (default port 7878); with `--journal-dir`, every world's journal is written there as `<world>.jsonl`; with
+//! `--state-dir`, what outlives a server (each world's network organisation by its name, the template and operator
+//! library) is kept there.
 //! With `--viewer`, the page can stop the server (exit 0) or restart it (exit 75); see `scripts/agentsrule`.
 //! `emerge-server mcp [--journal-dir DIR]`: the MCP adapter over stdio (for Claude and other MCP clients).
 //! `emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--seed S] [--mutation off]
@@ -48,7 +50,7 @@ fn main() -> ExitCode {
             if let Some(v) = &viewer {
                 eprintln!("emerge-server: viewer at {}", v.url(listener.local_addr().unwrap().port()));
             }
-            emerge_server::serve::serve_with(listener, flag(&args, "--journal-dir").map(Into::into), viewer);
+            emerge_server::serve::serve_state(listener, flag(&args, "--journal-dir").map(Into::into), flag(&args, "--state-dir").map(Into::into), viewer);
             ExitCode::SUCCESS
         }
         Some("mov") if args.len() >= 2 => {
@@ -78,7 +80,7 @@ fn main() -> ExitCode {
             }
         }
         _ => {
-            eprintln!("usage: emerge-server exit2 DISH [--gpu] [--ticks N] [--journal FILE]\n       emerge-server replay JOURNAL\n       emerge-server mov RECORDING_DIR [--fps N]\n       emerge-server serve [--port N] [--journal-dir DIR] [--viewer]\n       emerge-server mcp [--journal-dir DIR]\n       emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--made S --window W] [--views FILE] [--view NAME] [--chart default|NAME]... [--out PNG]");
+            eprintln!("usage: emerge-server exit2 DISH [--gpu] [--ticks N] [--journal FILE]\n       emerge-server replay JOURNAL\n       emerge-server mov RECORDING_DIR [--fps N]\n       emerge-server serve [--port N] [--journal-dir DIR] [--state-dir DIR] [--viewer]\n       emerge-server mcp [--journal-dir DIR]\n       emerge-server render (DISH --lineages A[,B] | --journal FILE) [--tick T] [--made S --window W] [--views FILE] [--view NAME] [--chart default|NAME]... [--out PNG]");
             ExitCode::FAILURE
         }
     }

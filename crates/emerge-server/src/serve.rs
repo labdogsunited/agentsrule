@@ -104,10 +104,16 @@ pub fn serve(listener: TcpListener, journal_dir: Option<std::path::PathBuf>) {
 
 /// `serve`, and with `viewer` also the browser viewer.
 pub fn serve_with(listener: TcpListener, journal_dir: Option<std::path::PathBuf>, viewer: Option<Viewer>) {
+    serve_state(listener, journal_dir, None, viewer);
+}
+
+/// `serve_with`, keeping what outlives a server (the networks' organisation, the template and operator library) in
+/// `state_dir`, if given.
+pub fn serve_state(listener: TcpListener, journal_dir: Option<std::path::PathBuf>, state_dir: Option<std::path::PathBuf>, viewer: Option<Viewer>) {
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
     let viewer = viewer.map(Arc::new);
     let (to_engine, calls) = mpsc::channel::<Call>();
-    std::thread::spawn(move || engine(calls, journal_dir));
+    std::thread::spawn(move || engine(calls, journal_dir, state_dir));
     for stream in listener.incoming().flatten() {
         let to_engine = to_engine.clone();
         let viewer = viewer.clone();
@@ -115,8 +121,11 @@ pub fn serve_with(listener: TcpListener, journal_dir: Option<std::path::PathBuf>
     }
 }
 
-fn engine(calls: mpsc::Receiver<Call>, journal_dir: Option<std::path::PathBuf>) {
+fn engine(calls: mpsc::Receiver<Call>, journal_dir: Option<std::path::PathBuf>, state_dir: Option<std::path::PathBuf>) {
     let mut engine = journal_dir.clone().map_or_else(Engine::new, Engine::with_journals);
+    if let Some(dir) = state_dir {
+        engine = engine.with_state_dir(dir);
+    }
     let (mut subs, mut next_sub) = (Vec::<Sub>::new(), 0u64);
     let mut recs = Vec::<Recording>::new();
     loop {
