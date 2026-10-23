@@ -91,7 +91,38 @@ struct AcctStart {
     disposal0: Vec<(u64, u64)>,
 }
 
+/// Records the GPU keeps of births and deaths (24 bytes each, 96 MB of device memory); past that it counts what it dropped.
+const GPU_EVENT_LOG: usize = 4 << 20;
+
+/// A living creature as the family and life-history queries need it.
+struct Living { id: u64, lineage: usize, age: u64, stock: u64 }
+
 impl Run {
+    /// Every living creature, from the CPU world or the GPU's entity table.
+    fn living(&self) -> Vec<Living> {
+        match &self.backend {
+            Backend::Cpu => {
+                let ns = self.live.world.chem.substances.len();
+                self.live.world.entities.iter().map(|e| Living { id: e.id, lineage: e.lineage, age: e.age, stock: e.store.amounts[..ns].iter().map(|&a| u64::from(a)).sum() }).collect()
+            }
+            Backend::Gpu(r) => {
+                let ns = r.ns();
+                let (ent, _, amounts) = r.entity_table();
+                ent.chunks(emerge_gpu::pack::ENT).zip(amounts.chunks(ns))
+                    .map(|(e, a)| Living { id: u64::from(e[0]) | (u64::from(e[1]) << 32), lineage: e[11] as usize, age: u64::from(e[10]), stock: a.iter().map(|&x| u64::from(x)).sum() })
+                    .collect()
+            }
+        }
+    }
+
+    /// Birth and death events since tick 0 (the GPU: since the run started), and how many the GPU's log dropped.
+    fn event_list(&self) -> Result<(std::borrow::Cow<'_, [emerge_ref::world::Event]>, u64), String> {
+        match &self.backend {
+            Backend::Cpu => Ok((std::borrow::Cow::Borrowed(&self.live.world.events[..]), 0)),
+            Backend::Gpu(r) => r.events().map(|(v, dropped)| (std::borrow::Cow::Owned(v), dropped)).ok_or_else(|| "the GPU run keeps no events".to_string()),
+        }
+    }
+
     /// Compiles the source (in canonical form) and starts at tick 0, revision 0. The journal's
     /// header is written at once.
     pub fn create(mut spec: Spec, mut journal: Journal) -> Result<Run, Rejected> {
@@ -110,7 +141,9 @@ impl Run {
         }
         let (backend, device) = if spec.gpu {
             let gpu: &'static Gpu = Box::leak(Box::new(Gpu::new()));
-            (Backend::Gpu(Box::new(Resident::new(gpu, &mut live.world))), format!("gpu: {}", gpu.name))
+            let mut r = Resident::new(gpu, &mut live.world);
+            r.enable_events(GPU_EVENT_LOG);
+            (Backend::Gpu(Box::new(r)), format!("gpu: {}", gpu.name))
         } else {
             (Backend::Cpu, "cpu: emerge-ref".to_string())
         };
@@ -576,19 +609,17 @@ impl Run {
     }
 
     /// One creature's family (`ancestry.query`, `proposals/science-panels.md` §6) from the birth and
-    /// death events the CPU runner keeps: its ancestors back to a founder, and the descendants it
-    /// has had (ever, and alive now). CPU only; a GPU run keeps no events.
+    /// death events the runner keeps: its ancestors back to a founder, and the descendants it
+    /// has had (ever, and alive now). A GPU run keeps them from its start (the CPU from tick 0).
     pub fn ancestry(&self, id: u64, max_ancestors: usize) -> Result<Value, String> {
-        if !matches!(self.backend, Backend::Cpu) {
-            return Err("family trees come from the CPU runner's birth events; the GPU keeps none".into());
-        }
         use emerge_ref::world::Event;
-        let w = &self.live.world;
-        let me = w.entities.iter().find(|e| e.id == id).ok_or_else(|| format!("entity {id} is not alive (ancestry starts from a living creature)"))?;
+        let living = self.living();
+        let me = living.iter().find(|e| e.id == id).ok_or_else(|| format!("entity {id} is not alive (ancestry starts from a living creature)"))?;
+        let (events, dropped) = self.event_list()?;
         let mut parent: std::collections::HashMap<u64, (u64, u64)> = Default::default();
         let mut children: std::collections::HashMap<u64, Vec<u64>> = Default::default();
         let mut died: std::collections::HashMap<u64, (u64, &'static str)> = Default::default();
-        for ev in &w.events {
+        for ev in events.iter() {
             match ev {
                 Event::Born { tick, parent: p, child } => {
                     parent.insert(*child, (*p, *tick));
@@ -599,7 +630,7 @@ impl Run {
                 }
             }
         }
-        let alive: std::collections::HashSet<u64> = w.entities.iter().map(|e| e.id).collect();
+        let alive: std::collections::HashSet<u64> = living.iter().map(|e| e.id).collect();
         let row = |x: u64| -> Value {
             let (born, par) = match parent.get(&x) { Some((p, t)) => (json!(t), json!(p)), None => (Value::Null, Value::Null) };
             json!({"id": x, "parent": par, "born": born, "alive": alive.contains(&x), "died": died.get(&x).map(|(t, c)| json!({"tick": t, "cause": c})),
@@ -627,7 +658,8 @@ impl Run {
             "ancestors": up, "ancestors_complete": reached_founder, "ancestor_limit": max_ancestors,
             "founder": if reached_founder { json!(at) } else { Value::Null },
             "descendants": {"ever": ever, "alive_now": living, "generations": deepest},
-            "source": "birth and death events kept by the CPU runner since tick 0; a genesis creature has no recorded parent",
+            "source": if matches!(self.backend, Backend::Cpu) { "birth and death events kept by the CPU runner since tick 0; a genesis creature has no recorded parent" } else { "birth and death events logged on the GPU since the run started; a genesis creature has no recorded parent" },
+            "events_dropped": dropped, "events_dropped_note": "records the GPU's event log had no room for; a chain that crosses them looks like it reaches a founder",
             "not_recorded": "genome differences between parent and child are not kept unless recorded at birth"}))
     }
 
@@ -680,14 +712,12 @@ impl Run {
             "unit": "µ (millionths of a unit); creatures count when their position is inside the region"}))
     }
 
-    /// The creature `id` and every descendant born so far, from the CPU runner's birth events.
+    /// The creature `id` and every descendant born so far, from the runner's birth events.
     pub fn clade_of(&self, id: u64) -> Result<std::collections::HashSet<u64>, String> {
-        if !matches!(self.backend, Backend::Cpu) {
-            return Err("clades follow the CPU runner's birth events; the GPU keeps none".into());
-        }
         use emerge_ref::world::Event;
         let mut children: std::collections::HashMap<u64, Vec<u64>> = Default::default();
-        for ev in &self.live.world.events {
+        let (events, _) = self.event_list()?;
+        for ev in events.iter() {
             if let Event::Born { parent, child, .. } = ev { children.entry(*parent).or_default().push(*child); }
         }
         let mut seen: std::collections::HashSet<u64> = [id].into();
@@ -777,21 +807,20 @@ impl Run {
     /// Life histories (`life.query`, `proposals/science-panels.md` §10): the age and carried-stock distributions of
     /// the living, by lineage (the whole population), and the cohort born in ticks `from` to `to`: its size, how
     /// it has fared (still alive counts as censored, never as dead), survival by age, age at first child and
-    /// offspring so far. From the CPU runner's complete birth and death events.
+    /// offspring so far. From the runner's birth and death events.
     pub fn life(&self, from: u64, to: u64, bins: usize) -> Result<Value, String> {
-        if !matches!(self.backend, Backend::Cpu) { return Err("life histories come from the CPU runner's events".into()); }
         use emerge_ref::world::Event;
-        let w = &self.live.world;
-        let now = w.tick;
-        let ns = w.chem.substances.len();
+        let living = self.living();
+        let (events, dropped) = self.event_list()?;
+        let now = self.tick();
         let n = self.spec.lineages.len();
-        let max_age = w.entities.iter().map(|e| e.age).max().unwrap_or(0).max(1);
+        let max_age = living.iter().map(|e| e.age).max().unwrap_or(0).max(1);
         let width = (max_age / bins as u64 + 1).max(1);
         let mut ages = vec![vec![0u64; bins]; n];
         let mut stock: Vec<Vec<u64>> = vec![vec![]; n];
-        for e in &w.entities {
+        for e in &living {
             ages[e.lineage][((e.age / width) as usize).min(bins - 1)] += 1;
-            stock[e.lineage].push(e.store.amounts[..ns].iter().map(|&a| u64::from(a)).sum::<u64>());
+            stock[e.lineage].push(e.stock);
         }
         let stock_rows: Vec<Value> = stock.iter_mut().enumerate().map(|(i, v)| { v.sort_unstable(); let k = v.len(); json!({"lineage": self.spec.lineages[i], "creatures": k, "total_carried_mu": if k == 0 { Value::Null } else { json!({"min": v[0], "median": v[k / 2], "max": v[k - 1], "mean": v.iter().sum::<u64>() as f64 / k as f64}) }}) }).collect();
         // Cohort: creatures born in [from, to], by their birth events.
@@ -800,7 +829,7 @@ impl Run {
         let mut died: std::collections::HashMap<u64, (u64, bool)> = Default::default();
         let mut first_child: std::collections::HashMap<u64, u64> = Default::default();
         let mut kids: std::collections::HashMap<u64, u64> = Default::default();
-        for ev in &w.events {
+        for ev in events.iter() {
             match ev {
                 Event::Born { tick, parent, child } => { born.insert(*child, *tick); parent_of.insert(*child, *parent); first_child.entry(*parent).or_insert(*tick); *kids.entry(*parent).or_default() += 1; }
                 Event::Died { tick, id, cause } => { died.insert(*id, (*tick, *cause == emerge_ref::Cause::Starved)); }
@@ -822,7 +851,7 @@ impl Run {
         let step = (horizon / 10).max(1);
         let survival: Vec<Value> = (0..=horizon).step_by(step as usize).map(|a| json!({"age": a, "alive": cohort.iter().filter(|id| died.get(id).is_none_or(|(t, _)| *t - born[id] > a)).count()})).collect();
         first_div.sort_unstable();
-        let founders = w.entities.iter().filter(|e| !born.contains_key(&e.id)).count();
+        let founders = living.iter().filter(|e| !born.contains_key(&e.id)).count();
         Ok(json!({"tick": now, "snapshot": {"coverage": "every living creature", "age_bin_width": width, "ages": self.spec.lineages.iter().zip(&ages).map(|(l, a)| json!({"lineage": l, "bins": a})).collect::<Vec<_>>(), "carried": stock_rows,
                 "recent": self.history.samples.last().map(|s| json!({"tick": s.tick, "births_since_previous_sample": s.births, "deaths_since_previous_sample": s.deaths}))},
             "cohort": {"born_from": from, "born_to": to, "size": cohort.len(), "starved": starved, "aged": aged, "alive_censored": alive,
@@ -831,6 +860,7 @@ impl Run {
                 "offspring_so_far": offspring, "offspring_note": "children born to cohort members by now, not lifetime reproductive success while any member lives",
                 "mean_age_at_death": if death_ages.is_empty() { Value::Null } else { json!(death_ages.iter().sum::<u64>() as f64 / death_ages.len() as f64) }, "deaths_are_of_the_dead_only": true},
             "source": format!("birth and death events kept since tick 0 (a birth in tick t happens during that tick's step and shows in the sample taken at t + 1); {founders} living creatures are founders (no recorded birth) and belong to no cohort"),
+            "events_dropped": dropped,
             "death_causes": "starved or aged, as the engine records them; why a creature starved is not recorded"}))
     }
 

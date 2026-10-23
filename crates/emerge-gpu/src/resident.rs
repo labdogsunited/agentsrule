@@ -42,6 +42,14 @@ impl Module {
     }
 }
 
+/// The birth and death log for ancestry (`events.wgsl`): a side output that no kernel of the tick reads.
+struct EventLog {
+    m: Module,
+    log: wgpu::Buffer,
+    evn: wgpu::Buffer,
+    cap: usize,
+}
+
 /// The element ledger audit: element totals against what the sources emitted and the sinks absorbed.
 pub struct Audit {
     start: Vec<i128>,
@@ -90,6 +98,7 @@ pub struct Resident<'a> {
     pub collections: u32,
     gc_pending: bool,
     audit: Option<Audit>,
+    events: Option<EventLog>,
     comp: Vec<Vec<u32>>,
     /// The most active genes a genome may hold (the largest capacity of any lineage, or of the first population).
     max_genes: usize,
@@ -347,7 +356,7 @@ impl<'a> Resident<'a> {
         let mut_m = module(gpu, &mut_src, 9, &["mutate_children"]);
         let gc_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("gc.wgsl"), crate::scan::kernels("gm", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("gv", "params[P_N]", "{name}_in[i]"));
         let gc_m = module(gpu, &gc_src, 12, &["gc_sizes", "gc_copy", "gm_local", "gm_scan_blocks", "gm_add", "gv_local", "gv_scan_blocks", "gv_add"]);
-        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent0: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), fees: emerge_ref::swap::fees_of(&world.menus), parity: false, set_m, move_m, plan_m, world_grid, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
+        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent0: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), fees: emerge_ref::swap::fees_of(&world.menus), parity: false, set_m, move_m, plan_m, world_grid, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, events: None, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
     }
 
     fn write_param(&mut self, index: usize, value: u32) {
@@ -710,6 +719,12 @@ impl<'a> Resident<'a> {
             }
             }
         }
+        if let Some(ev) = &self.events {
+            let b = &self.b;
+            gpu.queue.write_buffer(&ev.evn, 4, bytemuck::cast_slice(&[self.tick, ev.cap as u32, removed as u32, children as u32]));
+            let g = gpu.group(&ev.m.bgl, &[&b.params, &b.ent, &b.work, &b.list, &b.dying, &ev.log, &ev.evn]);
+            gpu.dispatch(&[(ev.m.pipe("log_deaths"), &g, wg(removed)), (ev.m.pipe("log_births"), &g, wg(children))]);
+        }
         assert!(alive + children <= self.cap, "more entities than the device arrays hold ({})", self.cap);
         // The destination arrays become the state.
         let b = &mut self.b;
@@ -725,6 +740,38 @@ impl<'a> Resident<'a> {
         self.deaths += removed as u64;
         self.next_id += children as u64;
         self.tick += 1;
+    }
+
+    /// Starts keeping birth and death events (`capacity` records of 24 bytes); only events from now on
+    /// are kept. The log changes nothing in the run.
+    pub fn enable_events(&mut self, capacity: usize) {
+        if self.events.is_some() { return; }
+        let src = format!("{}\n{}\n{}", shader::constants(), shader::contract(), include_str!("events.wgsl"));
+        let m = module(self.gpu, &src, 7, &["log_deaths", "log_births"]);
+        let log = self.gpu.storage(capacity * 24);
+        let evn = self.gpu.storage(20);
+        self.gpu.queue.write_buffer(&evn, 0, bytemuck::cast_slice(&[0u32, 0, capacity as u32, 0, 0]));
+        self.events = Some(EventLog { m, log, evn, cap: capacity });
+    }
+
+    /// The events kept so far, sorted by tick, deaths before births, then id; and how many were dropped
+    /// because the log was full. `None` if events were never enabled.
+    pub fn events(&self) -> Option<(Vec<emerge_ref::world::Event>, u64)> {
+        use emerge_ref::world::Event;
+        let ev = self.events.as_ref()?;
+        let asked = self.gpu.read::<u32>(&ev.evn, 1)[0] as usize;
+        let kept = asked.min(ev.cap);
+        let words: Vec<u32> = self.gpu.read(&ev.log, kept * 6);
+        let mut out: Vec<(u64, u8, u64, Event)> = words.chunks(6).map(|r| {
+            let (tick, id, par) = (u64::from(r[1]), u64::from(r[2]) | (u64::from(r[3]) << 32), u64::from(r[4]) | (u64::from(r[5]) << 32));
+            match r[0] {
+                0 => (tick, 1, id, Event::Born { tick, parent: par, child: id }),
+                1 => (tick, 0, id, Event::Died { tick, id, cause: emerge_ref::Cause::Starved }),
+                _ => (tick, 0, id, Event::Died { tick, id, cause: emerge_ref::Cause::Age }),
+            }
+        }).collect();
+        out.sort_by_key(|e| (e.0, e.1, e.2));
+        Some((out.into_iter().map(|e| e.3).collect(), (asked - kept) as u64))
     }
 
     /// Words used in the master and view pools.

@@ -595,3 +595,28 @@ fn presets_carry_their_metadata_and_run_without_hidden_support() {
         assert_eq!(c.ok("run.step", json!({"world": id, "ticks": 3}))["tick"], 8, "{}", x["id"]);
     }
 }
+
+#[test]
+fn a_gpu_worlds_family_trees_and_life_histories_equal_the_cpus() {
+    // The GPU logs births and deaths on the device; in contract mode the two runs are equal, so the
+    // same questions have the same answers (apart from the observation stamp).
+    let mut c = server();
+    let source = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 96, h: 96)").replace("count: 2_000;", "count: 300;");
+    let make = |c: &mut Client, backend: &str| c.ok("world.create", json!({"source": source, "lineages": ["Drifter", "Builder"], "seed": 5, "backend": backend, "contract": true, "mutation": true}))["world"].as_str().unwrap().to_string();
+    let (cpu, gpu) = (make(&mut c, "cpu"), make(&mut c, "gpu"));
+    for w in [&cpu, &gpu] {
+        assert_eq!(c.ok("run.step", json!({"world": w, "ticks": 150}))["tick"], 150);
+    }
+    let all = c.ok("entities.query", json!({"world": cpu, "limit": 1_000_000}));
+    let young = all["entities"].as_array().unwrap().iter().min_by_key(|e| e["age"].as_u64().unwrap()).unwrap()["id"].as_u64().unwrap();
+    let strip = |mut v: Value| { v.as_object_mut().unwrap().remove("observation"); v };
+    let (a, b) = (strip(c.ok("ancestry.query", json!({"world": cpu, "entity": young}))), strip(c.ok("ancestry.query", json!({"world": gpu, "entity": young}))));
+    assert!(!a["ancestors"].as_array().unwrap().is_empty(), "a late birth has ancestors");
+    assert_eq!(b["events_dropped"], 0);
+    for key in ["entity", "ancestors", "ancestors_complete", "founder", "descendants"] {
+        assert_eq!(a[key], b[key], "{key}");
+    }
+    let (a, b) = (strip(c.ok("life.query", json!({"world": cpu, "from": 0, "to": 150}))), strip(c.ok("life.query", json!({"world": gpu, "from": 0, "to": 150}))));
+    assert_eq!(a["cohort"], b["cohort"]);
+    assert_eq!(a["snapshot"]["ages"], b["snapshot"]["ages"]);
+}
