@@ -86,7 +86,7 @@ rule on let when else for in genesis
 profile mutation seed genome module regulation regulate gene keep inputs weight
 dormant threshold rate where
 layer vary base set add remove replace rename after before to move_to
-any act reg
+any act reg operator use param version as
 ```
 
 A **declared name** (of a world, substance, reaction, rule, field, lineage, `let` binding, label and so on) MUST NOT be any keyword of either kind (`E0110`), and MUST NOT be a built-in function name (§12) or a regulation kind (§8.5). This keeps every name unambiguous wherever it is used.
@@ -377,6 +377,33 @@ A state field starts in its first state everywhere. Two genesis statements set c
 
 - `pattern(life, x: 10, y: 10, rle: "bo$2bo$3o!", to: alive) @glider;` sets the cells of a run-length-encoded pattern (`b` off, `o` on, `$` next row, `!` end, a count before a tag repeats it) to a state, with the pattern's top-left cell at `x`, `y` (row 0 at the top). A cell outside the grid is `E0803`; anything else in the string is `E0205`.
 - `scatter(life, density: 0.3, to: alive) @soup;` sets each cell to a state with probability `density` (0.0 to 1.0), one Philox draw per cell (spec §10.2).
+
+### 6.9 Operators
+
+```
+world Soil {
+    operator NutrientSupply version 1 {
+        param from: source;
+        param into: field;
+        param what: substance;
+        param ration: amount = 5mu;
+        param spill: sink = void;
+
+        rule supply on into {
+            transfer(what, from: from, to: self, amount: ration, overflow: spill) @supply;
+        }
+    }
+
+    use NutrientSupply version 1 as carbon_in(from: rock, into: cells, what: carbon, ration: 20mu);
+}
+```
+
+An **operator** is a reusable set of rules with parameters (`proposals/reusable-operators.md`); a **use** is an instance of it. Both are world declarations, and the full example is `examples/operators.em`.
+
+- **Parameters.** `param NAME: KIND (= DEFAULT)?;` with a kind that names a declaration (`substance`, `source`, `sink`, `field`, `reaction`) or a value (`amount`, `rate`, `int`, `float`). The body holds `param`s and `rule`s only.
+- **Written out before checking.** Each rule `R` of the definition becomes a rule `INSTANCE_R` in the place of the `use` (`carbon_in_supply` above), with every use of a parameter as a name replaced by the bound name and every use of a value parameter by its value; labels stay as written. The checker, the schedule, `emerge order`, the CPU and the GPU see only those rules, as with a loop over names (§7.5). `emerge expand` prints them; `emerge fmt` keeps the definition and the `use`. A `use` keeps its place among the rules (`emerge fmt` sorts it with them), because rules of one kind run in the order they are declared.
+- **Versions.** A name and version pair is declared once in a world. An instance names the version it uses; another version is another declaration. A version, once published to the node editor's library, does not change.
+- **Errors.** An unknown operator or version is `E0114`; a parameter with neither an argument nor a default `E0116`; an argument with no parameter `E0115`; an argument or default of the wrong kind, or a kind that does not exist, `E0205`; a repeated definition, parameter, instance or a written-out rule whose name is taken `E0111`. The written-out rules are then checked like any rule.
 
 ---
 
@@ -723,6 +750,9 @@ Every item has a readable path:
 | A generated reaction | `Dish.reactions.gen_<hash>` (hash of its canonical formula) |
 | A rule | `Dish.rules.rotting` |
 | A statement in a rule | `Dish.rules.rotting@react_rot` |
+| An operator definition | `Soil.operators.NutrientSupply@v1` |
+| An instance of an operator | `Soil.uses.carbon_in` |
+| A statement an instance writes out | `Soil.rules.carbon_in_supply@supply` (read-only: set the instance's parameters instead) |
 | A setting | `Dish.upkeep.base` |
 | A module | `Drifter.seed.forage` |
 | A seed gene | `Drifter.seed.forage@turn_to_food` |
@@ -781,6 +811,7 @@ patch Dish base 41 {
   - `replace` of a rule's body (`replace rules.smell { ... }`) or of one labelled statement by the statements of the block (`replace rules.weather@transfer_body { ... }`).
   - `remove` of a declaration (`rules.NAME`, `reactions.NAME`, `substances.NAME`, `consts.NAME`, `fields.NAME`, `sources.NAME`, `sinks.NAME`, or a setting by name such as `remains`), of a menu entry (`actions.emit`), or of a labelled statement (`rules.weather@transfer_nitrate`). A substance or field needs `move_to:` (`E0901`); a file holds nothing, so the destination is required and not used. Anything that still names a removed item is reported by the checks that run on the patched file.
   - `rename` of a rule (`rename rules.spread to diffusion;`; a name already declared is `E0111`). Other names are used in genes and reactions, so `rename` of them is `E0904`.
+  - Operators (§6.9): `set uses.carbon_in.ration = 30mu;` sets one argument of an instance (added if it was not given), `set uses.carbon_in.version = 2;` moves it to another version, `remove uses.carbon_in.ration;` takes an argument away (its default applies again), `remove uses.carbon_in;` and `remove operators.NutrientSupply@v1;` remove an instance or a definition, and `add operator …` and `add use …` add them (a position may name an instance: `add after uses.carbon_in: …`). The patched file is written out before it is compiled, so `set uses.carbon_in.ration` swaps into a running world wherever changing the written-out rule's amount does.
   - Not yet (`E0904`): changes to a lineage other than `set`, and adding genes (use `extends`). A file given to `--patch` that holds anything but `patch` items is `E0903`.
 - The API accepts the same operations as JSON: `{"base_revision": 41, "ops": [{"op": "set", "path": "Dish.upkeep.base", "value": "25mu"}]}`.
 
@@ -797,7 +828,7 @@ item        := world | lineage | ruleset | view | chart | explore | patch
 // ---- world ----
 world       := 'world' IDENT '{' wdecl* '}'
 wdecl       := const | element | substance | field | source | sink | waste | reaction
-             | menu | rule | genesis | block_cfg | setting
+             | menu | rule | genesis | block_cfg | setting | operator | use
 const       := 'const' IDENT '=' expr ';'
 element     := 'element' IDENT ';'
 substance   := 'substance' IDENT '=' comp 'potential' '-'? INT ';'
@@ -821,6 +852,9 @@ param       := IDENT ':' ( RANGE | 'any' IDENT | '[' sep(IDENT) ']' | IDENT )
 
 // ---- rules and genesis ----
 rule        := 'rule' IDENT 'on' IDENT block
+operator    := 'operator' IDENT 'version' INT '{' (oparam | rule)* '}'
+oparam      := 'param' IDENT ':' IDENT ('=' value)? ';'
+use         := 'use' IDENT 'version' INT 'as' IDENT '(' sep(IDENT ':' value) ')' ';'
 genesis     := 'genesis' block
 block       := '{' stmt* '}'
 stmt        := 'let' IDENT '=' expr ';'
@@ -1056,6 +1090,7 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | `when`, `else`, `let` around those statements (§7; conditions on `self.<substance>`, `cap()`, `tick`, neighbour reads and `sum`/`min`/`max`/`count` over `moore`/`vonneumann`, in exact integers) | yes | yes | yes, equal to the CPU in contract mode; a condition more than 16 values deep is refused |
 | `transfer(s, from: self, to: above\|right\|below\|left, amount)` between cells (§7.2; no `overflow`) | yes | yes | yes, equal to the CPU in contract mode |
 | `for NAME in [a, b] { … }` over names (§7.5) | yes | yes | yes (written out before any runner sees the file, so the runners are unchanged) |
+| `operator` and `use` (§6.9) | yes | yes | yes (written out before any runner sees the file, like a loop over names) |
 | Other rule statements on the conserved field; transfers from anything but a source or `self` | parsed | `E1001` | — |
 | World genesis `for cell in … { transfer(…) }`; lineage genesis `count`, `position = uniform(…)`, `transfer` | yes | yes | yes (genesis runs on the CPU before packing) |
 | **Genomes and mutation** | | | |

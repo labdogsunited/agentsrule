@@ -32,7 +32,7 @@ const RESERVED: &[&str] = &[
     "amount", "argmax", "argmin", "cap", "ceil", "clamp", "count", "curve", "diffuse_conserved", "f", "float", "floor",
     "jitter", "max", "mean", "min", "react", "sep", "sum", "take", "drop", "give", "steal", "guard", "emit", "move",
     "turn", "divide", "transfer", "units", "uniform", "fade", "blur", "gradient", "probe", "inventory", "crowd",
-    "neighbour", "clock",
+    "neighbour", "clock", "operator", "use", "param", "version", "as",
 ];
 
 /// Whether a word is a keyword or built-in name that no constant or loop variable can take.

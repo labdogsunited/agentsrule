@@ -23,7 +23,7 @@ The viewer is a page in your browser, served by the engine on your own machine. 
 agentsrule web
 ```
 
-This builds what it needs, starts the server on the first free port from 7878, prints the address, and opens your browser. The address carries a key: open the address the server printed, not just the port. **Restart server** starts it again (worlds in memory are lost); **Stop server** stops it. `agentsrule web --port N --no-open --journal-dir DIR` changes the port, keeps the browser closed, and keeps a journal of every world so it can be replayed.
+This builds what it needs, starts the server on the first free port from 7878, prints the address, and opens your browser. The address carries a key: open the address the server printed, not just the port. **Restart server** starts it again (worlds in memory are lost); **Stop server** stops it. `agentsrule web --port N --no-open --journal-dir DIR` changes the port, keeps the browser closed, and keeps a journal of every world so it can be replayed. What outlives the server (each world's network organisation and view document by the world's name, the template and operator library) is kept in `--state-dir DIR`, by default `~/.local/share/emerge`.
 
 ## The header
 
@@ -54,9 +54,9 @@ The window is split into panes, and each pane holds tabs. Drag a tab to move it,
 | **Parameters** | the box selected in the Network: its parameters, its text, and one edit for several selected boxes |
 | **Network** | the world's rules as boxes and wires (see *The network editor*) |
 | **Genome** | one living creature's genes in module frames, with the signals between them as wires |
-| **Look** | how the picture is drawn: a view (layers, palettes, scales, charts) written as text; the viewport redraws as you edit it, and a view that is part of the world's source is read-only here |
+| **Look** | how the picture is drawn, as a network of the view's pieces with typed sockets, previews and a display flag (see *The Look network*) |
 | **Details** | a table of agents: an even sample, all of them paged, the selection, the tracked ones or one tracker's members, with a condition the server evaluates; click selects, double-click opens the genome, the star tracks |
-| **Inspector** | what the selected box *is*, what the world holds in it, and what the runner counted for it, kept apart (see *The network editor*); for a selected creature, one exact reading of it, which can be pinned |
+| **Inspector** | what the selected box *is*, what the world holds in it, and what the runner counted for it, kept apart (see *The network editor*); for a selected creature, one exact reading of it, which can be pinned; for a selected cell, what it holds and what touches it |
 | **Source** | the complete source of the running world; edit a copy, open a file, make a new world from it |
 | **Rule Lens** | the checked schedule: the steps of one tick and the rules and statements in each; also a read/write matrix, per-statement activity and a trace |
 | **Lineage History** | population by lineage over time; drag on the chart to brush a span of ticks |
@@ -76,7 +76,7 @@ The window is split into panes, and each pane holds tabs. Drag a tab to move it,
 | :--- | :--- | :--- |
 | Space | anywhere | run or pause the world |
 | i | Viewport | the info picker |
-| click | Viewport | select the creature under the pointer |
+| click | Viewport | select the creature under the pointer, or the cell where there is none |
 | T, F | Viewport | track (or stop tracking) the selection; frame it |
 | Esc | Viewport | close the list of overlapping creatures, leave Track on click, clear the selection |
 | g | Viewport / Network | the cell grid / frame the selection |
@@ -84,8 +84,10 @@ The window is split into panes, and each pane holds tabs. Drag a tab to move it,
 | Enter, U | Network | go into a statement's rule / go up |
 | Tab | Network | add a box at the pointer; while pulling a wire, create a connected statement |
 | Ctrl+Z, Ctrl+Shift+Z | Network | undo, redo an edit |
-| Ctrl+D, Ctrl+C, Ctrl+V | Network | duplicate, copy, paste statements |
+| Ctrl+D, Ctrl+C, Ctrl+V | Network | duplicate, copy, paste statements (into another world too) |
 | Shift-click, Shift-drag | Network | select several |
+| double-click on a wire | Network | add a routing dot |
+| Ctrl+Space, F12 | code box | complete a name; go to where a name is declared |
 | F1 | anywhere | the documentation page for this pane |
 
 ## What is read and what is changed
@@ -97,37 +99,46 @@ Almost everything in the viewer only **reads**: it asks the engine questions and
         "id": "using-network",
         "section": SECTION,
         "title": "The network editor",
-        "summary": "Edit a world's rules as boxes and wires: ports, contexts, duplicate and paste, batch edits, and the inspector.",
+        "summary": "Edit a world's rules as boxes and wires: ports, contexts, statements inside a when, the code box, organising, and the inspector.",
         "content": """# The network editor
 
 The Network shows a world's source as boxes and wires. It is a **projection of the text**: every edit becomes a patch to the source, checked and swapped into the running world as one revision, and the Source pane shows the result. Nothing is stored in the graph itself, so it cannot drift from the source.
 
 ## Boxes, ports and wires
 
-Sources and reactions are on the left, the statements of the rules in the middle (in the order of the tick's steps), stores on the right. A box has **named sockets**: a transfer has `from` and `to`, a react has the reaction it runs. A socket is filled when a wire is attached; a required socket that is empty is amber. A wire ends at the socket it stands for.
+Sources and reactions are on the left, the statements of the rules in the middle (in the order of the tick's steps), stores on the right. A box has **named sockets**: a transfer has `from` and `to`, a react has the reaction it runs, a `when` and a signal statement have `reads` (and `writes`). A socket is filled when a wire is attached; a required socket that is empty is amber. A wire ends at the socket it stands for.
 
-- **Connect**: pull from an output socket and drop on a box. While you pull, the box under the pointer turns **green** and says what the connection would write, or **red** with the reason. Nothing is applied until you let go.
-- **Create connected**: press **Tab** while pulling a wire from a source or a reaction. The menu offers what can be made (a transfer of each substance the field can hold, or a react) and creates it already connected, in one revision.
-- **Add**: the palette (transfer, react, diffuse, code) or **Tab** at the pointer adds a box.
+Wires come in three kinds, told apart by their line: a **resource flow** (an amount moves), a **declaration reference** (a `react` names its reaction; dashed) and a **value dependency** (what a condition or a signal statement reads and writes; dotted). Hover a wire to see its kind and what editing it would write. A box whose statement is not followed through completely (a `let`, a call the analysis does not know) carries a **?**: what it touches beyond the wires drawn is unknown, not absent.
+
+- **Connect**: pull from an output socket and drop on a box. While you pull, the box under the pointer turns **green** and says what the connection would write, or **red** with the reason. The answer is the engine's own check of the edit, applied nowhere until you let go.
+- **Create connected**: press **Tab** while pulling a wire from a source or a reaction. The menu offers what can be made and creates it already connected, in one revision.
+- **Add**: the palette (transfer, react, diffuse, code) or **Tab** at the pointer adds a box. Tab also lists the library's templates and operators (see *Templates and operators*).
+- **Drop on a wire**: drag a sink over the wire from a transfer to its destination; the wire lights up and the hint says what a drop writes: the sink becomes the transfer's `overflow`. That is the one insertion defined; anywhere else a drop only moves the box.
 - **Delete** a box from its Parameters pane; **Undo** and **Redo** (Ctrl+Z, Ctrl+Shift+Z) step through your edits.
 
-## Parameters
+## Parameters and the code box
 
-Select a box and the Parameters pane shows its arguments with their units (`amount`, `rate`, `overflow`). An edit is sent when you leave the field or press Enter; Escape puts the applied value back. A value the checker refuses stays as a draft with the reason. A statement can also be edited as text, and an unlabelled statement can be given a **name** (a label), so a patch can find it whatever is inserted before it.
+Select a box and the Parameters pane says where it runs (its rule, the field, the kind of rule and the step), what it reads and writes, and shows its arguments with their units. An edit is sent when you leave the field or press Enter; Escape puts the applied value back. A value the checker refuses stays as a draft with the reason. An unlabelled statement can be given a **name** (a label), so a patch can find it whatever is inserted before it.
+
+The statement's text is a **code box**:
+
+- **Completion**: typing a name offers what the statement may use (the world's substances, fields, sources, sinks, reactions and constants, then directions, functions and keywords); **Ctrl+Space** opens the list; Enter or Tab takes one.
+- **Jump to a declaration**: **F12** (or Ctrl+click) on a name selects the box that declares it.
+- **Checked while typing**: a moment after you stop, the engine checks the draft as a swap would (✓ it would be accepted, or ✗ and why); nothing is applied until **Apply** (Ctrl+Enter).
 
 Select several boxes (Shift-click, or Shift-drag a rectangle) and the pane shows the parameters they share. One edit sets all of them: **one revision and one undo**, and a value one of them refuses leaves all of them as they were.
 
-**Duplicate** (Ctrl+D) copies the selected statements, each into a rule of its own with a fresh name. A copy runs as well, so the effect happens twice. Ctrl+C and Ctrl+V do the same from a copy, inside one world.
+**Duplicate** (Ctrl+D) copies the selected statements, each into a rule of its own with a fresh name; a copy runs as well, so the effect happens twice. **Ctrl+C** copies statements with the field their rule works on; **Ctrl+V** in the same world duplicates them, and in **another world** pastes their text into new rules there, checked by that world (a world without the field, or without a substance they name, refuses them with the reason).
 
 ## Contexts
 
-The whole network is the default picture. Press **Enter** (or double-click) on a statement to go into its rule: you see that rule's statements, with dashed **ghosts** of the sources and stores it touches (double-click a ghost to go to the real thing). **U**, the breadcrumb or the menu next to it go back up. Each network keeps its own camera and its own positions.
+The whole network is the default picture. Press **Enter** (or double-click) on a statement to go into its rule: its statements, with dashed **ghosts** of the sources and stores they touch (double-click a ghost to go to the real thing). **U**, the breadcrumb or the menu next to it go back up. Each network keeps its own camera and positions, and the page comes back to the network and camera you left after a reload. **Rules as boxes** draws the whole network with one box a rule (its statement count, kinds and steps), the wires of its statements on it; Enter on one goes into it.
 
-A statement inside a `when` or `else` is drawn inside a dashed frame that says when it runs. It is edited like any other statement: the engine rebuilds the `when` that holds it and replaces the rule in one patch.
+A statement inside a `when` or `else` is drawn inside a dashed frame that says when it runs, with its own sockets and wires, and is edited and rewired like any statement: the engine rebuilds the `when` that holds it in one patch. Selecting a `when` shows its **condition**, set as one edit, and **Add inside** puts statements at the end of its `then` (or of its `else`, made if it has none).
 
 ## Organising
 
-**Find** fades what does not match a name, type, text, substance or step (Enter selects and frames the matches). **H** frames everything, **G** frames the selection. **Note** adds a sticky note; **Box** puts the selected nodes in a labelled box that moves them together. Positions, notes and boxes are kept beside the world and never make a revision.
+**Find** fades what does not match a name, type, text, substance or step (Enter selects and frames the matches). **H** frames everything, **G** frames the selection. **Note** adds a sticky note; **Box** puts the selected nodes in a labelled box that moves them together. **Arrange…** aligns the selection's edges or centres, spreads it evenly, or lays it out in its columns. A **double-click on a wire** puts a routing dot on it; drag a dot to route the wire, double-click it to remove it. All of this is presentation: kept beside the world, never a revision. With a state directory (`agentsrule web` keeps one), it is kept by the world's name and comes back when the same world is created again, after a restart too.
 
 ## The inspector
 
@@ -137,13 +148,82 @@ The **Inspector** follows the selection and keeps three kinds of information apa
 | :--- | :--- | :--- |
 | **Declared** | the source: the text, the step it runs in, what it reads and writes, its connections, what can be done to it and why not | the revision |
 | **Observed** | one reading of the running world: for a field, the amount of each substance over all cells, read in one call | the tick and revision it was read at |
-| **Measured** | what the runner counted over an interval: for a world statement, the cells it ran in, the amounts asked and delivered, the requests that were cut; for a reaction, the extent run | the tick counting began and the tick it was read at |
+| **Measured** | what the runner counted over an interval: for a world statement (inside a `when` too), the cells it ran in, the amounts asked and delivered, the requests that were cut; for a reaction, the extent run; for an instance, the statements it writes out | the tick counting began and the tick it was read at |
 
-A reading the backend cannot give says so (a GPU world cannot read cell amounts) and is never drawn as zero. **Hold this observation** keeps the numbers on screen and says how many ticks the world has moved on; **Release** reads again.
+A transfer statement's Measured section can **record its requests for 10 ticks**: a bounded recording from now on (the past cannot be recovered), which says how many it kept and whether it is complete.
+
+**A cell**: click the picture where no creature is, and the Inspector shows that cell: what it holds at one tick, the statements that touch its field (each a click away in the Network), and **Record what moves through this cell** for 10 ticks (CPU worlds). A reading the backend cannot give says so (a GPU world cannot read cell amounts) and is never drawn as zero. **Hold this observation** keeps the numbers on screen and says how many ticks the world has moved on; **Release** reads again.
 
 ## Limits
 
-Wires of statements inside a `when` are not drawn. A statement inside a `when` takes one statement per text edit. Copy and paste work inside one world. A Look pipeline built from boxes is not available: views are written in the `.em` file (see *Contexts & Execution Scopes* and the VEX-style layers guide).
+A text edit of a statement inside a `when` takes one statement (Add inside takes several). Insertion on a wire is defined for a sink on a transfer's destination wire only. A rule with a loop over names is counted by its written-out copies, so a statement inside it has no count of its own. Wires of a written-out instance are shown in its own network, not in the world's.
+""",
+    },
+    {
+        "id": "using-look",
+        "section": SECTION,
+        "title": "The Look network",
+        "summary": "How the picture is drawn, as a network of the view's own pieces: typed sockets, previews, the display flag, checked edits.",
+        "content": """# The Look network
+
+The **Look** pane shows the viewport's view as a network of its own pieces. Each node is a piece of the view's text, and its socket says the type of what it gives, from the view checker:
+
+```text
+field(cells.carbon) → read value → scale(linear, 0..150) → palette(cividis) → color → layer ground ┐
+agents(where: true) → units(energy) → scale(…) → palette(inferno) → color → layer life ───────────┴→ view
+```
+
+| Node | Is |
+| :--- | :--- |
+| **source** | a layer's source: `field(cells.carbon)` gives *cells*, `agents(where: …)` gives *agents* |
+| **read** / **expression** | the head of an entry: a name it reads (`value`, `lineage_id`) or an expression |
+| **stage** | each `|>` call (`scale`, `palette`, `units`, …), with the type it gives (*number*, *scaled*, *colour*, *identity*, …) |
+| **entry** | `color`, `size`, `glyph`, `opacity` |
+| **body** | a layer's VEX-like statements |
+| **layer** | the layer, with its blend and opacity |
+| **view** | the composite of the layers, the last on top |
+
+## Previews and the display flag
+
+With **Previews on**, each node shows a small picture of what it gives, drawn by the engine from the current frame: a colour as it is; a scaled value through a gray ramp; an identity by category; a direction by hue; a plain number or amount through a gray ramp over the range this frame holds (the preview says which range). The ◉ **display flag** on a node makes the viewport show that node instead of the whole view; a bar over the picture says what it shows and when its range was measured, and **Whole view** takes it back.
+
+## Editing
+
+Select a node to edit it on the right: a scale's kind and range, a palette from its list (with its colours), any piece as text, a layer's blend, opacity and order, an entry added or removed, a stage put after a node or taken out, a layer added from the view node. Every edit is **checked against the world before it is kept**: a refused one leaves the last valid view on screen and says why. Edits change the world's **view document** on the server, which has its own revision and **Undo**/**Redo** and never changes the world. With a state directory it is kept by the world's name as `views/<name>.em`, an ordinary file of `view` items that `emerge-server render --views` reads too. A view that is part of the world's own source is read-only here: **Edit a copy** makes an editable copy in the view document.
+""",
+    },
+    {
+        "id": "using-reuse",
+        "section": SECTION,
+        "title": "Templates and operators",
+        "summary": "Keep statements as a template, make rules a reusable operator, use it in other worlds, set its parameters, detach, upgrade.",
+        "content": """# Templates and operators
+
+Two ways to reuse what you built (`proposals/reusable-operators.md`):
+
+| | Template | Operator |
+| :--- | :--- | :--- |
+| Make one | select statements, **Template…** | select statements, **Operator…**: their rules become a definition, and an instance takes their place |
+| Use one | **Tab**: `template NAME` | **Tab**: `operator NAME vN` |
+| What the world gets | ordinary rules, no link back | the definition (in the world) and an instance box |
+| Change it later | edit the rules | set the instance's parameters, detach it, edit it as a new version, upgrade it |
+
+Both are kept in the **library**, in the state directory (`library/templates/`, `library/operators/NAME@VERSION.em`), so they outlive the server and reach every world.
+
+## Templates
+
+A template keeps the selected statements with the field each rule works on. The declarations they name become **bindings** (each defaulting to the name it had) and the amounts and rates of labelled statements **controls**. Inserting one asks for the bindings (from this world's declarations of that kind) and the controls, and writes the rules with fresh names in one revision.
+
+## Operators
+
+An operator is a definition in the world, `operator NAME version N { param…; rule… }`, and each `use NAME version N as INSTANCE(…)` writes its rules out before anything checks or runs the world (`language.md` §6.9). An instance is one box: its bindings are its sockets (wire a source or a store to it to bind the one parameter of that kind), its value parameters are in Parameters (with the definition's defaults shown), and **Enter** shows the rules it writes out, read-only, named as the runner counts them. The world runs exactly as with the same rules written by hand.
+
+- **Detach** replaces the instance by its rules, in its place: ordinary rules from then on.
+- **Edit as a new version** copies the definition as its next version with your change and moves only this instance to it. No other instance, and no other world, changes.
+- **Upgrade…** compares the instance's version with the newest one (in the world or the library), side by side, and moves it only when you say so; a version no instance uses any more goes in the same patch.
+- **Publish** keeps the instance's version in the library. A version, once kept, does not change: the same content is the same version, other content needs a new version.
+
+Inserting an operator from the library copies its definition into the world, so a saved world holds what reproduces it. A world that already has that name and version with other content refuses it.
 """,
     },
     {
@@ -273,6 +353,7 @@ A query is evaluated every chosen number of ticks: a match that begins and ends 
 | :--- | :--- |
 | **Reference dish** | `examples/dish.em`: chemistry, a conserved field, world rules, menus and two lineages (Drifter, Builder); a new world is easiest written as a changed copy of it |
 | **Game of Life (glider gun)** | a state-field automaton with no creatures (CPU only) |
+| **Soil (reusable operators)** | `examples/operators.em`: an operator definition and two instances of it; no creatures, so it runs on the CPU |
 | **Sunlit Nursery** | a luminous ecosystem with a working metabolism (Builder, mutation off): what limits population growth? |
 | **The Long Night** | sunlight stops for ticks 300 to 399: who survives on stored resources? |
 | **The Long Night (harsh)** | the same world with a night to tick 449: extinction |
@@ -318,7 +399,7 @@ cargo build --release -p emerge-ref -p emerge-server -p emerge-gpu
 ```sh
 target/release/emerge check  examples/dish.em        # static checks, every diagnostic it can find
 target/release/emerge fmt    examples/dish.em        # the one canonical text; --check only says if it differs
-target/release/emerge expand examples/dish.em        # lineages written out, constants replaced, loops unrolled
+target/release/emerge expand examples/dish.em        # lineages written out, operators' instances and loops written out, constants replaced
 target/release/emerge order  examples/dish.em        # the steps of one tick, each rule placed
 target/release/emerge run    examples/dish.em --lineages Drifter --ticks 1000
 ```
@@ -328,7 +409,7 @@ target/release/emerge run    examples/dish.em --lineages Drifter --ticks 1000
 ## emerge-server
 
 ```sh
-target/release/emerge-server serve --viewer [--port N] [--journal-dir DIR]   # the engine API and the viewer
+target/release/emerge-server serve --viewer [--port N] [--journal-dir DIR] [--state-dir DIR]   # the engine API and the viewer
 target/release/emerge-server mcp [--journal-dir DIR]                          # the same API as MCP over stdio
 target/release/emerge-server render examples/dish.em --lineages Drifter --tick 300 --out dish.png
 target/release/emerge-server replay JOURNAL
@@ -382,7 +463,9 @@ A request that fails answers with an error code and a message that says why; an 
 | :--- | :--- |
 | Worlds | `world.create`, `world.list`, `world.source`, `world.validate` |
 | Running | `run.step`, `run.pause`, `run.resume`, `stats.query`, `entities.query`, `view.snapshot`, `view.pick`, `view.palettes` |
-| Editing | `world.hotswap` (a patch), `world.graph`, `world.graph_op`, `world.graph_edit`, `world.undo`, `world.redo`, `world.layout_set` |
+| Editing | `world.hotswap` (a patch), `world.graph`, `world.graph_op`, `world.graph_edit`, `world.undo`, `world.redo`, `world.layout_set`, `world.names` |
+| Views (the Look network) | `views.get`, `views.set`, `views.undo`, `views.redo`, `view.graph`, `view.edit`, `view.copy`, `view.preview`, `view.display` |
+| Reuse | `library.list`, `template.save`, `template.insert`, `operator.publish`, `operator.insert`, `operator.upgrade` |
 | Rules | `rules.lens`, `rules.matrix`, `rules.activity`, `trace.start`, `trace.query`, `reactions.flow`, `flow.blocked_start` |
 | Genomes | `genome.explain`, `genome.graph`, `genome.census`, `genome.atlas`, `genome.compare` |
 | Lineages | `history.query`, `ancestry.query`, `life.query`, `region.query` |
@@ -413,7 +496,9 @@ A tracker is a named set of creatures with a membership rule: `fixed` (these ind
 
 ## Edits and revisions
 
-`world.graph_op` takes `base_revision` and one `op`: `set_param`, `wire`, `delete`, `add_rule`, `add_connected`, `duplicate`, `label`, `unwire` or `batch`. If the world has moved on since `base_revision` the edit is refused as stale. With `"dry_run": true` it answers what the edit would write and applies nowhere. A `batch` is one revision and one undo. `world.hotswap` takes a patch in the language of `language.md` §10.
+`world.graph_op` takes `base_revision` and one `op`: `set_param`, `wire`, `delete`, `add_rule`, `add_connected`, `duplicate`, `label`, `unwire`, `paste` (statements as text into new rules), `insert` (a sink on a transfer's destination wire), `add_inside` and `condition` (a `when`), `detach`, `fork` and `upgrade` (an operator's instance), or `batch`. If the world has moved on since `base_revision` the edit is refused as stale. With `"dry_run": true` it answers what the edit would write and checks it as a swap would, applying nothing; `world.graph_edit` takes `dry_run` too (the code box's inline check). A `batch` is one revision and one undo. `world.hotswap` takes a patch in the language of `language.md` §10. `world.layout_set` takes `positions`, `notes`, `frames` and `routes` (routing dots); none of them is a revision. `trace.start` takes `cells` (cell indices) to keep only the requests through those cells (CPU worlds).
+
+`view.edit` changes the world's view document (`set_stage`, `insert_stage`, `remove_stage`, `set_entry`, `set_body`, `set_source`, `add_layer`, `remove_layer`, `move_layer`), checked against the world before it is kept; it has its own `base` revision and undo. `view.preview` answers a PNG (base64) of one node of a view, `view.display` the view the viewport shows for it.
 """,
     },
 ]

@@ -34,10 +34,12 @@
     <aside class="houdini-sidebar">
 <div class="sidebar-header">DOCUMENTATION</div>
 <div class="nav-section">
-  <div class="nav-section-title"><span>🖥️ Using Emerge</span><span class="count">7</span></div>
+  <div class="nav-section-title"><span>🖥️ Using Emerge</span><span class="count">9</span></div>
   <ul class="nav-list">
     <li class="nav-item"><a class="nav-link" data-id="guide/using-overview" href="../guide/using-overview.html">Using the viewer</a></li>
     <li class="nav-item"><a class="nav-link" data-id="guide/using-network" href="../guide/using-network.html">The network editor</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-look" href="../guide/using-look.html">The Look network</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-reuse" href="../guide/using-reuse.html">Templates and operators</a></li>
     <li class="nav-item"><a class="nav-link" data-id="guide/using-science" href="../guide/using-science.html">Science panels</a></li>
     <li class="nav-item"><a class="nav-link" data-id="guide/using-tracking" href="../guide/using-tracking.html">Tracking creatures</a></li>
     <li class="nav-item"><a class="nav-link" data-id="guide/using-worlds" href="../guide/using-worlds.html">Worlds, presets and backends</a></li>
@@ -215,12 +217,12 @@
 <h2>emerge</h2>
 <div class="synopsis-box"><pre class="synopsis-content"><code>target/release/emerge check  examples/dish.em        # static checks, every diagnostic it can find
 target/release/emerge fmt    examples/dish.em        # the one canonical text; --check only says <span class="k">if</span> it differs
-target/release/emerge expand examples/dish.em        # lineages written out, constants replaced, loops unrolled
+target/release/emerge expand examples/dish.em        # lineages written out, operators&#x27; instances <span class="k">and</span> loops written out, constants replaced
 target/release/emerge order  examples/dish.em        # the steps of one tick, each <span class="k">rule</span> placed
 target/release/emerge run    examples/dish.em --lineages Drifter --ticks <span class="n">1000</span></code></pre></div>
 <p><code>check</code> prints <code>file:line:col: severity[code]: path: message</code>, or one JSON object per line with <code>--json</code>. <code>run</code> prints a row every <code>--every</code> ticks; its other options (<code>--flux</code>, <code>--stop-when-sustained</code>, <code>--accounts</code>, <code>--ancestry</code>, <code>--contract gpu</code>, …) are listed by <code>emerge</code> with no arguments. Every command also takes <code>--patch FILE</code> and <code>--set TARGET.PATH=VALUE</code> after the file, applied in order, to run a variant without copying the file.</p>
 <h2>emerge-server</h2>
-<div class="synopsis-box"><pre class="synopsis-content"><code>target/release/emerge-server serve --viewer [--port N] [--journal-dir DIR]   # the engine API <span class="k">and</span> the viewer
+<div class="synopsis-box"><pre class="synopsis-content"><code>target/release/emerge-server serve --viewer [--port N] [--journal-dir DIR] [--state-dir DIR]   # the engine API <span class="k">and</span> the viewer
 target/release/emerge-server mcp [--journal-dir DIR]                          # the same API as MCP over stdio
 target/release/emerge-server render examples/dish.em --lineages Drifter --tick <span class="n">300</span> --out dish.png
 target/release/emerge-server replay JOURNAL</code></pre></div>

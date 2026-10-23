@@ -49,6 +49,8 @@ Run the tests in release mode: `cargo test --release --workspace --no-fail-fast`
 | [`proposals/science-panels.md`](proposals/science-panels.md) | proposed rule, lineage, genome, resource, and experiment panels with observation requirements |
 | [`proposals/agent-tracking.md`](proposals/agent-tracking.md) | agent selection and tracking: linked Details highlights, camera follow, trails, Tracker nodes, and recording contracts |
 | [`proposals/genome-editor.md`](proposals/genome-editor.md) | genome editor design: seed authoring, signal wiring, modules, captures, and test runs |
+| [`proposals/houdini-node-system.md`](proposals/houdini-node-system.md) | the node editor as a Houdini-like authoring environment: ports, contexts, nested authoring, the Look network, reuse (H1 to H6, built) |
+| [`proposals/reusable-operators.md`](proposals/reusable-operators.md) | templates and versioned operator definitions with instances (`operator`, `use`), written out before checking |
 | `crates/emerge-lang` | parser, checker, formatter, patches, the checked schedule, the graph model |
 | `crates/emerge-ref` | the CPU reference runner |
 | `crates/emerge-gpu` | the GPU runtime |

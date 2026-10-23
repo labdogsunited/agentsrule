@@ -3243,7 +3243,7 @@ stage.addEventListener("pointermove", hoverInfo);
 stage.addEventListener("pointerleave", () => { if (info.on && !info.pin) { info.hover = null; $("infopanel").style.display = "none"; placeMark(); } });
 $("infobtn").onclick = toggleInfo;
 // Documentation (`/help`): the page for the pane you are in. F1 or the Docs button; a pane with no page of its own opens the overview.
-const DOC_OF = { viewport: "using-overview", params: "using-network", network: "using-network", inspect: "using-network", genome: "using-overview", look: "using-overview", details: "using-overview", source: "using-overview",
+const DOC_OF = { viewport: "using-overview", params: "using-network", network: "using-network", inspect: "using-network", genome: "using-overview", look: "using-look", details: "using-overview", source: "using-overview",
   rules: "using-science", lineage: "using-science", census: "using-science", budget: "using-science", family: "using-science", compare: "using-science", region: "using-science", flow: "using-science", life: "using-science", book: "using-science", watches: "using-tracking" };
 function openDocs(page) {
   const fl = typeof findLeaf === "function" ? findLeaf(focusLeaf) : null;
