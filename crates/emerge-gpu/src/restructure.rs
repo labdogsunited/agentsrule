@@ -17,7 +17,7 @@ pub struct RestructureOut {
 }
 
 pub fn shader_source() -> String {
-    format!("{}\n{}\n{}\n{}\n{}", shader::constants(), shader::contract(), include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"))
+    format!("{}\n{}\n{}\n{}\n{}\n{}", shader::constants(), shader::contract(), shader::accounts(), include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"))
 }
 
 pub fn run_restructure(gpu: &Gpu, p: &Packed, rec: &[u32], dying: &[u32]) -> RestructureOut {

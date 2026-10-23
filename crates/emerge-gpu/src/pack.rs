@@ -94,6 +94,8 @@ pub const P_CHILDOFF: usize = 45;
 pub const P_NALIVE: usize = 46;
 /// The substance counted in `Entity::made` (words 14 and 15 of an entity), plus 1; 0 for none.
 pub const P_TRACK: usize = 58;
+/// Where the account counters start in `flows`, plus 1; 0 when no accounts are kept.
+pub const P_ACC: usize = 59;
 pub const RX: usize = 24;
 pub const LAW: usize = 28;
 /// Words per world reaction rule: the reaction, the rate, and its condition (`LAW_COND`).

@@ -708,3 +708,27 @@ fn the_graph_contract_and_atomic_edits() {
     assert!(engine.call("world.graph_op", &json!({"world": w, "base_revision": 4, "op": {"op": "unwire", "id": "Dish.rules.weather@transfer_carbon", "port": "from"}})).is_err());
     engine.call("world.graph_op", &json!({"world": w, "base_revision": 4, "op": {"op": "label", "id": "Dish.rules.sunlight#0", "label": "sun_gate"}})).ok();
 }
+
+/// The same budget on the GPU (counted on the device, per lineage): it closes to the integer µ, equals the
+/// CPU's in contract mode line for line, keeping it changes nothing in the run, and a clade or a split
+/// by who makes a substance is refused there.
+#[test]
+fn the_gpu_budget_closes_and_equals_the_cpus_in_contract_mode() {
+    let mut engine = Engine::new();
+    let mk = |backend: &str| json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 1, "mutation": true, "backend": backend, "contract": true});
+    let cpu = engine.call("world.create", &mk("cpu")).unwrap()["world"].as_str().unwrap().to_string();
+    let gpu = engine.call("world.create", &mk("gpu")).unwrap()["world"].as_str().unwrap().to_string();
+    for w in [&cpu, &gpu] {
+        engine.call("run.step", &json!({"world": w, "ticks": 5})).unwrap();
+        engine.call("accounts.start", &json!({"world": w})).unwrap();
+        engine.call("run.step", &json!({"world": w, "ticks": 120})).unwrap();
+    }
+    let (a, b) = (engine.call("accounts.query", &json!({"world": cpu})).unwrap(), engine.call("accounts.query", &json!({"world": gpu})).unwrap());
+    for (x, y) in a["lineages"].as_array().unwrap().iter().zip(b["lineages"].as_array().unwrap()) {
+        assert_eq!(y["unreconciled_mu"], 0, "{}: the GPU budget closes", y["lineage"]);
+        for key in ["lineage", "creatures_start", "creatures_now", "births", "starved", "aged", "stock_start_mu", "stock_now_mu", "change_mu", "lines", "explained_mu", "unreconciled_mu"] {
+            assert_eq!(x[key], y[key], "{} {key}", y["lineage"]);
+        }
+    }
+    assert!(engine.call("accounts.start", &json!({"world": gpu, "flux": "body"})).is_err(), "a split by who makes a substance is CPU only");
+}

@@ -259,6 +259,7 @@ fn upkeep_one(e: u32) {
     if (have >= cost) {
         atomicSub(&amounts[e * ns + pay], u32(cost));
         wflow_add(1u, params[P_BECOMES], u32(cost));
+        acct_add(ent[e * ENT + 11u], AC_UPKEEP_MU, u32(cost));
     } else {
         dead = true;
     }
@@ -273,6 +274,7 @@ fn upkeep_one(e: u32) {
             if (atomicLoad(&amounts[e * ns + pay]) >= fee) {
                 atomicSub(&amounts[e * ns + pay], fee);
                 wflow_add(1u, params[P_BECOMES], fee);
+                acct_add(ent[e * ENT + 11u], AC_FEES_MU, fee);
             } else {
                 live = false;
             }
@@ -556,6 +558,25 @@ fn commit(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocatio
             if (tag_of(o) == 2u) { wflow_add(0u, s, debit); }
             if (tag_of(d) == 3u) { wflow_add(1u, s, delivered); }
             wflow_add(1u, s, overflowed);
+            if (params[P_ACC] != 0u && delivered > 0u && s == params[P_PAYSUB]) {
+                let ot = tag_of(o);
+                let dt = tag_of(d);
+                if (ot == 0u && dt == 1u) {
+                    acct_add(ent[idx_of(d) * ENT + 11u], AC_PAY_TAKEN_MU, delivered);
+                } else if (ot == 1u && dt == 1u) {
+                    let gi = ent[idx_of(d) * ENT + 11u];
+                    let go = ent[idx_of(o) * ENT + 11u];
+                    if (q.steal != 0u) {
+                        acct_add(gi, AC_PAY_STOLEN_IN_MU, delivered);
+                        acct_add(go, AC_PAY_STOLEN_OUT_MU, delivered);
+                    } else {
+                        acct_add(gi, AC_PAY_GIFT_IN_MU, delivered);
+                        acct_add(go, AC_PAY_GIFT_OUT_MU, delivered);
+                    }
+                } else if (ot == 1u && (dt == 0u || dt == 3u)) {
+                    acct_add(ent[idx_of(o) * ENT + 11u], AC_PAY_DROPPED_MU, debit);
+                }
+            }
         }
     }
     workgroupBarrier();

@@ -10,7 +10,7 @@ pub struct TransformOut {
 }
 
 pub fn shader_source() -> String {
-    format!("{}\n{}\n{}", shader::constants(), shader::cond("rlaws"), include_str!("transform.wgsl"))
+    format!("{}\n{}\n{}\n{}", shader::constants(), shader::cond("rlaws"), shader::accounts(), include_str!("transform.wgsl"))
 }
 
 pub fn run_transform(gpu: &Gpu, p: &Packed, rec: &[u32], dying: &[u32]) -> TransformOut {

@@ -42,6 +42,10 @@ impl Module {
     }
 }
 
+/// Lineages the account counters have room for, and their columns.
+const ACC_LINEAGES: usize = 16;
+const NCOL: usize = emerge_ref::world::ACCOUNT_COLUMNS.len();
+
 /// The birth and death log for ancestry (`events.wgsl`): a side output that no kernel of the tick reads.
 struct EventLog {
     m: Module,
@@ -99,6 +103,7 @@ pub struct Resident<'a> {
     gc_pending: bool,
     audit: Option<Audit>,
     events: Option<EventLog>,
+    acct_lineages: usize,
     comp: Vec<Vec<u32>>,
     /// The most active genes a genome may hold (the largest capacity of any lineage, or of the first population).
     max_genes: usize,
@@ -324,7 +329,7 @@ impl<'a> Resident<'a> {
             stats: zeros(2 * (p.reactions.len() / RX + 1)),
             // Small integers copied into `params` by the recorded commands: the stage and every reaction-law index.
             consts: gpu.storage_with(&(0..p.params[P_NRLAWS].max(64)).collect::<Vec<_>>()),
-            flows: zeros(3 * ns * 2),
+            flows: zeros(3 * ns * 2 + ACC_LINEAGES * NCOL * 2),
             sb_in: zeros(SB_MAX + 1),
             sb_out: zeros(SB_MAX + 1),
             sb_blocks: zeros(SB_MAX / 256 + 2),
@@ -344,11 +349,11 @@ impl<'a> Resident<'a> {
         };
         let common = format!("{}\n{}", shader::constants(), shader::contract());
         let set_m = module(gpu, &format!("{common}\n{}", include_str!("set.wgsl")), 13, &["main"]);
-        let move_m = module(gpu, &format!("{common}\n{}\n{}", shader::cond("laws"), include_str!("move.wgsl")), 30, &["bucket_hist", "bucket_scatter", "bucket_sort", "sb_scan", "upkeep_fees", "gen_requests", "sums", "flag_over", "sums_world", "flag_world", "commit_world", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
+        let move_m = module(gpu, &format!("{common}\n{}\n{}\n{}", shader::cond("laws"), shader::accounts(), include_str!("move.wgsl")), 30, &["bucket_hist", "bucket_scatter", "bucket_sort", "sb_scan", "upkeep_fees", "gen_requests", "sums", "flag_over", "sums_world", "flag_world", "commit_world", "pad_list", "bitonic", "sort_local", "sort_merge_local", "share", "init_stage2", "commit", "movement"]);
         let world_grid = world_grid(&p, nc);
         let plan_m = module(gpu, include_str!("plan.wgsl"), 4, &["plan_buckets", "plan_requests"]);
         let tr_m = module(gpu, &crate::transform::shader_source(), 15, &["react_entities", "react_cells", "vent", "audit_totals", "clear_made"]);
-        let rs_src = format!("{common}\n{}\n{}\n{}", include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"));
+        let rs_src = format!("{common}\n{}\n{}\n{}\n{}", shader::accounts(), include_str!("restructure.wgsl"), crate::scan::kernels("alive", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("cand", "params[P_N]", "{name}_in[i]"));
         let rs_m = module(gpu, &rs_src, 30, &["mark", "finish_scans", "pad_list", "bitonic", "sort_local", "sort_merge_local", "dispose", "divide", "compact_ent", "compact_rest", "alive_local", "alive_scan_blocks", "alive_add", "cand_local", "cand_scan_blocks", "cand_add"]);
         let prep_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("prep.wgsl"), crate::scan::kernels("bkt", "params[P_NBT]", "atomicLoad(&{name}_in[i])"), crate::scan::kernels("gen", "params[P_N]", "{name}_in[i]"));
         let prep_m = module(gpu, &prep_src, 11, &["assign", "finish_nstart", "finish_prep", "scatter", "set_roff", "bkt_local", "bkt_scan_blocks", "bkt_add", "gen_local", "gen_scan_blocks", "gen_add"]);
@@ -356,7 +361,7 @@ impl<'a> Resident<'a> {
         let mut_m = module(gpu, &mut_src, 9, &["mutate_children"]);
         let gc_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("gc.wgsl"), crate::scan::kernels("gm", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("gv", "params[P_N]", "{name}_in[i]"));
         let gc_m = module(gpu, &gc_src, 12, &["gc_sizes", "gc_copy", "gm_local", "gm_scan_blocks", "gm_add", "gv_local", "gv_scan_blocks", "gv_add"]);
-        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent0: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), fees: emerge_ref::swap::fees_of(&world.menus), parity: false, set_m, move_m, plan_m, world_grid, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, events: None, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
+        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent0: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), fees: emerge_ref::swap::fees_of(&world.menus), parity: false, set_m, move_m, plan_m, world_grid, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, events: None, acct_lineages: 0, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
     }
 
     fn write_param(&mut self, index: usize, value: u32) {
@@ -742,6 +747,32 @@ impl<'a> Resident<'a> {
         self.tick += 1;
     }
 
+    /// Zeroes the ledger of emitted, absorbed and total amounts, and leaves the account counters alone.
+    fn clear_ledger(&self) {
+        self.gpu.clear_range(&self.b.flows, 0, (3 * self.ns * 2 * 4) as u64);
+    }
+
+    /// Starts counting resource accounts per founding lineage (`lineages` of them, at most `ACC_LINEAGES`),
+    /// the runtime's columns of `emerge_ref::world::ACCOUNT_COLUMNS` for the upkeep substance; the flux
+    /// columns stay zero. Counting changes nothing in the run. Restarts the counts if already on.
+    pub fn enable_accounts(&mut self, lineages: usize) {
+        assert!(lineages <= ACC_LINEAGES, "the GPU keeps accounts for at most {ACC_LINEAGES} lineages");
+        self.acct_lineages = lineages;
+        self.gpu.clear_range(&self.b.flows, (3 * self.ns * 2 * 4) as u64, (ACC_LINEAGES * NCOL * 2 * 4) as u64);
+        self.write_param(P_ACC, (3 * self.ns * 2 + 1) as u32);
+    }
+
+    /// The account totals per lineage, one row of `ACCOUNT_COLUMNS` each; `None` if accounts are off.
+    pub fn accounts(&self) -> Option<Vec<[u64; NCOL]>> {
+        if self.acct_lineages == 0 { return None; }
+        let w: Vec<u32> = self.gpu.read_at(&self.b.flows, 3 * self.ns * 2, ACC_LINEAGES * NCOL * 2);
+        Some((0..self.acct_lineages).map(|g| {
+            let mut row = [0u64; NCOL];
+            for c in 0..NCOL { let i = (g * NCOL + c) * 2; row[c] = u64::from(w[i]) | (u64::from(w[i + 1]) << 32); }
+            row
+        }).collect())
+    }
+
     /// Starts keeping birth and death events (`capacity` records of 24 bytes); only events from now on
     /// are kept. The log changes nothing in the run.
     pub fn enable_events(&mut self, capacity: usize) {
@@ -788,7 +819,7 @@ impl<'a> Resident<'a> {
 
     fn totals_now(&self) -> Vec<u128> {
         let wg = ((self.n.max(self.nc)) as u32).div_ceil(64);
-        self.gpu.clear(&self.b.flows);
+        self.clear_ledger();
         let b = &self.b;
         let g = self.gpu.group(&self.tr_m.bgl, &[&b.params, &b.ent, &b.amounts, &b.camt, &b.ccap, &b.ecap, &b.rec, &b.gw, &b.dying, &b.reactions, &b.rlaws, &b.waste, &b.stats, &b.flows, &b.camt0]);
         self.gpu.dispatch(&[(self.tr_m.pipe("audit_totals"), &g, wg)]);
@@ -802,7 +833,7 @@ impl<'a> Resident<'a> {
         let start = self.elements(&self.totals_now());
         let ne = start.len();
         self.audit = Some(Audit { start, emitted: vec![0; ne], absorbed: vec![0; ne], ticks: 0, drifted: 0, worst: 0 });
-        self.gpu.clear(&self.b.flows);
+        self.clear_ledger();
     }
 
     pub fn audit(&self) -> Option<&Audit> {
@@ -826,7 +857,7 @@ impl<'a> Resident<'a> {
         }
         a.ticks += 1;
         a.drifted += u64::from(bad);
-        self.gpu.clear(&self.b.flows);
+        self.clear_ledger();
     }
 
     /// Entity-reaction extent by reaction since the world began (waits for the GPU).

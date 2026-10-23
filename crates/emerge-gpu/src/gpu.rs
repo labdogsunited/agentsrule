@@ -344,6 +344,11 @@ impl Gpu {
         self.record(|enc| enc.clear_buffer(buf, 0, None));
     }
 
+    /// Zeroes `bytes` bytes of a buffer from byte `offset`, in order with the recorded work.
+    pub fn clear_range(&self, buf: &wgpu::Buffer, offset: u64, bytes: u64) {
+        self.record(|enc| enc.clear_buffer(buf, offset, Some(bytes)));
+    }
+
     /// Waits for all submitted work.
     pub fn sync(&self) {
         self.flush();

@@ -73,6 +73,15 @@ fn react_entities(@builtin(global_invocation_id) id: vec3<u32>) {
         }
         for (var k = 0u; k < n_in; k++) { amounts[e * ns + reactions[r + 2u + 2u * k]] -= extent * reactions[r + 3u + 2u * k]; }
         for (var k = 0u; k < n_out; k++) { amounts[e * ns + reactions[r + 10u + 2u * k]] += extent * reactions[r + 11u + 2u * k]; }
+        if (params[P_ACC] != 0u) {
+            let lin = ent[e * ENT + 11u];
+            for (var k = 0u; k < n_in; k++) {
+                if (reactions[r + 2u + 2u * k] == params[P_PAYSUB]) { acct_add(lin, AC_PAY_USED_MU, extent * reactions[r + 3u + 2u * k]); }
+            }
+            for (var k = 0u; k < n_out; k++) {
+                if (reactions[r + 10u + 2u * k] == params[P_PAYSUB]) { acct_add(lin, AC_PAY_MADE_MU, extent * reactions[r + 11u + 2u * k]); }
+            }
+        }
         // What this entity made of the tracked substance (`Entity::made`, 64 bits in words 14 and 15).
         let track = params[P_TRACK];
         for (var k = 0u; k < n_out; k++) {
@@ -124,6 +133,7 @@ fn vent(@builtin(global_invocation_id) id: vec3<u32>) {
     let ns = params[P_NS];
     for (var k = 0u; k < params[P_NWASTE]; k++) {
         flow_add(1u, waste[k], amounts[e * ns + waste[k]]);
+        if (waste[k] == params[P_PAYSUB]) { acct_add(ent[e * ENT + 11u], AC_PAY_WASTED_MU, amounts[e * ns + waste[k]]); }
         amounts[e * ns + waste[k]] = 0u;
     }
 }

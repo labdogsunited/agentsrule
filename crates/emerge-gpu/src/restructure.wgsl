@@ -86,6 +86,9 @@ fn mark(@builtin(global_invocation_id) id: vec3<u32>) {
     alive_in[e] = select(1u, 0u, removed);
     cand_in[e] = select(select(0u, 1u, divide_gene(e) != NONE), 0u, removed);
     if (removed) {
+        let lin = ent[e * ENT + WORD_LINEAGE];
+        acct_add(lin, select(AC_AGED, AC_STARVED, dying[e] == 1u), 1u);
+        acct_add(lin, AC_PAY_DIED_WITH_MU, amounts[e * params[P_NS] + params[P_PAYSUB]]);
         let slot = atomicAdd(&counters[0], 1u);
         list[slot] = (u64(ent[e * ENT + 2u]) << 32u) | u64(e);
     }
@@ -172,7 +175,12 @@ fn divide(@builtin(global_invocation_id) id: vec3<u32>) {
         amounts[e * ns + s] -= share;
         amounts2[child * ns + s] = share;
         ecap2[child * ns + s] = ecap[e * ns + s];
+        if (s == params[P_PAYSUB]) {
+            acct_add(ent[e * ENT + WORD_LINEAGE], AC_PAY_TO_CHILD_MU, share);
+            acct_add(ent[e * ENT + WORD_LINEAGE], AC_PAY_FROM_PARENT_MU, share);
+        }
     }
+    acct_add(ent[e * ENT + WORD_LINEAGE], AC_BIRTHS, 1u);
     // Placed behind the parent, after its movement (spec §7.5).
     let h = vec2<f32>(epos[e * 4u + 2u], epos[e * 4u + 3u]);
     let off = bitcast<f32>(params[P_CHILDOFF]);

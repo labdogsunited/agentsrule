@@ -35,6 +35,25 @@ pub fn constants() -> String {
     s
 }
 
+/// Per-lineage resource accounts (`emerge run --accounts`, by lineage): `acct_add` adds into the tail of
+/// the `flows` buffer, which every kernel that counts binds as `flows`, when `params[P_ACC]` (the word where
+/// the counters start, plus 1) is not 0. Two words per counter, low then high.
+pub fn accounts() -> String {
+    let mut s = format!("const P_ACC = {}u;\nconst P_PAYSUB = {}u;\nconst NCOL = {}u;\n", P_ACC, P_PAY, emerge_ref::world::ACCOUNT_COLUMNS.len());
+    for (i, name) in emerge_ref::world::ACCOUNT_COLUMNS.iter().enumerate() {
+        s.push_str(&format!("const AC_{} = {}u;\n", name.to_uppercase(), i));
+    }
+    s.push_str(r#"fn acct_add(lineage: u32, col: u32, x: u32) {
+    let base = params[P_ACC];
+    if (base == 0u || x == 0u) { return; }
+    let i = base - 1u + (lineage * NCOL + col) * 2u;
+    let old = atomicAdd(&flows[i], x);
+    if (old + x < old) { atomicAdd(&flows[i + 1u], 1u); }
+}
+"#);
+    s
+}
+
 /// The contract functions. `params` must be bound as `array<u32>` named `params`.
 pub fn contract() -> String {
     let sin: Vec<String> = c::SIN.iter().map(|&x| lit(x)).collect();

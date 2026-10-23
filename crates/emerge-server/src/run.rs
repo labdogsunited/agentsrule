@@ -533,10 +533,28 @@ impl Run {
     }
 
     /// Starts the resource budget window (`accounts.start`, `proposals/science-panels.md` §8): the
-    /// runtime's own per-lineage accounts of the upkeep substance, counted from now. CPU only.
+    /// runtime's own per-lineage accounts of the upkeep substance, counted from now. A GPU run keeps them
+    /// by founding lineage only (no clade, no split by who makes a substance).
     pub fn start_accounts(&mut self, clade: Option<u64>, flux: Option<&str>) -> Result<Value, String> {
-        if !matches!(self.backend, Backend::Cpu) {
-            return Err("resource accounts exist on the CPU runner only (the GPU has no accounts yet)".into());
+        if let Backend::Gpu(_) = &self.backend {
+            if clade.is_some() || flux.is_some() {
+                return Err("the GPU keeps resource accounts by founding lineage only: a clade or a split by who makes a substance needs the CPU runner".into());
+            }
+            if self.spec.lineages.len() > 16 { return Err("the GPU keeps accounts for at most 16 lineages".into()); }
+            if !self.live.world.creatures {
+                return Err("the world has no creatures, so there is no upkeep substance to account for".into());
+            }
+            let pay = self.live.world.upkeep.pay;
+            let n = self.spec.lineages.len();
+            let (mut count, mut stock) = (vec![0u64; n], vec![0u64; n]);
+            if let Backend::Gpu(r) = &self.backend {
+                let ns = r.ns();
+                let (ent, _, amounts) = r.entity_table();
+                for (e, a) in ent.chunks(emerge_gpu::pack::ENT).zip(amounts.chunks(ns)) { count[e[11] as usize] += 1; stock[e[11] as usize] += u64::from(a[pay]); }
+            }
+            if let Backend::Gpu(r) = &mut self.backend { r.enable_accounts(n); }
+            self.acct = Some(AcctStart { tick: self.tick(), revision: self.live.revision, names: self.spec.lineages.clone(), count, stock, disposal0: vec![] });
+            return Ok(json!({"started_at_tick": self.tick(), "substance": self.live.world.chem.substances[pay].name}));
         }
         if !self.live.world.creatures {
             return Err("the world has no creatures, so there is no upkeep substance to account for".into());
@@ -569,6 +587,37 @@ impl Run {
     /// The budget of each lineage since `start_accounts`: stock then and now, the runtime's account
     /// columns, and what they leave unexplained.
     pub fn accounts(&self) -> Result<Value, String> {
+        if let Backend::Gpu(r) = &self.backend {
+            let Some(start) = &self.acct else { return Err("no budget window: start one with accounts.start".into()) };
+            let totals = r.accounts().ok_or("no budget window: start one with accounts.start")?;
+            let w = &self.live.world;
+            let pay = w.upkeep.pay;
+            let n = start.names.len();
+            let (mut count, mut stock) = (vec![0u64; n], vec![0u64; n]);
+            let ns = r.ns();
+            let (ent, _, amounts) = r.entity_table();
+            for (e, a) in ent.chunks(emerge_gpu::pack::ENT).zip(amounts.chunks(ns)) { count[e[11] as usize] += 1; stock[e[11] as usize] += u64::from(a[pay]); }
+            let col = |name: &str| emerge_ref::world::ACCOUNT_COLUMNS.iter().position(|c| *c == name).unwrap();
+            let lineages: Vec<Value> = (0..n)
+                .map(|g| {
+                    let t = totals[g];
+                    let lines = budget_lines(&t);
+                    let get = |name: &str| t[col(name)] as i128;
+                    let explained: i128 = lines.iter().map(|(_, s, x)| s * x).sum();
+                    let change = stock[g] as i128 - start.stock[g] as i128;
+                    json!({"disposal": {"unavailable": "where the dead's stock went is counted on the CPU runner only"}, "lineage": start.names[g], "creatures_start": start.count[g], "creatures_now": count[g],
+                        "births": get("births"), "starved": get("starved"), "aged": get("aged"),
+                        "stock_start_mu": start.stock[g], "stock_now_mu": stock[g], "change_mu": change,
+                        "lines": lines.iter().map(|(l, s, x)| json!({"name": l, "sign": s, "mu": x})).collect::<Vec<_>>(),
+                        "explained_mu": explained, "unreconciled_mu": change - explained})
+                })
+                .collect();
+            return Ok(json!({"substance": w.chem.substances[pay].name, "unit": "µ (millionths of a unit)", "from_tick": start.tick, "to_tick": self.tick(),
+                "revision_start": start.revision, "revision_now": self.live.revision, "crosses_edit": start.revision != self.live.revision,
+                "scope": "each founding lineage as a whole; a creature's stock moves with it, births count in the parent's lineage (counted on the GPU, per lineage)",
+                "not_counted": "stock that creatures bring in by genesis or injection after the start is not in the account columns and shows as unreconciled",
+                "lineages": lineages}));
+        }
         let (Some(start), Some(a)) = (&self.acct, &self.live.world.accounts) else { return Err("no budget window: start one with accounts.start".into()) };
         let w = &self.live.world;
         let pay = w.upkeep.pay;
