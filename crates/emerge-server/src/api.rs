@@ -150,6 +150,11 @@ fn graph_op(v: &Value) -> Result<(emerge_lang::graph::Op, String), Fault> {
             let n = items.len();
             (Op::Paste { items }, format!("paste {n} statement{}", if n == 1 { "" } else { "s" }))
         }
+        Some("add_inside") => {
+            let other = v["branch"].as_str() == Some("else");
+            (Op::AddInside { id: get("id")?, otherwise: other, text: get("text")? }, format!("add to the {} of {}", if other { "else" } else { "when" }, get("id")?))
+        }
+        Some("condition") => (Op::Condition { id: get("id")?, cond: get("cond")? }, format!("set the condition of {}", get("id")?)),
         Some("insert") => (Op::Insert { id: get("id")?, from: get("from")?, to: get("to")? }, format!("insert {} on the wire from {} to {}", get("id")?, get("from")?, get("to")?)),
         Some("batch") => {
             let list = v["ops"].as_array().ok_or_else(|| bad("`op.ops` must be a list of edits"))?;
@@ -161,7 +166,7 @@ fn graph_op(v: &Value) -> Result<(emerge_lang::graph::Op, String), Fault> {
             let n = ops.len();
             (Op::Batch { ops }, format!("{n} edits together"))
         }
-        _ => return Err(bad("`op.op` must be set_param, wire, delete, add_rule, add_connected, duplicate, label, unwire, paste, insert or batch")),
+        _ => return Err(bad("`op.op` must be set_param, wire, delete, add_rule, add_connected, duplicate, label, unwire, paste, insert, add_inside, condition or batch")),
     })
 }
 
@@ -388,10 +393,20 @@ impl Engine {
                     "routes": e.routes,
                     "history": {"undo": e.undo.iter().map(|s| s.what.clone()).collect::<Vec<_>>(), "redo": e.redo.iter().map(|s| s.what.clone()).collect::<Vec<_>>()},
                     "nodes": g.nodes.iter().map(|n| { let c = contract.nodes.get(&n.id); json!({"id": n.id, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "step": n.step, "group": n.group, "line": n.line, "params": n.params, "contract": c.map(node_contract_json)}) }).collect::<Vec<_>>(),
-                    "wires": g.wires.iter().zip(&contract.wires).map(|(w, c)| json!({"from": w.from, "to": w.to, "substance": w.substance, "kind": c.kind, "from_port": c.from_port, "to_port": c.to_port, "derived": c.derived, "edit": c.edit, "why_not": c.why_not})).collect::<Vec<_>>(),
+                    // The top-level statements' wires, then those of statements inside a `when` and the value dependencies.
+                    "wires": g.wires.iter().zip(&contract.wires).chain(contract.more_wires.iter().map(|(w, c)| (w, c))).map(|(w, c)| json!({"from": w.from, "to": w.to, "substance": w.substance, "kind": c.kind, "from_port": c.from_port, "to_port": c.to_port, "derived": c.derived, "edit": c.edit, "why_not": c.why_not})).collect::<Vec<_>>(),
                     "nested": contract.nested.iter().map(|n| json!({"id": n.id, "container": n.container, "group": n.group, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "when": n.when, "params": n.params, "contract": node_contract_json(&n.meta)})).collect::<Vec<_>>(),
                     "contexts": contract.contexts.iter().map(|(k, label)| json!({"key": k, "label": label})).collect::<Vec<_>>(),
                 }))
+            }
+            "world.names" => {
+                // What a statement may name (`proposals/houdini-node-system.md` §8): the world's declarations with the box
+                // that declares each (for jump-to-definition), and the built-ins, for the code box's completion.
+                let e = self.entry(p)?;
+                let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+                let world = file.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) => Some(w.name.clone()), _ => None }).ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+                let names = emerge_lang::contract::scope_names(&file, &world).map_err(|m| fault(-32005, m))?;
+                Ok(json!({"revision": e.run.revision(), "names": names.iter().map(|n| json!({"name": n.name, "kind": n.kind, "id": n.id, "line": n.line, "detail": n.detail})).collect::<Vec<_>>()}))
             }
             "rules.lens" => {
                 // The checked schedule of the running world's source (`proposals/science-panels.md`
@@ -435,7 +450,6 @@ impl Engine {
                 let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
                 let prepared = emerge_lang::prepare(&file).map_err(|d| fault(-32005, format!("{}: {}: {}", d.code, d.path, d.message)))?;
                 let name = prepared.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) => Some(w.name.clone()), _ => None }).ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
-                let world = prepared.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) if w.name == name => Some(w), _ => None }).unwrap();
                 let named = law_statements(&prepared, &name).map_err(|m| fault(-32005, m))?;
                 let w = &e.run.live.world;
                 if named.len() != w.laws.len() { return Err(fault(-32005, format!("the runner has {} laws but the source has {} effect statements: the counters cannot be tied to statements", w.laws.len(), named.len()))); }
@@ -529,8 +543,13 @@ impl Engine {
                     if let (1, Some(off)) = (d.line, edit.patch.find(&text)) {
                         let col = d.col.saturating_sub(off);
                         let at = if col == 0 || col > text.chars().count() { "at the end of the text".to_string() } else { format!("at column {col} of the text") };
-                        return Err(Fault { code: -32001, message: format!("invalid: {} {at}: {}", d.code, d.message), data: Some(json!({"kind": "invalid"})) });
+                        return Err(Fault { code: -32001, message: format!("invalid: {} {at}: {}", d.code, d.message), data: Some(json!({"kind": "invalid", "column": col})) });
                     }
+                }
+                // `dry_run`: the code box's inline check while typing: the same checks a swap makes before it commits.
+                if p["dry_run"].as_bool() == Some(true) {
+                    e.run.check_patch(&edit.patch, base).map_err(|r| rejected(&r))?;
+                    return Ok(json!({"dry_run": true, "checked": true, "revision": e.run.revision(), "patch": edit.patch}));
                 }
                 apply_edit(e, edit, base, &format!("graph edit of {id}"), &format!("edit {id}"))
             }
@@ -550,7 +569,11 @@ impl Engine {
                 // `dry_run`: what the edit would write, applied nowhere (the preview of a hovered connection or a
                 // pending paste): the patch, the way back, and what it would leave selected.
                 if p["dry_run"].as_bool() == Some(true) {
-                    return Ok(json!({"dry_run": true, "what": what, "revision": e.run.revision(), "patch": edit.patch, "redo": edit.redo, "undo": edit.undo, "selected": edit.selected}));
+                    // Checked as a swap would be before it commits (`check: false` builds the patch only).
+                    if p["check"].as_bool() != Some(false) {
+                        e.run.check_patch(&edit.patch, base).map_err(|r| rejected(&r))?;
+                    }
+                    return Ok(json!({"dry_run": true, "checked": p["check"].as_bool() != Some(false), "what": what, "revision": e.run.revision(), "patch": edit.patch, "redo": edit.redo, "undo": edit.undo, "selected": edit.selected}));
                 }
                 apply_edit(e, edit, base, &format!("graph {what}"), &what)
             }
@@ -1197,7 +1220,7 @@ pub fn docs(query: &str) -> Value {
 fn stmt_cells(text: &str, col_of: &dyn Fn(&str) -> Option<usize>, formulas: &std::collections::HashMap<String, (Vec<String>, Vec<String>)>, cols: &[(String, &'static str)]) -> Vec<(String, Vec<&'static str>)> {
     let mut out: Vec<(usize, &'static str)> = vec![];
     let ids = |seg: &str| -> Vec<String> { seg.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|t| !t.is_empty()).map(String::from).collect() };
-    let mut add = |n: &str, kind: &'static str, out: &mut Vec<(usize, &'static str)>| if let Some(c) = col_of(n) { if !out.contains(&(c, kind)) { out.push((c, kind)); } };
+    let add = |n: &str, kind: &'static str, out: &mut Vec<(usize, &'static str)>| if let Some(c) = col_of(n) { if !out.contains(&(c, kind)) { out.push((c, kind)); } };
     let (cond, body) = match text.strip_prefix("when ") { Some(rest) => match rest.split_once('{') { Some((c, b)) => (c, b), None => (rest, "") }, None => ("", text) };
     for n in ids(cond) { add(&n, "condition", &mut out); }
     // Each call: the first argument, and the `from:`, `to:` and `overflow:` names.
@@ -1228,23 +1251,42 @@ fn stmt_cells(text: &str, col_of: &dyn Fn(&str) -> Option<usize>, formulas: &std
 /// `when`'s then-block before its else-block), with the paths the Rule Lens gives them.
 pub fn law_statements(prepared: &emerge_lang::ast::File, name: &str) -> Result<Vec<Value>, String> {
     let world = prepared.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) if w.name == name => Some(w), _ => None }).ok_or("no world")?;
-    fn walk(block: &emerge_lang::ast::Block, top: usize, rule: &str, on: &str, out: &mut Vec<Value>, name: &str) {
+    // `top` is the top-level statement a statement is in (none for a top-level one) and `route` the way down inside it
+    // (`t0.e1`), so a statement inside a `when` is also named the way the graph names it (`R#2/t0`, `nested_id`). In a rule
+    // with a loop the unrolled positions are not the source's, so there it is not given.
+    #[allow(clippy::too_many_arguments)]
+    fn walk(block: &[emerge_lang::ast::Node<emerge_lang::ast::Stmt>], top: Option<usize>, route: &str, rule: &str, on: &str, out: &mut Vec<Value>, name: &str, loops: bool) {
         use emerge_lang::ast::Stmt;
-        let nested = top != usize::MAX;
         for (k, st) in block.iter().enumerate() {
-            let top = if top == usize::MAX { k } else { top };
+            let t = top.unwrap_or(k);
             match &st.node {
                 // The path is the lens's: a labelled top-level call by its label, anything else by the top-level position.
-                Stmt::Call { call, label } => out.push(json!({"rule": rule, "on": on, "line": st.pos.line, "call": call.name, "text": emerge_lang::fmt::stmt_text(&st.node),
-                    "path": match (label, nested) { (Some(l), false) => format!("{name}.rules.{rule}@{l}"), _ => format!("{name}.rules.{rule}#{top}") }})),
-                Stmt::When { then, otherwise, .. } => { walk(then, top, rule, on, out, name); if let Some(o) = otherwise { walk(o, top, rule, on, out, name); } }
+                Stmt::Call { call, label } => {
+                    let mut row = json!({"rule": rule, "on": on, "line": st.pos.line, "call": call.name, "text": emerge_lang::fmt::stmt_text(&st.node),
+                        "path": match (label, top) { (Some(l), None) => format!("{name}.rules.{rule}@{l}"), _ => format!("{name}.rules.{rule}#{t}") }});
+                    if top.is_some() && !loops {
+                        row["nested_id"] = json!(format!("{name}.rules.{rule}#{t}/{route}"));
+                    }
+                    out.push(row);
+                }
+                Stmt::When { then, otherwise, .. } => {
+                    for (tag, b) in [("t", Some(then)), ("e", otherwise.as_ref())] {
+                        for (i, s) in b.into_iter().flatten().enumerate() {
+                            let r = if top.is_none() || route.is_empty() { format!("{tag}{i}") } else { format!("{route}.{tag}{i}") };
+                            walk(std::slice::from_ref(s), Some(t), &r, rule, on, out, name, loops);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
     }
     let mut named: Vec<Value> = vec![];
     for d in &world.decls {
-        if let emerge_lang::ast::WDecl::Rule { name: rn, on, body } = &d.node { walk(body, usize::MAX, rn, on, &mut named, name); }
+        if let emerge_lang::ast::WDecl::Rule { name: rn, on, body } = &d.node {
+            let loops = body.iter().any(|s| matches!(s.node, emerge_lang::ast::Stmt::Each { .. }));
+            walk(body, None, "", rn, on, &mut named, name, loops);
+        }
     }
     Ok(named)
 }
@@ -1260,6 +1302,7 @@ fn node_contract_json(c: &emerge_lang::contract::NodeContract) -> Value {
         "why_not": c.caps.why_not,
         "deps": {"conditions": c.deps.conditions, "reads": c.deps.reads, "writes": c.deps.writes, "references": c.deps.references, "complete": c.deps.complete},
         "summary": c.summary.as_ref().map(|s| json!({"on": s.on, "statements": s.statements, "nested": s.nested, "kinds": s.kinds, "steps": s.steps})),
+        "condition": c.condition,
     })
 }
 

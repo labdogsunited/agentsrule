@@ -262,6 +262,13 @@ impl Run {
     }
 
     /// A hot-swap at the current tick boundary, journalled whatever its outcome.
+    /// Whether `patch` would be accepted at `base`: checked, compiled and compared with the running world as `hotswap` does
+    /// before it commits, changing nothing. The balances are not looked at (a lowered cap can still fail when applied), and
+    /// on a GPU world the device may refuse more when it is applied.
+    pub fn check_patch(&self, patch: &str, base: u64) -> Result<(), Rejected> {
+        self.live.stage(patch, base).map(|_| ())
+    }
+
     pub fn hotswap(&mut self, patch: &str, base: u64, reason: &str) -> Result<Value, Rejected> {
         let tick = self.tick();
         let result = match &mut self.backend {

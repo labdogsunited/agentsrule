@@ -149,6 +149,14 @@
   #graph .rdot:hover, #graph .rdot.pick { border-color: var(--accent); }
   #graph .wire.hotwire { stroke-width: 4; opacity: 1; filter: drop-shadow(0 0 3px #6fcf97); }
   #graph .wire.dep { stroke-dasharray: 2 4; opacity: 0.7; }
+  .port.sock.val { border-radius: 2px; } .box .unk { position: absolute; right: 6px; bottom: 3px; font: 600 10px system-ui; color: #e6b45c; cursor: help; }
+  #picked .whenrow { display: flex; gap: 6px; margin: 4px 0; align-items: center; } #picked .whenrow input { flex: 1; font: 12px ui-monospace, monospace; padding: 3px 6px; }
+  #picked .ctxline { font: 11px system-ui, sans-serif; color: var(--muted); margin: 2px 0 6px; }
+  #picked .addin textarea { min-height: 40px; }
+  #complist { position: fixed; z-index: 40; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; max-height: 220px; overflow: auto; font: 12px ui-monospace, monospace; box-shadow: 0 6px 18px #0008; display: none; min-width: 260px; }
+  #complist div { padding: 3px 8px; cursor: pointer; white-space: nowrap; } #complist div.on { background: var(--accent); color: #1a1408; } #complist small { color: var(--muted); margin-left: 8px; font-family: system-ui; }
+  #complist div.on small { color: #3a2e10; }
+  #picked .lint { font: 11px system-ui, sans-serif; margin-top: 4px; } #picked .lint.bad { color: var(--bad); } #picked .lint.ok { color: var(--ok); }
   #netcollapse.on { background: var(--accent); color: #1a1408; border-color: var(--accent); }
   .nwhen { position: absolute; border: 1px dashed #8b93a1; border-radius: 8px; background: rgba(139,147,161,0.06); pointer-events: none; }
   .nwhen span { position: absolute; left: 8px; top: -9px; padding: 0 6px; background: var(--bg, #15181d); font: 10px ui-monospace, monospace; color: var(--muted); max-width: 90%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1079,7 +1087,7 @@ function layoutGraph(g) {
   let drawn = g.nodes.filter((n) => [...collapsedView() ? ["rule"] : ["transfer", "react", "diffuse", "signal", "code"], "store", "reaction", "obs-agents", "obs-tracker", "obs-out"].includes(n.kind));
   ghostIds = new Set();
   if (ctx !== "world" && ctx !== "observe") {
-    const mine = drawn.filter((n) => n.contract && n.contract.context === ctx), ids = new Set(mine.map((n) => n.id)), near = new Set();
+    const mine = drawn.filter((n) => n.contract && n.contract.context === ctx), ids = new Set([...mine.map((n) => n.id), ...(g.nested || []).filter((x) => x.contract && x.contract.context === ctx).map((x) => x.id)]), near = new Set();
     for (const w of g.wires) { if (ids.has(w.from) && !ids.has(w.to)) near.add(w.to); if (ids.has(w.to) && !ids.has(w.from)) near.add(w.from); }
     const ghosts = drawn.filter((n) => near.has(n.id) && !ids.has(n.id));
     ghosts.forEach((n) => ghostIds.add(n.id));
@@ -1098,6 +1106,39 @@ function layoutGraph(g) {
   return drawn;
 }
 
+// Named sockets from the contract (`proposals/houdini-node-system.md` §5): the name on the edge, the role and what may
+// attach in the tooltip, filled when a wire is attached, amber when a required one is empty. A box whose dependencies are
+// not all followed (a `let`, an unknown call) carries a "?" that says so: a missing wire there is "not found", not "none".
+function drawPorts(el, n, g) {
+  const ports = (n.contract && n.contract.ports) || [];
+  if (ports.length) {
+    const seen = { in: 0, out: 0 };
+    for (const pt of ports) {
+      const i = seen[pt.dir]++, y = 8 + i * 16;
+      const sk = document.createElement("div"), lb = document.createElement("span");
+      sk.className = `port sock ${pt.dir}${pt.required ? " req" : ""}${pt.role === "value" ? " val" : ""}`;
+      sk.dataset.port = pt.key;
+      sk.style.top = `${y}px`;
+      sk.title = `${pt.name}: ${pt.role}, accepts a ${pt.type}${pt.many ? " (several)" : ""}${pt.required ? ", required" : ""}`;
+      if (g.wires.some((w) => (w.from === n.id && w.from_port === pt.key) || (w.to === n.id && w.to_port === pt.key))) sk.classList.add("linked");
+      lb.className = `plabel ${pt.dir}`;
+      lb.textContent = pt.name;
+      lb.style.top = `${y - 1}px`;
+      el.append(sk, lb);
+    }
+  } else {
+    if (["transfer", "react"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port in"; el.append(p); }
+    if (["store", "reaction", "transfer"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port out"; el.append(p); }
+  }
+  if (n.contract && n.contract.deps && n.contract.deps.complete === false && n.group) {
+    const q = document.createElement("span");
+    q.className = "unk";
+    q.textContent = "?";
+    q.title = "Not every part of this statement is followed (a `let`, an assignment or a call this analysis does not know): what it reads or writes beyond the wires drawn is unknown, not absent";
+    el.append(q);
+  }
+}
+let drawnIds = new Set();
 function drawGraph() {
   if (ctx === "observe") observeGraph();
   const g = netData(), root = $("graph");
@@ -1119,6 +1160,7 @@ function drawGraph() {
     root.appendChild(h);
   }
   let maxX = 0, maxY = 0;
+  drawnIds = new Set(drawn.map((n) => n.id));
   for (const n of drawn) {
     const p = placed.get(n.id), el = document.createElement("div");
     el.className = `box k-${n.kind}${/@code_/.test(n.id) ? " codebox" : ""}${ghostIds.has(n.id) ? " ghost" : ""}`;
@@ -1134,28 +1176,7 @@ function drawGraph() {
     b.textContent = sm ? `on ${sm.on} · ${sm.statements} statement${sm.statements === 1 ? "" : "s"}${sm.nested ? ` (+${sm.nested} inside when)` : ""} · ${sm.kinds.join(", ")}${sm.steps.length ? ` · ${sm.steps.join(", ")}` : ""}` : n.text.replace(/\s+/g, " ");
     if (sm) el.title = "A rule as one box: double-click (or Enter) to go into it";
     el.append(t, b);
-    const ports = (n.contract && n.contract.ports) || [];
-    if (ports.length) {
-      // Named sockets from the contract (`proposals/houdini-node-system.md` §5): the name on the edge, the role and
-      // what may attach in the tooltip, filled when a wire is attached, amber when a required one is empty.
-      const seen = { in: 0, out: 0 };
-      for (const pt of ports) {
-        const i = seen[pt.dir]++, y = 8 + i * 16;
-        const sk = document.createElement("div"), lb = document.createElement("span");
-        sk.className = `port sock ${pt.dir}${pt.required ? " req" : ""}`;
-        sk.dataset.port = pt.key;
-        sk.style.top = `${y}px`;
-        sk.title = `${pt.name}: ${pt.role}, accepts a ${pt.type}${pt.many ? " (several)" : ""}${pt.required ? ", required" : ""}`;
-        if (g.wires.some((w) => (w.from === n.id && w.from_port === pt.key) || (w.to === n.id && w.to_port === pt.key))) sk.classList.add("linked");
-        lb.className = `plabel ${pt.dir}`;
-        lb.textContent = pt.name;
-        lb.style.top = `${y - 1}px`;
-        el.append(sk, lb);
-      }
-    } else {
-      if (["transfer", "react"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port in"; el.append(p); }
-      if (["store", "reaction", "transfer"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port out"; el.append(p); }
-    }
+    drawPorts(el, n, g);
     if (n.tracker) {
       // The display flag and the recording indicator, on the node itself.
       const fl = document.createElement("span"), rc = document.createElement("span");
@@ -1188,6 +1209,8 @@ function drawGraph() {
         el.title = `Runs only where: ${x.when}`;
         t.className = "t"; t.textContent = x.title; b.className = "b"; b.textContent = x.text.replace(/\s+/g, " ");
         el.append(t, b);
+        drawPorts(el, x, g);
+        drawnIds.add(x.id);
         root.appendChild(el);
         maxX = Math.max(maxX, p.x + BOX.w + 40); maxY = Math.max(maxY, p.y + BOX.h + 40);
       });
@@ -1505,7 +1528,7 @@ function drawWires() {
   const NS = "http://www.w3.org/2000/svg";
   for (const w of netWires(g)) {
     const a = placed.get(w.from), b = placed.get(w.to);
-    if (!a || !b) continue;
+    if (!a || !b || !drawnIds.has(w.from) || !drawnIds.has(w.to)) continue;
     // A wire runs right to left when its source is to the right of its target (a reaction or a
     // diffusion reading a store): it leaves the source's left edge and enters the target's right edge.
     const back = a.x > b.x;
@@ -2071,10 +2094,54 @@ function renderParm() {
     picked.append(document.createTextNode(n.text));
     return noteFor(t);
   }
+  picked.append(ctxLine(n));
   if (n.params && n.params.length) picked.append(paramsGrid(n, !!d && d.state !== "pending" ? true : !!d));
+  if (n.contract && n.contract.condition != null) picked.append(whenBlock(n));
   if (n.contract && n.contract.can.label && !/@/.test(n.id)) picked.append(namerRow(n));
   picked.append(draftBlock(n, d));
   noteFor(t);
+}
+// Above the code: where the statement runs, what its rule may do, and what it reads and writes (checked syntax, not text
+// matching; "partly unknown" where the analysis does not follow it) (`proposals/houdini-node-system.md` §8).
+const RULE_KINDS = { "Transfers": "a transfer rule: transfer, diffuse_conserved", "World reactions": "a reaction rule: react", "Field signals": "a signal rule: self.value = …, life_like" };
+function ctxLine(n) {
+  const el = document.createElement("div");
+  el.className = "ctxline";
+  const rule = n.group && n.group.split(".").pop(), r = graphData.nodes.find((x) => x.id === n.group), sm = r && r.contract && r.contract.summary;
+  const step = n.step || (sm && sm.steps[0]);
+  const dp = n.contract && n.contract.deps, list = (a) => (a && a.length ? a.join(", ") : "none");
+  el.textContent = `In rule ${rule}${sm ? ` on ${sm.on}` : ""}${step ? ` · ${RULE_KINDS[step] || step}, one kind of effect a rule · runs in ${step}` : ""} · reads the start-of-tick snapshot`;
+  if (dp) el.textContent += `\nReads ${list(dp.reads)} · writes ${list(dp.writes)}${dp.conditions.length ? ` · its conditions read ${dp.conditions.join(", ")}` : ""}${dp.complete ? "" : " · partly unknown (not every part is followed)"}`;
+  return el;
+}
+// A `when` (top-level or inside another): its condition, set as one edit, and statements added inside it (to its `then`, or
+// to its `else`, made if it has none). Each is one revision and one undo, checked like any edit.
+function whenBlock(n) {
+  const box = document.createElement("div"), row = document.createElement("div"), lab = document.createElement("label"), inp = document.createElement("input");
+  row.className = "whenrow";
+  lab.textContent = "when";
+  inp.value = n.contract.condition;
+  inp.spellcheck = false;
+  inp.dataset.role = "condition";
+  inp.title = "The condition, read on the start-of-tick snapshot. Enter applies it; Escape puts it back.";
+  inp.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Escape") { inp.value = n.contract.condition; inp.blur(); } };
+  inp.onchange = () => { if (inp.value.trim() && inp.value !== n.contract.condition) graphOp({ op: "condition", id: n.id, cond: inp.value.trim() }).then((r) => { if (r) select(n.id); }); };
+  row.append(lab, inp);
+  const add = document.createElement("div"), ta = document.createElement("textarea"), bar = document.createElement("div"), br = document.createElement("select"), go = document.createElement("button");
+  add.className = "addin";
+  ta.placeholder = "a statement to add inside this when";
+  ta.spellcheck = false;
+  ta.rows = 2;
+  ta.dataset.role = "addinside";
+  br.innerHTML = '<option value="then">to its then</option><option value="else">to its else</option>';
+  go.textContent = "Add inside";
+  go.onclick = async () => { if (!ta.value.trim()) return; const r = await graphOp({ op: "add_inside", id: n.id, branch: br.value, text: ta.value.trim() }); if (r) select(n.id); };
+  bar.className = "edit";
+  bar.append(br, go);
+  add.append(ta, bar);
+  attachCompletion(ta);
+  box.append(row, add);
+  return box;
 }
 function noteFor(t) {
   const note = notes.get(dkey(t.world, t.id));
@@ -2083,6 +2150,100 @@ function noteFor(t) {
   m.className = `msg ${note.cls}`;
   m.textContent = note.text;
   $("picked").append(m);
+}
+// ---- The code box (`proposals/houdini-node-system.md` §8): completion of the names a statement may use (the world's
+// declarations and the built-ins, from `world.names`: what the checker will resolve), jump to a name's declaration (F12, or
+// Ctrl+click), and an inline check while typing (the swap's own check, `dry_run`, nothing applied).
+let scopeNames = null;
+async function namesFor() {
+  const w = $("world").value;
+  if (!scopeNames || scopeNames.world !== w || scopeNames.revision !== graphData.revision) { const r = await call("world.names", { world: w }); scopeNames = { world: w, revision: r.revision, names: r.names }; }
+  return scopeNames.names;
+}
+const compl = { ta: null, items: [], sel: 0, start: 0 };
+const KIND_ORDER = ["substance", "field", "source", "sink", "reaction", "const", "direction", "function", "keyword", "element", "rule"];
+function wordBefore(ta) { const i = ta.selectionStart, m = /[A-Za-z_][A-Za-z0-9_]*$/.exec(ta.value.slice(0, i)); return m ? { word: m[0], start: i - m[0].length } : { word: "", start: i }; }
+function wordAt(ta) { const i = ta.selectionStart, a = /[A-Za-z0-9_]*$/.exec(ta.value.slice(0, i))[0], b = /^[A-Za-z0-9_]*/.exec(ta.value.slice(i))[0]; return a + b; }
+function closeCompletion() { compl.ta = null; compl.items = []; const l = $("complist"); if (l) l.style.display = "none"; }
+async function openCompletion(ta, force) {
+  const { word, start } = wordBefore(ta);
+  if (!word && !force) return closeCompletion();
+  const names = await namesFor().catch(() => []);
+  const items = names.filter((x) => x.name.startsWith(word) && x.name !== word).sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || a.name.localeCompare(b.name)).slice(0, 14);
+  if (!items.length || document.activeElement !== ta) return closeCompletion();
+  let l = $("complist");
+  if (!l) { l = document.createElement("div"); l.id = "complist"; document.body.append(l); }
+  Object.assign(compl, { ta, items, sel: 0, start });
+  const r = ta.getBoundingClientRect();
+  l.style.left = `${Math.min(r.left, window.innerWidth - 300)}px`;
+  l.style.top = `${Math.min(r.bottom + 2, window.innerHeight - 230)}px`;
+  l.style.display = "block";
+  drawCompletion();
+}
+function drawCompletion() {
+  const l = $("complist");
+  l.textContent = "";
+  compl.items.forEach((x, i) => {
+    const row = document.createElement("div"), sm = document.createElement("small");
+    row.className = i === compl.sel ? "on" : "";
+    row.textContent = x.name;
+    sm.textContent = `${x.kind} · ${x.detail}`;
+    row.append(sm);
+    row.title = x.detail;
+    row.onpointerdown = (e) => { e.preventDefault(); compl.sel = i; acceptCompletion(); };
+    l.append(row);
+  });
+}
+function acceptCompletion() {
+  const ta = compl.ta, x = compl.items[compl.sel];
+  if (!ta || !x) return closeCompletion();
+  const end = ta.selectionStart;
+  ta.value = ta.value.slice(0, compl.start) + x.name + ta.value.slice(end);
+  ta.selectionStart = ta.selectionEnd = compl.start + x.name.length;
+  closeCompletion();
+  ta.dispatchEvent(new Event("input"));
+}
+async function jumpToDefinition(ta) {
+  const word = wordAt(ta), names = await namesFor().catch(() => []), x = names.find((y) => y.name === word && y.id);
+  if (!x) return oops(word ? `\`${word}\` is not declared in the world: it is a built-in, a local name or unknown.` : "Put the cursor on a name first.");
+  oops();
+  if (ctx !== "world") goContext("world");
+  select(x.id);
+  frameIds([x.id]);
+  $("netfound").textContent = `${x.name}: ${x.kind}, line ${x.line}`;
+}
+function attachCompletion(ta) {
+  ta.addEventListener("input", () => openCompletion(ta, false));
+  ta.addEventListener("blur", () => setTimeout(() => { if (compl.ta === ta) closeCompletion(); }, 150));
+  ta.addEventListener("keydown", (e) => {
+    if (compl.ta === ta && compl.items.length) {
+      if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); compl.sel = Math.min(compl.items.length - 1, compl.sel + 1); return drawCompletion(); }
+      if (e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); compl.sel = Math.max(0, compl.sel - 1); return drawCompletion(); }
+      if (e.key === "Enter" || e.key === "Tab") { if (!(e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); return acceptCompletion(); } }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); return closeCompletion(); }
+    }
+    if (e.key === " " && e.ctrlKey) { e.preventDefault(); openCompletion(ta, true); }
+    if (e.key === "F12" || (e.key.toLowerCase() === "b" && (e.ctrlKey || e.metaKey))) { e.preventDefault(); jumpToDefinition(ta); }
+  }, true);
+  ta.addEventListener("click", (e) => { if (e.ctrlKey || e.metaKey) jumpToDefinition(ta); });
+}
+// The inline check of a statement draft: the server builds the patch and checks it as a swap would, without applying it.
+function attachLint(ta, lint, world, id, base) {
+  let timer = null, seq = 0;
+  ta.addEventListener("input", () => {
+    clearTimeout(timer);
+    const mine = ++seq;
+    lint.className = "lint"; lint.textContent = "";
+    timer = setTimeout(async () => {
+      if (!ta.value.trim() || ta.value === ta.dataset.applied) return;
+      try {
+        const r = await call("world.graph_edit", { world, id, text: ta.value, base_revision: base(), dry_run: true });
+        if (mine === seq) { lint.className = "lint ok"; lint.textContent = `✓ checked: the world would accept this at revision ${r.revision} (nothing is applied until Apply)`; }
+      } catch (e) {
+        if (mine === seq) { lint.className = "lint bad"; lint.textContent = `✗ ${e.message || e}`; }
+      }
+    }, 450);
+  });
 }
 // The statement editor: the draft's text if there is one, else the applied text.
 function draftBlock(n, d) {
@@ -2093,7 +2254,9 @@ function draftBlock(n, d) {
   const apply = document.createElement("button"), revert = document.createElement("button"), del = document.createElement("button");
   const applied = n ? n.text : d.applied;
   ta.value = d ? d.text : applied;
+  ta.dataset.applied = applied;
   ta.spellcheck = false;
+  ta.title = "Ctrl+Space completes a name; F12 (or Ctrl+click) goes to where a name is declared; Ctrl+Enter applies";
   ta.rows = Math.min(8, Math.max(3, Math.ceil(ta.value.length / 34)));
   state.className = "state";
   const label = { draft: "● Unapplied draft", pending: "◌ Applying…", rejected: "▲ Rejected: kept as a draft", stale: "◆ Stale: the world moved on", unknown: "? Outcome unknown" };
@@ -2151,7 +2314,10 @@ function draftBlock(n, d) {
     chk.onclick = () => reconcile(d);
     row.append(chk);
   }
-  box.append(ta, state, row, msg);
+  const lint = document.createElement("div");
+  lint.className = "lint";
+  if (n) { attachCompletion(ta); attachLint(ta, lint, world, id, () => { const cur = drafts.get(dkey(world, id)); return cur ? cur.base : graphData.revision; }); }
+  box.append(ta, lint, state, row, msg);
   return box;
 }
 function renderIf(world, id) {
@@ -3076,12 +3242,13 @@ async function inspectRead(n) {
   const st = await call("stats.query", { world: w });
   out.tick = st.tick;
   const wiresOf = g.wires.filter((x) => x.from === n.id || x.to === n.id);
-  if (n.group && !n.isNested) {
-    // a statement of a world rule: the runner's counters for it, from the tick it began counting
+  if (n.group) {
+    // a statement of a world rule (top-level, or inside a `when`, named the way the graph names it): the runner's counters
+    // for it, from the tick it began counting
     try {
       const a = await call("rules.activity", { world: w });
-      const row = a.rows.find((r) => r.path === n.id);
-      out.measured = row ? { kind: "statement", row, since: a.since_tick, ticks: a.ticks, stamp: a.observation } : { kind: "none", why: "this statement is not one of the runner's world laws (a `when` is counted through the statements it holds)" };
+      const row = a.rows.find((r) => (n.isNested ? r.nested_id === n.id : r.path === n.id && !r.nested_id));
+      out.measured = row ? { kind: "statement", row, since: a.since_tick, ticks: a.ticks, stamp: a.observation } : { kind: "none", why: n.isNested ? "this statement is not one of the runner's world laws (in a rule with a loop, the written-out copies are counted, not the statement as written)" : "this statement is not one of the runner's world laws (a `when` is counted through the statements it holds)" };
     } catch (e) { out.measured = { kind: "none", why: String(e.message || e) }; }
   } else if (n.kind === "reaction") {
     try {

@@ -218,6 +218,7 @@ pub fn graph(file: &File, world: &str) -> Result<Graph, String> {
                 Stmt::Call { call, .. } if call.name == "diffuse_conserved" => (Kind::Diffuse, format!("diffuse {}", subject(call).join(", "))),
                 Stmt::Assign { .. } => (Kind::Signal, "set".to_string()),
                 Stmt::Call { call, .. } if call.name == "life_like" => (Kind::Signal, "life_like".to_string()),
+                Stmt::When { .. } => (Kind::Code, "when".to_string()),
                 _ => (Kind::Code, "code".to_string()),
             };
             nodes.push(GNode {
@@ -338,7 +339,8 @@ pub fn edit_text(g: &Graph, id: &str, text: &str, base: u64) -> Result<Edit, Str
 /// `t0` (the first statement of the `then` block), `e1` (the second of the `else`), `t0.e2` (inside a deeper `when`).
 /// Returns the top-level statement's id and the way down: for each step, whether it is the `else` block and the index.
 fn nested_route(id: &str) -> Result<(&str, Vec<(bool, usize)>), String> {
-    let (container, path) = id.split_once('/').ok_or_else(|| format!("`{id}` is not a statement inside a `when`"))?;
+    // A top-level statement (a `when` to add to, or whose condition to set) is its own container, with no way down.
+    let Some((container, path)) = id.split_once('/') else { return Ok((id, Vec::new())) };
     let mut route = Vec::new();
     for seg in path.split('.') {
         let (kind, n) = seg.split_at(1);
@@ -360,11 +362,15 @@ fn nested_mut<'a>(st: &'a mut Stmt, route: &[(bool, usize)]) -> Option<&'a mut S
     nested_mut(&mut block.get_mut(*i)?.node, rest)
 }
 
-/// What changes in a nested statement: its text, one argument, or the statement itself.
+/// What changes in a nested statement: its text, one argument, its subject, or the statement itself; or, for a `when`
+/// (top-level or nested), its condition or a statement added to one of its blocks.
 enum NestedChange {
     Text(String),
     Arg(String, String),
+    Subject(String),
     Delete,
+    Condition(String),
+    Add { otherwise: bool, text: String },
 }
 
 /// An edit of a statement inside a `when`: the top-level statement that holds it is rebuilt with the change, and its rule's
@@ -389,6 +395,30 @@ fn nested_edit(file: &File, world: &str, id: &str, change: NestedChange, base: u
             let block = if last.0 { otherwise.as_mut().ok_or_else(gone)? } else { then };
             if last.1 >= block.len() { return Err(gone()); }
             block.remove(last.1);
+            // An `else` left empty goes with its last statement.
+            if last.0 && otherwise.as_ref().is_some_and(|b| b.is_empty()) {
+                *otherwise = None;
+            }
+        }
+        NestedChange::Condition(text) => {
+            let Stmt::When { cond, .. } = nested_mut(&mut top.node, &route).ok_or_else(gone)? else { return Err(format!("`{id}` is not a `when`: only a `when` has a condition")) };
+            match parse_value(&text)? {
+                Value::Expr(e) => *cond = e,
+                _ => return Err("a condition is an expression".to_string()),
+            }
+        }
+        NestedChange::Add { otherwise: other, text } => {
+            let stmts = parse_block(&text)?;
+            if stmts.is_empty() {
+                return Err("nothing to add: type a statement".to_string());
+            }
+            let Stmt::When { then, otherwise, .. } = nested_mut(&mut top.node, &route).ok_or_else(gone)? else { return Err(format!("`{id}` is not a `when`: statements are added inside a `when`")) };
+            let block = if other { otherwise.get_or_insert_with(Vec::new) } else { then };
+            block.extend(stmts.into_iter().map(|mut n| { n.trivia = Default::default(); n }));
+        }
+        NestedChange::Subject(name) => {
+            let Stmt::Call { call, .. } = nested_mut(&mut top.node, &route).ok_or_else(gone)? else { return Err(format!("`{id}` is not a call")) };
+            put_arg(call, None, name_value(&name));
         }
         NestedChange::Text(text) => {
             let stmt = parse_stmt(&text)?;
@@ -471,6 +501,11 @@ pub enum Op {
     /// Statements copied as text (from this world or another), each into a new rule of its own on the field it was on
     /// (`on`, which this world must have). The checker of this world decides whether they are valid here.
     Paste { items: Vec<(String, String)> },
+    /// Statements added at the end of a `when`'s `then` block, or of its `else` (made if it has none): `id` is the `when`,
+    /// a top-level one (`R#2`) or one inside another (`R#2/t0`). One revision; the way back is the rule as it was.
+    AddInside { id: String, otherwise: bool, text: String },
+    /// A `when`'s condition, replaced by `cond` (source text of an expression), checked like any edit.
+    Condition { id: String, cond: String },
     /// A box dropped on a wire (`proposals/houdini-node-system.md` §6): only where the wire has a defined insertion. The
     /// one there is: a sink dropped on the wire from a transfer to its destination becomes that transfer's `overflow`
     /// (what does not fit goes to the sink). Anywhere else the box only moves.
@@ -569,6 +604,33 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<Edit, St
     };
 
     match op {
+        Op::AddInside { id, otherwise, text } => nested_edit(file, world, id, NestedChange::Add { otherwise: *otherwise, text: text.clone() }, base),
+        Op::Condition { id, cond } => nested_edit(file, world, id, NestedChange::Condition(cond.clone()), base),
+        Op::Wire { from, to } if from.contains('/') || to.contains('/') => {
+            // A wire to or from a statement inside a `when`: the same three connections as at the top level.
+            let kind_of = |id: &str| -> Result<Kind, String> {
+                if id.contains('/') {
+                    let c = crate::contract::contract(file, world)?;
+                    c.nested.iter().find(|n| n.id == id).map(|n| n.kind).ok_or_else(|| format!("no box `{id}`"))
+                } else {
+                    node(id).map(|n| n.kind)
+                }
+            };
+            let on = |id: &str| -> Option<String> {
+                let rule = id.strip_prefix(&format!("{world}.rules."))?.split(['#', '@']).next()?;
+                w.decls.iter().find_map(|d| match &d.node { WDecl::Rule { name, on, .. } if name == rule => Some(on.clone()), _ => None })
+            };
+            match (kind_of(from)?, kind_of(to)?) {
+                (Kind::Store, Kind::Transfer) => nested_edit(file, world, to, NestedChange::Arg("from".into(), short(from).into()), base),
+                (Kind::Transfer, Kind::Store) => {
+                    let store = short(to);
+                    let v = if on(from).as_deref() == Some(store) { "self" } else { store };
+                    nested_edit(file, world, from, NestedChange::Arg("to".into(), v.into()), base)
+                }
+                (Kind::Reaction, Kind::React) => nested_edit(file, world, to, NestedChange::Subject(short(from).into()), base),
+                _ => Err("these cannot be wired: a store goes to a transfer, a transfer to a store, a reaction to a react".to_string()),
+            }
+        }
         Op::Paste { items } => {
             if items.is_empty() {
                 return Err("nothing to paste".to_string());

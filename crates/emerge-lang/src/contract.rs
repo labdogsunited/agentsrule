@@ -7,7 +7,7 @@
 
 use crate::ast::*;
 use crate::fmt::{stmt_text, value_text};
-use crate::graph::{graph, GNode, Graph, Kind};
+use crate::graph::{graph, GNode, Graph, Kind, Wire};
 use std::collections::BTreeMap;
 
 /// A named place on a box where a wire attaches.
@@ -87,6 +87,8 @@ pub struct NodeContract {
     pub summary: Option<Summary>,
     /// Ids of the statements directly inside it (a `when`).
     pub children: Vec<String>,
+    /// A `when`'s condition, as written: set with the `condition` edit, read on the start-of-tick snapshot.
+    pub condition: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -123,6 +125,9 @@ pub struct Contract {
     pub nodes: BTreeMap<String, NodeContract>,
     /// Parallel to `Graph::wires`.
     pub wires: Vec<WireContract>,
+    /// Wires the projection of top-level statements does not draw: the resource wires of statements inside a `when`, and
+    /// value dependencies (what a condition or a signal statement reads and writes). Each with its contract.
+    pub more_wires: Vec<(crate::graph::Wire, WireContract)>,
     pub nested: Vec<Nested>,
     /// `world`, then `rule:<name>` for each rule, with a breadcrumb.
     pub contexts: Vec<(String, String)>,
@@ -193,8 +198,15 @@ fn idents(e: &Expr, out: &mut Vec<String>) {
                     Seg::Field(f) => Some(f.clone()),
                     _ => None,
                 }));
+            } else if NEIGHBOURS.contains(&p.root.as_str()) {
+                // `below.grain`, `moore.carbon`: a neighbour's amount, so the substance is what is read.
+                out.extend(p.segs.iter().filter_map(|s| match s {
+                    Seg::Field(f) => Some(f.clone()),
+                    _ => None,
+                }));
             } else {
                 out.push(p.root.clone());
+                // `scent.here`: another field read where the cell is.
             }
         }
         Expr::Call(c) => c.args.iter().for_each(|a| value_idents(&a.value, out)),
@@ -211,6 +223,13 @@ fn idents(e: &Expr, out: &mut Vec<String>) {
         Expr::Lit(_) | Expr::Capture(_) => {}
     }
 }
+
+/// The cells a rule may read beside its own: one neighbour, or a collection of them.
+const NEIGHBOURS: [&str; 6] = ["above", "below", "left", "right", "moore", "vonneumann"];
+
+/// Names a world rule may use that declare nothing: built-in functions, directions and the like. A name outside these and
+/// the world's declarations is a local (`let`) or unknown, so what it stands for is not followed.
+const BUILTINS: [&str; 24] = ["sum", "min", "max", "mean", "count", "argmin", "argmax", "cap", "select", "blur", "fade", "abs", "sqrt", "sin", "tanh", "units", "amount", "float", "tick", "self", "cell", "here", "value", "life_like"];
 
 fn value_idents(v: &Value, out: &mut Vec<String>) {
     if let Value::Expr(e) = v {
@@ -271,14 +290,146 @@ fn kind_of(st: &Stmt) -> (Kind, &'static str, &'static str) {
     }
 }
 
-/// Dependencies of `st`, and a box for each statement nested in it.
-#[allow(clippy::too_many_arguments)]
-fn walk(st: &Stmt, on: &str, formulas: &Formulas, deps: &mut Deps, when: &str, container: &str, rule: &str, nested: &mut Vec<Nested>, path: &[String]) {
+/// What a walk through a rule's statements needs: the rule, its field, the world's names and formulas.
+struct Cx<'a> {
+    world: &'a str,
+    w: &'a World,
+    rule: &'a str,
+    on: &'a str,
+    formulas: &'a Formulas,
+}
+
+impl Cx<'_> {
+    /// The box id of the store (field, source, sink) called `n`.
+    fn store(&self, n: &str) -> Option<String> {
+        self.w.decls.iter().find_map(|d| match &d.node {
+            WDecl::Field { name, .. } if name == n => Some(format!("{}.fields.{n}", self.world)),
+            WDecl::Source { name, .. } if name == n => Some(format!("{}.sources.{n}", self.world)),
+            WDecl::Sink { name, .. } if name == n => Some(format!("{}.sinks.{n}", self.world)),
+            _ => None,
+        })
+    }
+    fn cells(&self) -> Option<String> {
+        self.store(self.on)
+    }
+    /// A name that stands for the cells the rule works on, or a store.
+    fn target(&self, n: &str) -> Option<String> {
+        if n == "self" || n == "cell" || NEIGHBOURS[..4].contains(&n) { self.cells() } else { self.store(n) }
+    }
+    fn is_substance(&self, n: &str) -> bool {
+        self.w.decls.iter().any(|d| matches!(&d.node, WDecl::Substance { name, .. } if name == n))
+    }
+    fn is_field(&self, n: &str) -> bool {
+        self.w.decls.iter().any(|d| matches!(&d.node, WDecl::Field { name, .. } if name == n))
+    }
+    /// Whether every name is one this analysis knows: a declaration of the world or a built-in.
+    fn known(&self, names: &[String]) -> bool {
+        names.iter().all(|n| BUILTINS.contains(&n.as_str()) || NEIGHBOURS.contains(&n.as_str()) || self.w.decls.iter().any(|d| crate::check::declared(&d.node).is_some_and(|(x, _)| x == n)))
+    }
+}
+
+/// A value-dependency wire: what a condition or a signal statement reads (`into` the box) or writes (out of it).
+fn dep_wire(from: String, to: String, substance: Option<String>, write: bool) -> (Wire, WireContract) {
+    let why = if write { "a signal statement writes its field's value; change it in the statement's text" } else { "read on the start-of-tick snapshot by a condition or an expression; change it in the text" };
+    (Wire { from, to, substance }, WireContract { kind: "value dependency", from_port: if write { "writes" } else { "out" }, to_port: if write { "in" } else { "reads" }, derived: true, edit: None, why_not: Some(why.into()) })
+}
+
+/// The wires of one statement: resource wires for a call (as `graph::graph` draws them for a top-level one), value
+/// dependencies for what a signal statement reads and writes, and for what its own condition reads, if it is a `when`.
+fn stmt_wires(st: &Stmt, id: &str, cx: &Cx, nested: bool, out: &mut Vec<(Wire, WireContract)>) {
+    let flow = |from: String, to: String, substance: Option<String>, edit: Option<&str>, why: Option<&str>, ports: (&'static str, &'static str)| {
+        (Wire { from, to, substance }, WireContract { kind: if ports.1 == "reaction" { "declaration reference" } else { "resource flow" }, from_port: ports.0, to_port: ports.1, derived: edit.is_none(), edit: edit.map(String::from), why_not: why.map(String::from) })
+    };
     match st {
+        Stmt::Call { call, .. } if nested && call.name == "transfer" => {
+            let s = call.args.iter().find(|a| a.name.is_none()).and_then(|a| match &a.value { Value::Expr(Expr::Path(p)) if p.segs.is_empty() => Some(p.root.clone()), _ => None });
+            let name = |k: &str| arg(call, k).and_then(|v| match v { Value::Expr(Expr::Path(p)) if p.segs.is_empty() => Some(p.root.clone()), _ => None });
+            if let Some(f) = name("from").and_then(|n| cx.target(&n)) {
+                out.push(flow(f, id.to_string(), s.clone(), Some("sets `from` of the transfer"), None, ("out", "from")));
+            }
+            if let Some(t) = name("to").and_then(|n| cx.target(&n)) {
+                out.push(flow(id.to_string(), t, s, Some("sets `to` of the transfer"), None, ("to", "in")));
+            }
+        }
+        Stmt::Call { call, .. } if nested && call.name == "react" => {
+            let r = call.args.iter().find(|a| a.name.is_none()).and_then(|a| match &a.value { Value::Expr(Expr::Path(p)) if p.segs.is_empty() => Some(p.root.clone()), _ => None });
+            if let Some(r) = r {
+                out.push(flow(format!("{}.reactions.{r}", cx.world), id.to_string(), None, Some("sets the reaction this `react` runs"), None, ("use", "reaction")));
+                if let (Some(cells), Some((ins, outs))) = (cx.cells(), cx.formulas.get(&r)) {
+                    for t in ins {
+                        out.push(flow(cells.clone(), id.to_string(), Some(t.clone()), None, Some("an input of the reaction's formula"), ("out", "cells")));
+                    }
+                    for t in outs {
+                        out.push(flow(id.to_string(), cells.clone(), Some(t.clone()), None, Some("an output of the reaction's formula"), ("products", "in")));
+                    }
+                }
+            }
+        }
+        Stmt::Call { call, .. } if nested && call.name == "diffuse_conserved" => {
+            if let Some(cells) = cx.cells() {
+                for s in call.args.iter().find(|a| a.name.is_none()).map(|a| names(Some(&a.value))).unwrap_or_default() {
+                    out.push(flow(cells.clone(), id.to_string(), Some(s.clone()), None, Some("a substance the diffusion spreads"), ("out", "cells")));
+                    out.push(flow(id.to_string(), cells.clone(), Some(s), None, Some("a substance the diffusion spreads"), ("products", "in")));
+                }
+            }
+        }
+        Stmt::Assign { .. } | Stmt::Call { .. } if matches!(st, Stmt::Assign { .. }) || matches!(st, Stmt::Call { call, .. } if call.name == "life_like") => {
+            // A signal statement writes its field's value and reads the fields its expression names (`life_like` reads
+            // its own field's neighbours).
+            let mut read = Vec::new();
+            match value_of(st) {
+                Some(v) => idents(v, &mut read),
+                None => read.push(cx.on.to_string()),
+            }
+            read.sort();
+            read.dedup();
+            for f in read.iter().filter(|n| cx.is_field(n)) {
+                if let Some(sid) = cx.store(f) {
+                    out.push(dep_wire(sid, id.to_string(), None, false));
+                }
+            }
+            if let Some(cells) = cx.cells() {
+                out.push(dep_wire(id.to_string(), cells, None, true));
+            }
+        }
+        Stmt::When { cond, .. } => {
+            let mut c = Vec::new();
+            idents(cond, &mut c);
+            c.sort();
+            c.dedup();
+            if let Some(cells) = cx.cells() {
+                for n in c.iter().filter(|n| cx.is_substance(n)) {
+                    out.push(dep_wire(cells.clone(), id.to_string(), Some(n.clone()), false));
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn value_of(st: &Stmt) -> Option<&Expr> {
+    match st {
+        Stmt::Assign { value, .. } => Some(value),
+        _ => None,
+    }
+}
+
+/// Dependencies of `st`, a box for each statement nested in it, and the wires of those boxes.
+#[allow(clippy::too_many_arguments)]
+fn walk(st: &Stmt, cx: &Cx, deps: &mut Deps, when: &str, container: &str, nested: &mut Vec<Nested>, path: &[String], wires: &mut Vec<(Wire, WireContract)>) {
+    let (on, formulas, rule) = (cx.on, cx.formulas, cx.rule);
+    match st {
+        Stmt::Call { call, .. } if call.name == "life_like" => {
+            deps.reads.push(on.to_string());
+            deps.writes.push(on.to_string());
+            deps.references.push("life_like".into());
+        }
         Stmt::Call { call, .. } => call_deps(call, formulas, on, deps),
         Stmt::When { cond, then, otherwise } => {
             let mut c = Vec::new();
             idents(cond, &mut c);
+            // A name the condition uses that is neither declared nor built in (a `let`) is not followed.
+            deps.complete &= cx.known(&c);
             deps.conditions.extend(c);
             let text = value_text(&Value::Expr(cond.clone()));
             let join = |extra: String| if when.is_empty() { extra } else { format!("{when} and {extra}") };
@@ -291,22 +442,56 @@ fn walk(st: &Stmt, on: &str, formulas: &Formulas, deps: &mut Deps, when: &str, c
                     let (kind, title, call_name) = kind_of(&s.node);
                     let mut d = Deps { complete: true, ..Default::default() };
                     let mut inner = Vec::new();
-                    walk(&s.node, on, formulas, &mut d, &w, container, rule, &mut inner, &p);
-                    // What the condition reads is read by everything under it.
+                    walk(&s.node, cx, &mut d, &w, container, &mut inner, &p, wires);
+                    stmt_wires(&s.node, &id, cx, true, wires);
+                    // What the condition reads is read by everything under it; what the statements inside read and write,
+                    // the `when` reads and writes.
                     deps.conditions.extend(d.conditions.iter().cloned());
+                    deps.reads.extend(d.reads.iter().cloned());
+                    deps.writes.extend(d.writes.iter().cloned());
+                    deps.references.extend(d.references.iter().cloned());
+                    deps.complete &= d.complete;
                     let params: Vec<(String, String)> = match &s.node {
                         Stmt::Call { call, .. } => call.args.iter().filter_map(|a| a.name.as_ref().map(|n| (n.clone(), value_text(&a.value)))).collect(),
                         _ => Vec::new(),
                     };
                     let call_like = matches!(kind, Kind::Transfer | Kind::React | Kind::Diffuse);
-                    let mut caps = Caps { edit_text: true, set_param: call_like, delete: true, ..Default::default() };
-                    caps.why_not.insert("rewire", "edit the statement's text or its parameters; wires of a nested statement are not drawn yet".into());
+                    let mut ports = Vec::new();
+                    let mut caps = Caps { edit_text: true, set_param: call_like, delete: true, rewire: matches!(kind, Kind::Transfer | Kind::React), ..Default::default() };
+                    match kind {
+                        Kind::Transfer => {
+                            ports.push(Port { key: "from", name: "from", dir: "in", role: "resource", ty: "store", required: true, many: false });
+                            ports.push(Port { key: "to", name: "to", dir: "out", role: "resource", ty: "store", required: true, many: false });
+                        }
+                        Kind::React => {
+                            ports.push(Port { key: "reaction", name: "reaction", dir: "in", role: "reference", ty: "reaction", required: true, many: false });
+                            ports.push(Port { key: "cells", name: "cells (inputs)", dir: "in", role: "resource", ty: "store", required: false, many: true });
+                            ports.push(Port { key: "products", name: "cells (outputs)", dir: "out", role: "resource", ty: "store", required: false, many: true });
+                            caps.why_not.insert("rewire_resources", "the inputs and outputs come from the reaction's formula; change the reaction or edit its formula".into());
+                        }
+                        Kind::Diffuse => {
+                            ports.push(Port { key: "cells", name: "cells (in)", dir: "in", role: "resource", ty: "store", required: false, many: true });
+                            ports.push(Port { key: "products", name: "cells (out)", dir: "out", role: "resource", ty: "store", required: false, many: true });
+                            caps.why_not.insert("rewire", "a diffusion spreads between a field's own cells; its substances are in its text".into());
+                        }
+                        _ => {
+                            if matches!(s.node, Stmt::When { .. }) {
+                                ports.push(Port { key: "reads", name: "reads", dir: "in", role: "value", ty: "store", required: false, many: true });
+                            }
+                            caps.why_not.insert("rewire", "its dependencies are drawn as value wires; edit its text".into());
+                        }
+                    }
                     caps.why_not.insert("duplicate", "copy the whole `when`".into());
                     caps.why_not.insert("label", "labels name top-level statements".into());
                     if !call_like {
                         caps.why_not.insert("set_param", "this statement has no named arguments to set; edit its text".into());
                     }
                     let children = inner.iter().filter(|x| x.id.strip_prefix(&format!("{id}.")).is_some_and(|r| !r.contains('/') && !r.contains('.'))).map(|x| x.id.clone()).collect();
+                    let condition = match &s.node { Stmt::When { cond, .. } => Some(value_text(&Value::Expr(cond.clone()))), _ => None };
+                    for list in [&mut d.conditions, &mut d.reads, &mut d.writes, &mut d.references] {
+                        list.sort();
+                        list.dedup();
+                    }
                     nested.push(Nested {
                         id,
                         container: container.to_string(),
@@ -318,12 +503,13 @@ fn walk(st: &Stmt, on: &str, formulas: &Formulas, deps: &mut Deps, when: &str, c
                         meta: NodeContract {
                             context: format!("rule:{rule}"),
                             identity: "position",
-                            ports: Vec::new(),
+                            ports,
                             params: params.iter().map(|(k, v)| param_meta(call_name, k, v)).collect(),
                             caps,
                             deps: d,
                             summary: None,
                             children,
+                            condition,
                         },
                         params,
                     });
@@ -334,10 +520,18 @@ fn walk(st: &Stmt, on: &str, formulas: &Formulas, deps: &mut Deps, when: &str, c
         Stmt::For { body, .. } | Stmt::Each { body, .. } => {
             deps.complete = false;
             for s in body {
-                walk(&s.node, on, formulas, deps, when, container, rule, nested, path);
+                walk(&s.node, cx, deps, when, container, nested, path, wires);
             }
         }
-        Stmt::Let { .. } | Stmt::Assign { .. } | Stmt::Setting { .. } => deps.complete = false,
+        Stmt::Assign { value, .. } => {
+            // A signal statement: it writes its field's value; its expression reads the fields and amounts it names.
+            let mut read = Vec::new();
+            idents(value, &mut read);
+            deps.complete &= cx.known(&read);
+            deps.writes.push(on.to_string());
+            deps.reads.extend(read.into_iter().filter(|n| cx.is_field(n) || cx.is_substance(n)));
+        }
+        Stmt::Let { .. } | Stmt::Setting { .. } => deps.complete = false,
     }
 }
 
@@ -367,7 +561,7 @@ fn caps_of(n: &GNode, ports: &mut Vec<Port>) -> Caps {
         Kind::Signal | Kind::Code => {
             caps = Caps { edit_text: true, set_param: false, delete: true, rewire: false, duplicate: true, label, ..Default::default() };
             caps.why_not.insert("set_param", "this statement has no named arguments to set; edit its text".into());
-            caps.why_not.insert("rewire", "its dependencies are not drawn as ports; edit its text".into());
+            caps.why_not.insert("rewire", "what it reads and writes is drawn as value wires; change them in its text".into());
         }
         Kind::Store => {
             ports.push(Port { key: "in", name: "in", dir: "in", role: "resource", ty: "store", required: false, many: true });
@@ -431,6 +625,7 @@ pub fn contract(file: &File, world: &str) -> Result<Contract, String> {
     }
     let mut nodes = BTreeMap::new();
     let mut nested = Vec::new();
+    let mut more_wires = Vec::new();
     for n in &g.nodes {
         let rule_name = n.group.as_ref().map(|r| r.rsplit('.').next().unwrap_or("").to_string());
         let context = rule_name.as_ref().map_or("world".to_string(), |r| format!("rule:{r}"));
@@ -448,16 +643,32 @@ pub fn contract(file: &File, world: &str) -> Result<Contract, String> {
         let params = n.params.iter().map(|(k, v)| param_meta(call_name, k, v)).collect();
         let mut deps = Deps { complete: !matches!(n.kind, Kind::Signal | Kind::Code), ..Default::default() };
         let mut children = Vec::new();
-        // The statement's syntax: its dependencies and the statements nested in it.
+        let mut condition = None;
+        // The statement's syntax: its dependencies, the statements nested in it, and the wires they have.
         if let Some(rule) = &rule_name {
             if let Some(WDecl::Rule { on, body, .. }) = w.decls.iter().map(|d| &d.node).find(|d| matches!(d, WDecl::Rule { name, .. } if name == rule)) {
                 let at = n.id.rsplit_once('#').and_then(|(_, i)| i.parse::<usize>().ok()).or_else(|| body.iter().position(|s| matches!(&s.node, Stmt::Call { label: Some(l), .. } if n.id.ends_with(&format!("@{l}")))));
                 if let Some(st) = at.and_then(|i| body.get(i)) {
+                    let cx = Cx { world, w, rule, on, formulas: &formulas };
+                    // A `when` or a signal statement is followed through; the walk says where it is not.
+                    if matches!(&st.node, Stmt::When { .. } | Stmt::Assign { .. }) || matches!(&st.node, Stmt::Call { call, .. } if call.name == "life_like") {
+                        deps.complete = true;
+                    }
                     let before = nested.len();
-                    walk(&st.node, on, &formulas, &mut deps, "", &n.id, rule, &mut nested, &[]);
+                    walk(&st.node, &cx, &mut deps, "", &n.id, &mut nested, &[], &mut more_wires);
+                    stmt_wires(&st.node, &n.id, &cx, false, &mut more_wires);
                     children = nested[before..].iter().filter(|x| !x.id[n.id.len() + 1..].contains('.')).map(|x| x.id.clone()).collect();
-                    if matches!(&st.node, Stmt::When { .. }) {
-                        caps.why_not.insert("set_param", "a `when` has no arguments; set the statements inside it".into());
+                    match &st.node {
+                        Stmt::When { cond, .. } => {
+                            caps.why_not.insert("set_param", "a `when` has no arguments; set its condition, or the statements inside it".into());
+                            ports.push(Port { key: "reads", name: "reads", dir: "in", role: "value", ty: "store", required: false, many: true });
+                            condition = Some(value_text(&Value::Expr(cond.clone())));
+                        }
+                        Stmt::Assign { .. } | Stmt::Call { .. } if n.kind == Kind::Signal => {
+                            ports.push(Port { key: "reads", name: "reads", dir: "in", role: "value", ty: "store", required: false, many: true });
+                            ports.push(Port { key: "writes", name: "writes", dir: "out", role: "value", ty: "store", required: true, many: false });
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -481,7 +692,7 @@ pub fn contract(file: &File, world: &str) -> Result<Contract, String> {
             list.sort();
             list.dedup();
         }
-        nodes.insert(n.id.clone(), NodeContract { context, identity, ports, params, caps, deps, summary, children });
+        nodes.insert(n.id.clone(), NodeContract { context, identity, ports, params, caps, deps, summary, children, condition });
     }
     let kind = |id: &str| g.nodes.iter().find(|n| n.id == id).map(|n| n.kind);
     let wires = g
@@ -496,5 +707,73 @@ pub fn contract(file: &File, world: &str) -> Result<Contract, String> {
             _ => WireContract { kind: "resource flow", from_port: "out", to_port: "in", derived: true, edit: None, why_not: Some("a declared route (waste), changed in its declaration".into()) },
         })
         .collect();
-    Ok(Contract { nodes, wires, nested, contexts })
+    Ok(Contract { nodes, wires, more_wires, nested, contexts })
+}
+
+/// A name the code box offers as a completion (`proposals/houdini-node-system.md` §8): what it is, where it is declared
+/// (the box to jump to), and a line of help. From the parsed source, so it is what the checker will resolve.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Name {
+    pub name: String,
+    /// `substance`, `field`, `source`, `sink`, `reaction`, `const`, `element`, `rule`, `function`, `direction`, `keyword`.
+    pub kind: &'static str,
+    /// The box that declares it, for jump-to-definition.
+    pub id: Option<String>,
+    pub line: usize,
+    pub detail: String,
+}
+
+/// The world-rule built-ins with their call shape (`language.md` §12), for completion and help.
+pub const RULE_FUNCTIONS: [(&str, &str); 20] = [
+    ("transfer", "transfer(SUBSTANCE, from: SOURCE|self, to: FIELD|self|above|right|below|left, amount: A, overflow: SINK): an effect of a transfer rule"),
+    ("react", "react(REACTION, rate: Nbp): an effect of a reaction rule"),
+    ("diffuse_conserved", "diffuse_conserved([SUBSTANCES], rate: Nbp): spread between neighbouring cells"),
+    ("sum", "sum(COLLECTION): over moore.S or vonneumann.S"),
+    ("min", "min(COLLECTION)"),
+    ("max", "max(COLLECTION)"),
+    ("mean", "mean(COLLECTION)"),
+    ("count", "count(CONDITION over a collection): an int"),
+    ("argmin", "argmin(COLLECTION): the neighbour with the smallest value"),
+    ("argmax", "argmax(COLLECTION): the neighbour with the largest value"),
+    ("cap", "cap(SUBSTANCE): the rule's field cap for it"),
+    ("select", "select(when: C, then: A, else: B)"),
+    ("blur", "blur(FIELD, amount: f32): signal fields"),
+    ("fade", "fade(VALUE, keep: f32)"),
+    ("abs", "abs(f32)"),
+    ("sqrt", "sqrt(f32)"),
+    ("units", "units(AMOUNT): a number"),
+    ("amount", "amount(SUBSTANCE, units: f32)"),
+    ("float", "float(INT)"),
+    ("life_like", "life_like(born: [N…], survives: [N…]): a state field's rule"),
+];
+
+/// Every name a statement of `world` may use, declared or built in.
+pub fn scope_names(file: &File, world: &str) -> Result<Vec<Name>, String> {
+    let w = file.items.iter().find_map(|i| match &i.node { Item::World(w) if w.name == world => Some(w), _ => None }).ok_or_else(|| format!("no world `{world}`"))?;
+    let mut out = Vec::new();
+    for d in &w.decls {
+        let line = d.pos.line;
+        let mut push = |name: &str, kind: &'static str, plural: &str, detail: String| out.push(Name { name: name.to_string(), kind, id: Some(format!("{world}.{plural}.{name}")), line, detail });
+        match &d.node {
+            WDecl::Substance { name, .. } => push(name, "substance", "substances", crate::fmt::decl_text(&d.node)),
+            WDecl::Field { name, holds, .. } => push(name, "field", "fields", if holds.is_some() { "a field that holds substances".into() } else { "a signal or state field".into() }),
+            WDecl::Source { name, emits } => push(name, "source", "sources", format!("emits {}", emits.join(", "))),
+            WDecl::Sink { name, .. } => push(name, "sink", "sinks", crate::fmt::decl_text(&d.node)),
+            WDecl::Reaction { name, formula, .. } => push(name, "reaction", "reactions", crate::fmt::formula_text(formula)),
+            WDecl::Const { name, .. } => push(name, "const", "consts", crate::fmt::decl_text(&d.node)),
+            WDecl::Element(name) => push(name, "element", "elements", "an element".into()),
+            WDecl::Rule { name, on, .. } => push(name, "rule", "rules", format!("a rule on {on}")),
+            _ => {}
+        }
+    }
+    for (n, d) in RULE_FUNCTIONS {
+        out.push(Name { name: n.to_string(), kind: "function", id: None, line: 0, detail: d.to_string() });
+    }
+    for (n, d) in [("self", "the cell the rule works on"), ("above", "the neighbour above"), ("below", "the neighbour below"), ("left", "the neighbour to the left"), ("right", "the neighbour to the right"), ("moore", "the 8 neighbours, as a collection"), ("vonneumann", "the 4 neighbours, as a collection"), ("tick", "the current tick, an int")] {
+        out.push(Name { name: n.to_string(), kind: "direction", id: None, line: 0, detail: d.to_string() });
+    }
+    for (n, d) in [("when", "when CONDITION { … } else { … }"), ("else", "the other branch of a when"), ("let", "let NAME = EXPR;"), ("for", "for NAME in [a, b] { … }: written out once for each name"), ("and", "both"), ("or", "either"), ("not", "the opposite")] {
+        out.push(Name { name: n.to_string(), kind: "keyword", id: None, line: 0, detail: d.to_string() });
+    }
+    Ok(out)
 }
