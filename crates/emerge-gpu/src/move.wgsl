@@ -535,6 +535,18 @@ fn init_stage2(@builtin(global_invocation_id) id: vec3<u32>) {
     rq[i * RQ + 7u] = rq[i * RQ + 6u];
 }
 
+// One request into the transfer recording, ends as packed tags: a creature is named by its ID.
+fn trace_req(law: u32, o: u32, d: u32, s: u32, steal: u32, req: u32, delivered: u32, overflowed: u32) {
+    if (params[P_TRACE] == 0u) { return; }
+    var olo = idx_of(o);
+    var ohi = 0u;
+    if (tag_of(o) == 1u) { olo = ent[idx_of(o) * ENT]; ohi = ent[idx_of(o) * ENT + 1u]; }
+    var dlo = idx_of(d);
+    var dhi = 0u;
+    if (tag_of(d) == 1u) { dlo = ent[idx_of(d) * ENT]; dhi = ent[idx_of(d) * ENT + 1u]; }
+    trace_put(law, tag_of(o), olo, ohi, tag_of(d), dlo, dhi, s, steal, req, delivered, overflowed);
+}
+
 // ---- commit ----
 @compute @workgroup_size(64)
 fn commit(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
@@ -551,6 +563,7 @@ fn commit(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocatio
             let debit = delivered + overflowed;
             let o = q.origin;
             let d = q.dest;
+            trace_req(NOLAW, o, d, s, q.steal, q.amt, delivered, overflowed);
             if (tag_of(o) == 0u) { atomicSub(&camt[idx_of(o) * params[P_NS] + s], debit); }
             else if (tag_of(o) == 1u) { atomicSub(&amounts[idx_of(o) * params[P_NS] + s], debit); }
             if (tag_of(d) == 0u) { atomicAdd(&camt[idx_of(d) * params[P_NS] + s], delivered); }
@@ -731,6 +744,7 @@ fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_inv
                 var overflowed = 0u;
                 if (ovf != NONE && sinkacc[ovf * ns + s] == 1u) { overflowed = g1 - delivered; }
                 ls_req(amt, g1, delivered);
+                trace_req(b.law, (2u << TAG) | laws[lb + 2u], b.c, s, 0u, amt, delivered, overflowed);
                 atomicAdd(&camt[b.c * ns + s], delivered);
                 wflow_add(0u, s, delivered + overflowed);
                 wflow_add(1u, s, overflowed);
@@ -740,6 +754,7 @@ fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_inv
             if (sh.a != 0u) {
                 let g2 = slot_g2(shift_slot(lb, b.c), sh.a);
                 ls_req(sh.a, slot_g1(shift_slot(lb, b.c), sh.a), g2);
+                trace_req(b.law, b.c, sh.nb, sh.s, 0u, sh.a, g2, 0u);
                 if (g2 != 0u) {
                     atomicAdd(&camt[sh.nb * ns + sh.s], g2);
                     atomicSub(&camt[b.c * ns + sh.s], g2);
@@ -754,6 +769,7 @@ fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_inv
                     if (nb == NONE) { continue; }
                     let g2 = slot_g2(diff_slot(lb, b.c, b.si, ni), d.a);
                     ls_req(d.a, slot_g1(diff_slot(lb, b.c, b.si, ni), d.a), g2);
+                    trace_req(b.law, b.c, nb, d.s, 0u, d.a, g2, 0u);
                     out += g2;
                     if (g2 != 0u) { atomicAdd(&camt[nb * ns + d.s], g2); }
                 }

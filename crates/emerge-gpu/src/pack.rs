@@ -100,6 +100,13 @@ pub const P_ACC: usize = 59;
 pub const P_LSTAT: usize = 61;
 /// Statements the counters have room for, and their columns (passed, requests, requested, delivered, cut by origin, cut by room, ran, extent).
 pub const LSTAT_LAWS: usize = 128;
+/// Where the transfer recording starts in `flows`, plus 1; 0 when it is off. A header of `TR_HDR` words
+/// (records asked for, capacity, whether creatures' actions are kept, a bit mask of statements) and
+/// `TRACE_CAP` records of `TR_REC` words.
+pub const P_TRACE: usize = 62;
+pub const TR_HDR: usize = 8;
+pub const TR_REC: usize = 12;
+pub const TRACE_CAP: usize = 32768;
 pub const NLS: usize = 8;
 pub const RX: usize = 24;
 pub const LAW: usize = 28;

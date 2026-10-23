@@ -84,13 +84,26 @@ fn transfers_waste_and_deaths_of_the_upkeep_substance_are_counted_like_the_cpu()
         if vent { w.waste.push((d.energy, d.void)); }
         w.accounts = Some(Accounts::default());
         let mut cpu = w.clone();
+        cpu.record_transfers = true;
         let gpu = Gpu::new();
         let mut r = Resident::new(&gpu, &mut w);
         r.enable_accounts(1);
+        r.enable_law_stats(&w);
+        r.trace_start(1000, Some(&[]), true).unwrap();
+        let mut want = vec![];
         for _ in 0..6 {
             cpu.run_tick();
             r.tick();
+            for (x, m) in cpu.last_transfers.iter().zip(&cpu.last_transfer_meta) {
+                let end = |e: &End, id: Option<u64>| match e { End::Cell(c) => (0u8, *c as u64), End::Entity(_) => (1, id.unwrap()), End::Source(s) => (2, *s as u64), End::Sink(s) => (3, *s as u64) };
+                want.push((cpu.tick, end(&x.origin, m.origin_id), end(&x.dest, m.dest_id), x.s, m.steal, x.requested, x.delivered, x.overflowed));
+            }
         }
+        let mut got: Vec<_> = r.trace_read().unwrap().0.iter().map(|t| (t.tick, t.origin, t.dest, t.substance, t.steal, t.requested, t.delivered, t.overflowed)).collect();
+        got.sort();
+        want.sort();
+        assert!(want.iter().any(|t| t.4) && want.iter().any(|t| !t.4 && t.1.0 == 1 && t.2.0 == 1), "the fixture has steals and gifts");
+        assert_eq!(got, want, "vent {vent}: the recorded creature transfers");
         let want = &cpu.accounts.as_ref().unwrap().totals[0];
         let got = r.accounts().unwrap()[0];
         let bad: Vec<String> = ACCOUNT_COLUMNS.iter().enumerate().filter(|(c, _)| got[*c] != want[*c]).map(|(c, n)| format!("{n}: gpu {} cpu {}", got[c], want[c])).collect();

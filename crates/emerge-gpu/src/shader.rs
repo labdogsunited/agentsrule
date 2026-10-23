@@ -43,6 +43,7 @@ pub fn accounts() -> String {
     for (i, name) in emerge_ref::world::ACCOUNT_COLUMNS.iter().enumerate() {
         s.push_str(&format!("const AC_{} = {}u;\n", name.to_uppercase(), i));
     }
+    s.push_str(&format!("const P_TRACE = {}u;\nconst TR_HDR = {}u;\nconst TR_REC = {}u;\n", P_TRACE, TR_HDR, TR_REC));
     s.push_str(&format!("const P_LSTAT = {}u;\nconst P_NLAWSK = {}u;\nconst LS_PASSED = 0u;\nconst LS_REQUESTS = 1u;\nconst LS_REQUESTED = 2u;\nconst LS_DELIVERED = 3u;\nconst LS_CUT_O = 4u;\nconst LS_CUT_D = 5u;\nconst LS_RAN = 6u;\nconst LS_EXTENT = 7u;\nconst NLS = {}u;\n", P_LSTAT, P_NLAWS, NLS));
     s.push_str(r#"fn ls_add(law: u32, col: u32, x: u32) {
     let base = params[P_LSTAT];
@@ -81,6 +82,32 @@ fn ls_req(asked: u32, g1: u32, g2: u32) {
     lsw_add(LS_DELIVERED, g2);
     lsw_add(LS_CUT_O, select(0u, 1u, g1 < asked));
     lsw_add(LS_CUT_D, select(0u, 1u, g2 < g1));
+}
+// The transfer recording: a request that the open recording wants goes into the next free record, or only
+// counts in the header when the records are full. `law` is NOLAW for a creature's own action.
+const NOLAW = 0xffffffffu;
+fn trace_put(law: u32, ot: u32, olo: u32, ohi: u32, dt: u32, dlo: u32, dhi: u32, s: u32, steal: u32, req: u32, delivered: u32, overflowed: u32) {
+    let base = params[P_TRACE];
+    if (base == 0u) { return; }
+    let h = base - 1u;
+    var want = atomicLoad(&flows[h + 2u]) != 0u;
+    if (law != NOLAW) { want = ((atomicLoad(&flows[h + 3u + law / 32u]) >> (law % 32u)) & 1u) != 0u; }
+    if (!want) { return; }
+    let slot = atomicAdd(&flows[h], 1u);
+    if (slot >= atomicLoad(&flows[h + 1u])) { return; }
+    let b = h + TR_HDR + slot * TR_REC;
+    atomicStore(&flows[b], params[P_TICK] + 1u);
+    atomicStore(&flows[b + 1u], law);
+    atomicStore(&flows[b + 2u], ot);
+    atomicStore(&flows[b + 3u], olo);
+    atomicStore(&flows[b + 4u], ohi);
+    atomicStore(&flows[b + 5u], dt);
+    atomicStore(&flows[b + 6u], dlo);
+    atomicStore(&flows[b + 7u], dhi);
+    atomicStore(&flows[b + 8u], s | (steal << 8u));
+    atomicStore(&flows[b + 9u], req);
+    atomicStore(&flows[b + 10u], delivered);
+    atomicStore(&flows[b + 11u], overflowed);
 }
 fn acct_add(lineage: u32, col: u32, x: u32) {
     let base = params[P_ACC];

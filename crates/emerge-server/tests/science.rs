@@ -749,3 +749,38 @@ fn rule_activity_and_the_flow_map_on_the_gpu_equal_the_cpus() {
     let (a, b) = (strip(engine.call("reactions.flow", &json!({"world": cpu})).unwrap()), strip(engine.call("reactions.flow", &json!({"world": gpu})).unwrap()));
     assert_eq!(a["reactions"], b["reactions"]);
 }
+
+/// The transfer recording on the GPU (written on the device) keeps the same requests as the CPU's, and a
+/// full one counts what it dropped.
+#[test]
+fn the_transfer_recording_on_the_gpu_equals_the_cpus() {
+    let mut engine = Engine::new();
+    let mk = |backend: &str| json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 3, "mutation": true, "backend": backend, "contract": true});
+    let cpu = engine.call("world.create", &mk("cpu")).unwrap()["world"].as_str().unwrap().to_string();
+    let gpu = engine.call("world.create", &mk("gpu")).unwrap()["world"].as_str().unwrap().to_string();
+    for w in [&cpu, &gpu] {
+        engine.call("run.step", &json!({"world": w, "ticks": 20})).unwrap();
+        engine.call("trace.start", &json!({"world": w, "ticks": 1, "cap": 20000, "rules": [], "creatures": true})).unwrap();
+        engine.call("run.step", &json!({"world": w, "ticks": 3})).unwrap();
+    }
+    let q = |engine: &mut Engine, w: &str| engine.call("trace.query", &json!({"world": w, "limit": 5000})).unwrap();
+    let (a, b) = (q(&mut engine, &cpu), q(&mut engine, &gpu));
+    assert!((50..5000).contains(&a["kept"].as_u64().unwrap()), "creatures asked for something, and the listing holds all of it: {}", a["kept"]);
+    for key in ["from_tick", "until_tick", "requests_matching", "kept", "dropped", "complete", "last_tick_seen", "interactions"] {
+        assert_eq!(a[key], b[key], "{key}");
+    }
+    let sorted = |v: &Value| { let mut r: Vec<String> = v["records"].as_array().unwrap().iter().map(|x| x.to_string()).collect(); r.sort(); r };
+    let (sa, sb) = (sorted(&a), sorted(&b));
+    let only_cpu: Vec<_> = sa.iter().filter(|x| !sb.contains(x)).take(3).collect();
+    let only_gpu: Vec<_> = sb.iter().filter(|x| !sa.contains(x)).take(3).collect();
+    assert!(only_cpu.is_empty() && only_gpu.is_empty(), "only cpu {only_cpu:?} only gpu {only_gpu:?}");
+    assert_eq!(b["open"], false, "the window closed after its ticks");
+    // a full recording says so
+    let w = &gpu;
+    engine.call("trace.start", &json!({"world": w, "ticks": 5, "cap": 20, "creatures": true})).unwrap();
+    engine.call("run.step", &json!({"world": w, "ticks": 5})).unwrap();
+    let f = q(&mut engine, w);
+    assert_eq!(f["kept"], 20);
+    assert!(f["dropped"].as_u64().unwrap() > 0);
+    assert_eq!(f["complete"], false);
+}

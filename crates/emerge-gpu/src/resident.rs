@@ -46,6 +46,20 @@ impl Module {
 const ACC_LINEAGES: usize = 16;
 const NCOL: usize = emerge_ref::world::ACCOUNT_COLUMNS.len();
 
+/// One recorded transfer request: the ends as (kind, number) with kind 0 a cell, 1 a creature (its ID), 2 a
+/// source, 3 a sink; `law` is the index in the CPU's list of laws, or `None` for a creature's own action.
+pub struct GpuTransfer {
+    pub tick: u64,
+    pub law: Option<usize>,
+    pub origin: (u8, u64),
+    pub dest: (u8, u64),
+    pub substance: usize,
+    pub steal: bool,
+    pub requested: u32,
+    pub delivered: u32,
+    pub overflowed: u32,
+}
+
 /// The birth and death log for ancestry (`events.wgsl`): a side output that no kernel of the tick reads.
 struct EventLog {
     m: Module,
@@ -331,7 +345,7 @@ impl<'a> Resident<'a> {
             stats: zeros(2 * (p.reactions.len() / RX + 1)),
             // Small integers copied into `params` by the recorded commands: the stage and every reaction-law index.
             consts: gpu.storage_with(&(0..p.params[P_NRLAWS].max(64)).collect::<Vec<_>>()),
-            flows: zeros(3 * ns * 2 + ACC_LINEAGES * NCOL * 2 + LSTAT_LAWS * NLS * 2),
+            flows: zeros(3 * ns * 2 + ACC_LINEAGES * NCOL * 2 + LSTAT_LAWS * NLS * 2 + TR_HDR + TRACE_CAP * TR_REC),
             sb_in: zeros(SB_MAX + 1),
             sb_out: zeros(SB_MAX + 1),
             sb_blocks: zeros(SB_MAX / 256 + 2),
@@ -800,6 +814,63 @@ impl<'a> Resident<'a> {
         let at = |g: usize, c: usize| u64::from(w[(g * NLS + c) * 2]) | (u64::from(w[(g * NLS + c) * 2 + 1]) << 32);
         let cells = u64::from(self.tick - since) * self.nc as u64;
         Some(map.iter().map(|&g| emerge_ref::world::LawStat { cells, passed: at(g, 0), requests: at(g, 1), requested: at(g, 2), delivered: at(g, 3), cut_by_origin: at(g, 4), cut_by_dest: at(g, 5), ran: at(g, 6), extent: at(g, 7) }).collect())
+    }
+
+    fn trace_word(&self) -> usize {
+        self.lstat_word() + LSTAT_LAWS * NLS * 2
+    }
+
+    /// Opens a bounded recording of transfer requests (`cap` records, at most `TRACE_CAP`): of the world
+    /// statements `laws` (indices in the CPU's list; `None` for all) and, if `creatures`, of creatures' own
+    /// actions. It counts what it had no room for. Needs the statement counters (`enable_law_stats`).
+    /// Records which request gets a record once the records are full is not defined.
+    pub fn trace_start(&mut self, cap: usize, laws: Option<&[u32]>, creatures: bool) -> Result<(), String> {
+        let map = &self.lstat.as_ref().ok_or("the statement counters are not on")?.0;
+        let mut mask = [0u32; 4];
+        match laws {
+            None => mask = [u32::MAX; 4],
+            Some(ls) => for &l in ls {
+                let g = *map.get(l as usize).ok_or_else(|| format!("no statement {l}"))?;
+                mask[g / 32] |= 1 << (g % 32);
+            },
+        }
+        let mut region = vec![0u32; TR_HDR + TRACE_CAP * TR_REC];
+        region[1] = cap.min(TRACE_CAP) as u32;
+        region[2] = u32::from(creatures);
+        region[3..7].copy_from_slice(&mask);
+        self.gpu.sync();
+        self.gpu.queue.write_buffer(&self.b.flows, (self.trace_word() * 4) as u64, bytemuck::cast_slice(&region));
+        self.write_param(P_TRACE, (self.trace_word() + 1) as u32);
+        Ok(())
+    }
+
+    /// Stops recording; the records stay readable.
+    pub fn trace_stop(&mut self) {
+        self.write_param(P_TRACE, 0);
+    }
+
+    /// The records kept and the number of requests the recording wanted (more than were kept when it filled);
+    /// `None` if no recording was opened.
+    pub fn trace_read(&self) -> Option<(Vec<GpuTransfer>, u64)> {
+        let (map, _) = self.lstat.as_ref()?;
+        let head: Vec<u32> = self.gpu.read_at(&self.b.flows, self.trace_word(), TR_HDR);
+        let (seen, cap) = (head[0] as usize, head[1] as usize);
+        if cap == 0 { return None; }
+        let kept = seen.min(cap);
+        let w: Vec<u32> = self.gpu.read_at(&self.b.flows, self.trace_word() + TR_HDR, kept * TR_REC);
+        let end = |k: u32, lo: u32, hi: u32| (k as u8, u64::from(lo) | (u64::from(hi) << 32));
+        let out = w.chunks(TR_REC).map(|r| GpuTransfer {
+            tick: u64::from(r[0]),
+            law: (r[1] != u32::MAX).then(|| map.iter().position(|&g| g == r[1] as usize).unwrap_or(usize::MAX)),
+            origin: end(r[2], r[3], r[4]),
+            dest: end(r[5], r[6], r[7]),
+            substance: (r[8] & 0xff) as usize,
+            steal: r[8] >> 8 != 0,
+            requested: r[9],
+            delivered: r[10],
+            overflowed: r[11],
+        }).collect();
+        Some((out, seen as u64))
     }
 
     /// Starts keeping birth and death events (`capacity` records of 24 bytes); only events from now on
