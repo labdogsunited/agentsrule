@@ -133,6 +133,16 @@
   .port.in { left: -7px; }
   .port.out { right: -7px; }
   .port:hover, .port.hot { border-color: var(--accent); background: var(--accent); }
+  .port.sock { width: 10px; height: 10px; top: auto; }
+  .port.sock.linked { background: #8b93a1; }
+  .port.sock.req:not(.linked) { border-color: #e6b45c; }
+  .plabel { position: absolute; font: 9px system-ui, sans-serif; color: var(--muted); pointer-events: none; top: 0; line-height: 12px; }
+  .plabel.in { left: 8px; }
+  .plabel.out { right: 8px; text-align: right; }
+  .box.okdrop { border-color: #6fcf97; box-shadow: 0 0 0 1px #6fcf97; }
+  .box.nodrop { border-color: #d96666; box-shadow: 0 0 0 1px #d96666; }
+  #wirehint { position: absolute; z-index: 20; max-width: 320px; padding: 4px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font-size: 11px; pointer-events: none; display: none; }
+  #wirehint.bad { border-color: #d96666; color: #f0a0a0; }
   #palette { position: absolute; left: 12px; top: 12px; display: none; gap: 6px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; z-index: 3; cursor: default; color: var(--muted); font-size: 12px; }
   body.graph #palette { display: flex; }
   #palette button { padding: 3px 8px; }
@@ -513,12 +523,14 @@ $("netgrid").onclick = () => setNetGrid(!netGrid);
 function fitCam(cam = cams[mode]) {
   if (!cam) return;
   const r = stages[viewOf(cam)].getBoundingClientRect();
-  const H = r.height - (cam === cams.picture ? chartsH : 0);
+  // The network keeps its top band free for the Add palette, so a fitted graph never sits under it.
+  const top = cam === cams.graph ? 56 : 0;
+  const H = r.height - (cam === cams.picture ? chartsH : 0) - top;
   if (!cam.w || !cam.h || !r.width || H <= 0) return;
   cam.s = Math.min(r.width / cam.w, H / cam.h);
   if (cam !== cams.picture) cam.s = Math.min(cam.s, 1.5);
   cam.x = (r.width - cam.w * cam.s) / 2;
-  cam.y = (H - cam.h * cam.s) / 2;
+  cam.y = top + (H - cam.h * cam.s) / 2;
   cam.fit = true;
 }
 function applyCam(cam = cams[mode]) {
@@ -579,7 +591,7 @@ function bindStage(view) {
     const box = view === "graph" && e.target.closest(".box");
     if (port && box) {
       // A wire is pulled from an output port and dropped on a box.
-      drag = { wire: box.dataset.id, port };
+      drag = { wire: box.dataset.id, port, from_port: port.dataset.port || null };
       port.classList.add("hot");
       e.stopPropagation();
     } else if (box && e.shiftKey) {
@@ -628,8 +640,9 @@ function bindStage(view) {
         t.setAttribute("stroke-dasharray", "5 4");
         $("wires").appendChild(t);
       }
-      const x0 = a.x + BOX.w, y0 = a.y + 15, d = Math.max(40, Math.abs(gx - x0) / 2);
+      const x0 = a.x + BOX.w, y0 = portY(drag.wire, drag.from_port, "out") ?? a.y + 15, d = Math.max(40, Math.abs(gx - x0) / 2);
       t.setAttribute("d", `M${x0},${y0} C${x0 + d},${y0} ${gx - d},${gy} ${gx},${gy}`);
+      previewWire(e, drag.wire);
       return;
     }
     if (drag.gcard) {
@@ -698,6 +711,7 @@ function bindStage(view) {
     if (drag && drag.group) { if (drag.moved) savePositions(drag.group.map((i) => i.id)); else select(drag.box.dataset.id); }
     if (drag && drag.box && drag.moved) savePosition(drag.box.dataset.id);
     if (drag && drag.wire) {
+      clearWirePreview();
       drag.port.classList.remove("hot");
       const t = $("tempwire");
       if (t) t.remove();
@@ -709,7 +723,7 @@ function bindStage(view) {
     stage.classList.remove("dragging");
   };
   stage.addEventListener("pointerup", drop);
-  stage.addEventListener("pointercancel", () => { drag = null; stage.classList.remove("dragging"); });
+  stage.addEventListener("pointercancel", () => { clearWirePreview(); drag = null; stage.classList.remove("dragging"); });
   stage.addEventListener("dblclick", (e) => { if (!e.target.closest(".box")) { fitCam(cams[view]); applyCam(cams[view]); } });
 }
 for (const v of Object.keys(stages)) bindStage(v);
@@ -991,8 +1005,28 @@ function drawGraph() {
     b.className = "b";
     b.textContent = n.text.replace(/\s+/g, " ");
     el.append(t, b);
-    if (["transfer", "react"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port in"; el.append(p); }
-    if (["store", "reaction", "transfer"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port out"; el.append(p); }
+    const ports = (n.contract && n.contract.ports) || [];
+    if (ports.length) {
+      // Named sockets from the contract (`proposals/houdini-node-system.md` §5): the name on the edge, the role and
+      // what may attach in the tooltip, filled when a wire is attached, amber when a required one is empty.
+      const seen = { in: 0, out: 0 };
+      for (const pt of ports) {
+        const i = seen[pt.dir]++, y = 8 + i * 16;
+        const sk = document.createElement("div"), lb = document.createElement("span");
+        sk.className = `port sock ${pt.dir}${pt.required ? " req" : ""}`;
+        sk.dataset.port = pt.key;
+        sk.style.top = `${y}px`;
+        sk.title = `${pt.name}: ${pt.role}, accepts a ${pt.type}${pt.many ? " (several)" : ""}${pt.required ? ", required" : ""}`;
+        if (g.wires.some((w) => (w.from === n.id && w.from_port === pt.key) || (w.to === n.id && w.to_port === pt.key))) sk.classList.add("linked");
+        lb.className = `plabel ${pt.dir}`;
+        lb.textContent = pt.name;
+        lb.style.top = `${y - 1}px`;
+        el.append(sk, lb);
+      }
+    } else {
+      if (["transfer", "react"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port in"; el.append(p); }
+      if (["store", "reaction", "transfer"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port out"; el.append(p); }
+    }
     root.appendChild(el);
     maxX = Math.max(maxX, p.x + BOX.w + 40);
     maxY = Math.max(maxY, p.y + BOX.h + 40);
@@ -1168,6 +1202,50 @@ $("netbox").onclick = () => {
   if (hd) { hd.contentEditable = "plaintext-only"; hd.focus(); document.getSelection().selectAllChildren(hd); }
 };
 
+// Where a named port sits on its box, so a wire attaches to the port it stands for (null: the box has no such port).
+function portY(id, key, dir) {
+  const n = graphData.nodes.find((x) => x.id === id), p = placed.get(id), ports = n && n.contract && n.contract.ports;
+  if (!ports || !key || !p) return null;
+  const mine = ports.filter((q) => q.dir === dir), i = mine.findIndex((q) => q.key === key);
+  return i < 0 ? null : p.y + 8 + i * 16 + 6;
+}
+// While a wire is pulled, the box under the pointer says whether the connection would be made and what it would
+// write: the server's `dry_run` of the same edit (nothing is applied). Green is accepted, red is refused with the reason.
+let wirePrev = null;
+function clearWirePreview() {
+  wirePrev = null;
+  for (const b of $("graph").querySelectorAll(".box.okdrop,.box.nodrop")) b.classList.remove("okdrop", "nodrop");
+  const h = $("wirehint");
+  if (h) h.style.display = "none";
+}
+async function previewWire(e, from) {
+  const t = document.elementFromPoint(e.clientX, e.clientY), box = t && t.closest(".box");
+  const to = box && box.dataset.id !== from ? box.dataset.id : null;
+  let h = $("wirehint");
+  if (!h) { h = document.createElement("div"); h.id = "wirehint"; stages.graph.appendChild(h); }
+  const r = stages.graph.getBoundingClientRect();
+  h.style.left = `${e.clientX - r.left + 14}px`;
+  h.style.top = `${e.clientY - r.top + 14}px`;
+  if (!to) { if (wirePrev) clearWirePreview(); return; }
+  const key = `${from}>${to}`;
+  if (wirePrev && wirePrev.key === key) return;
+  clearWirePreview();
+  wirePrev = { key };
+  box.classList.add("nodrop");
+  h.className = "";
+  h.textContent = "checking…";
+  h.style.display = "block";
+  let text, ok = false;
+  try {
+    const r = await call("world.graph_op", { world: $("world").value, base_revision: graphData.revision, dry_run: true, op: { op: "wire", from, to } });
+    text = r.what; ok = true;
+  } catch (err) { text = String(err.message || err); }
+  if (!wirePrev || wirePrev.key !== key) return;
+  box.classList.remove("nodrop");
+  box.classList.add(ok ? "okdrop" : "nodrop");
+  h.className = ok ? "" : "bad";
+  h.textContent = ok ? `would ${text}` : text;
+}
 function drawWires() {
   const g = graphData, svg = $("wires");
   if (!g || !svg) return;
@@ -1182,7 +1260,7 @@ function drawWires() {
     // diffusion reading a store): it leaves the source's left edge and enters the target's right edge.
     const back = a.x > b.x;
     const x0 = back ? a.x : a.x + BOX.w, x1 = back ? b.x + BOX.w : b.x;
-    const y0 = a.y + 14 + (slot(w.from, back ? "L" : "R") % 6) * 8, y1 = b.y + 14 + (slot(w.to, back ? "R" : "L") % 6) * 8;
+    const y0 = portY(w.from, w.from_port, "out") ?? a.y + 14 + (slot(w.from, back ? "L" : "R") % 6) * 8, y1 = portY(w.to, w.to_port, "in") ?? b.y + 14 + (slot(w.to, back ? "R" : "L") % 6) * 8;
     const d = Math.max(40, Math.abs(x1 - x0) / 2) * (back ? -1 : 1);
     const path = document.createElementNS(NS, "path");
     path.setAttribute("class", "wire");
