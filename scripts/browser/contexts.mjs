@@ -67,8 +67,15 @@ export default async (page) => {
   ok(n.members.length >= 1, "and the statement outside it is an ordinary box");
   await page.eval(`select(${JSON.stringify(n.nested[0])})`);
   const p = await j(`({ text: document.getElementById("picked").innerText, inputs: [...document.querySelectorAll("#picked input")].map(i => i.disabled), areas: document.querySelectorAll("#picked textarea").length })`);
-  ok(/Runs only where: self\.carbon >= 5u/.test(p.text) && p.areas === 0 && p.inputs.every(Boolean), "selecting one shows when it runs and offers no edit");
+  ok(/Runs only where: self\.carbon >= 5u/.test(p.text) && p.areas === 1 && p.inputs.length > 0 && p.inputs.every((d) => !d), "selecting one shows when it runs and offers the same editing as any statement");
+  // setting its amount is one revision; the box inside the frame shows it; one undo takes it back
+  await page.eval(`(() => { const i = [...document.querySelectorAll("#picked .params input")].find(x => x.previousSibling && x.previousSibling.textContent === "amount"); i.value = "9mu"; i.dispatchEvent(new Event("change")); })()`);
+  await page.wait(800);
+  const e = await j(`({ rev: graphData.revision, text: graphData.nested.find(x => x.id === ${JSON.stringify(n.nested[0])}).text, boxes: document.querySelectorAll("#graph .box.nested").length, ctx })`);
+  ok(e.rev === 1 && /amount: 9mu/.test(e.text) && e.boxes === 2 && e.ctx === "rule:wind", "one edit inside the `when`: one revision, the network stays where it was");
+  await page.eval(`stepHistory("world.undo")`);
+  await page.wait(600);
+  ok((await page.eval(`graphData.revision`)) === 2 && /amount: 3mu/.test(await page.eval(`graphData.nested.find(x => x.id === ${JSON.stringify(n.nested[0])}).text`)), "and one undo puts it back");
   await page.shot(S + "context-when.png");
-  const rev = await page.eval(`graphData.revision`);
-  ok(rev === 0, "no revision moved during any of it");
+
 };

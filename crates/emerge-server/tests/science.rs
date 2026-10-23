@@ -784,3 +784,56 @@ fn the_transfer_recording_on_the_gpu_equals_the_cpus() {
     assert!(f["dropped"].as_u64().unwrap() > 0);
     assert_eq!(f["complete"], false);
 }
+
+/// H4: a statement inside a `when` can be edited, set, replaced and deleted; each is one revision and one undo, the
+/// rest of the rule is untouched, and the world still equals the same world written by hand.
+#[test]
+fn a_statement_inside_a_when_is_edited_through_the_one_that_holds_it() {
+    let mut engine = Engine::new();
+    let rule = "    rule wind on cells {\n        when self.carbon >= 5u {\n            transfer(carbon, from: self, to: right, amount: 3mu) @wind_carbon;\n            transfer(nitrate, from: self, to: left, amount: 1mu) @wind_nitrate;\n        } else {\n            transfer(nitrate, from: self, to: left, amount: 2mu) @wind_else;\n        }\n        transfer(body, from: rock, to: self, amount: 1mu, overflow: void) @wind_body;\n    }\n\n";
+    let src = { let s = small(DISH); let at = s.find("    rule spread on cells").unwrap(); format!("{}{rule}{}", &s[..at], &s[at..]) };
+    let w = engine.call("world.create", &json!({"source": src, "lineages": ["Builder"], "seed": 1, "mutation": false})).unwrap()["world"].as_str().unwrap().to_string();
+    let graph = |engine: &mut Engine| engine.call("world.graph", &json!({"world": w})).unwrap();
+    let g = graph(&mut engine);
+    let nested: Vec<String> = g["nested"].as_array().unwrap().iter().map(|n| n["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(nested, ["Dish.rules.wind#0/t0", "Dish.rules.wind#0/t1", "Dish.rules.wind#0/e0"]);
+    let amount = |g: &Value, id: &str| g["nested"].as_array().unwrap().iter().find(|n| n["id"] == id).unwrap()["params"].as_array().unwrap().iter().find(|p| p[0] == "amount").unwrap()[1].as_str().unwrap().to_string();
+    let others = |g: &Value| g["nodes"].as_array().unwrap().iter().filter(|n| n["id"].as_str().unwrap().contains("rules.wind")).map(|n| n["text"].to_string()).collect::<Vec<_>>();
+    // set an argument of the second statement of the `then` block: one revision, the others as they were
+    let before = others(&g);
+    engine.call("world.graph_op", &json!({"world": w, "base_revision": 0, "op": {"op": "set_param", "id": "Dish.rules.wind#0/t1", "param": "amount", "value": "9mu"}})).unwrap();
+    let g1 = graph(&mut engine);
+    assert_eq!(g1["revision"], 1);
+    assert_eq!(amount(&g1, "Dish.rules.wind#0/t1"), "9mu");
+    assert_eq!(amount(&g1, "Dish.rules.wind#0/t0"), "3mu");
+    assert_eq!(amount(&g1, "Dish.rules.wind#0/e0"), "2mu");
+    assert!(others(&g1).iter().any(|t| t.contains("@wind_body")), "the statement after the `when` is untouched");
+    assert_ne!(others(&g1), before);
+    // replace one statement by new text
+    engine.call("world.graph_edit", &json!({"world": w, "base_revision": 1, "id": "Dish.rules.wind#0/e0", "text": "transfer(carbon, from: self, to: above, amount: 4mu) @wind_up;"})).unwrap();
+    let g2 = graph(&mut engine);
+    assert!(g2["nested"].as_array().unwrap().iter().any(|n| n["text"].as_str().unwrap().contains("to: above, amount: 4mu")));
+    // a refused edit changes nothing and says why
+    let bad = engine.call("world.graph_edit", &json!({"world": w, "base_revision": 2, "id": "Dish.rules.wind#0/t0", "text": "transfer(unobtainium, from: self, to: right, amount: 1mu);"}));
+    assert!(bad.is_err());
+    assert_eq!(graph(&mut engine)["revision"], 2, "a refused edit moves no revision");
+    // two statements typed where one goes are refused
+    assert!(engine.call("world.graph_edit", &json!({"world": w, "base_revision": 2, "id": "Dish.rules.wind#0/t0", "text": "transfer(carbon, from: self, to: right, amount: 1mu); transfer(carbon, from: self, to: left, amount: 1mu);"})).is_err());
+    // delete one: the rest stay
+    engine.call("world.graph_op", &json!({"world": w, "base_revision": 2, "op": {"op": "delete", "id": "Dish.rules.wind#0/t0"}})).unwrap();
+    let g3 = graph(&mut engine);
+    assert_eq!(g3["nested"].as_array().unwrap().len(), 2);
+    assert_eq!(g3["revision"], 3);
+    // a batch of two nested edits is one revision and one undo
+    engine.call("world.graph_op", &json!({"world": w, "base_revision": 3, "op": {"op": "batch", "ops": [
+        {"op": "set_param", "id": "Dish.rules.wind#0/t0", "param": "amount", "value": "5mu"},
+        {"op": "set_param", "id": "Dish.rules.wind#0/e0", "param": "amount", "value": "6mu"}]}})).unwrap();
+    let g4 = graph(&mut engine);
+    assert_eq!(g4["revision"], 4);
+    assert_eq!((amount(&g4, "Dish.rules.wind#0/t0"), amount(&g4, "Dish.rules.wind#0/e0")), ("5mu".to_string(), "6mu".to_string()));
+    // four edits, four undos, back to the first source
+    for _ in 0..4 { engine.call("world.undo", &json!({"world": w})).unwrap(); }
+    let g5 = graph(&mut engine);
+    assert_eq!(others(&g5), before, "undo puts the rule back as it was");
+    assert_eq!(g5["nested"].as_array().unwrap().len(), 3);
+}

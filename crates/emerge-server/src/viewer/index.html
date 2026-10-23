@@ -1077,7 +1077,7 @@ function drawGraph() {
         placed.set(x.id, placed.get(key));
         const p = placed.get(x.id), el = document.createElement("div"), t = document.createElement("div"), b = document.createElement("div");
         el.className = `box k-${x.kind} nested`; el.dataset.id = x.id; el.style.left = `${p.x}px`; el.style.top = `${p.y}px`;
-        el.title = "Inside a `when`: editing it waits for the next stage";
+        el.title = `Runs only where: ${x.when}`;
         t.className = "t"; t.textContent = x.title; b.className = "b"; b.textContent = x.text.replace(/\s+/g, " ");
         el.append(t, b);
         root.appendChild(el);
@@ -1672,7 +1672,7 @@ function paramsGrid(n, locked) {
     inp.value = pd ? pd.value : value;
     if (pd) { inp.classList.add("dirty"); inp.dataset.base = pd.base; if (pd.msg) { inp.classList.add("bad"); inp.title = pd.msg; } }
     inp.spellcheck = false;
-    if (locked) { inp.disabled = true; inp.title = n.isNested ? "Inside a `when`: editing waits for the next stage" : "This statement has an unapplied draft: apply or revert it first"; }
+    if (locked) { inp.disabled = true; inp.title = "This statement has an unapplied draft: apply or revert it first"; }
     inp.oninput = () => { if (inp.dataset.base === undefined) inp.dataset.base = graphData.revision; inp.classList.add("dirty"); inp.classList.remove("bad"); paramDrafts.set(pk, { value: inp.value, base: +inp.dataset.base, msg: null }); };
     inp.onkeydown = (e) => { if (e.key === "Escape") { inp.value = value; inp.classList.remove("dirty", "bad"); delete inp.dataset.base; paramDrafts.delete(pk); inp.blur(); } };
     // One request when the field is committed (Enter or leaving it); Escape restores the applied value and sends nothing.
@@ -1778,18 +1778,12 @@ function renderParm() {
   small.textContent = `${n.id}${n.step ? ` · runs in ${n.step}` : ""} · line ${n.line} · world ${t.world}`;
   picked.append(small);
   if (n.isNested) {
-    // A statement inside a `when`: shown, not edited (the server rebuilds only top-level statements so far).
+    // A statement inside a `when`: edited like any other; the server rebuilds the `when` that holds it.
     small.textContent = `${n.id} · inside a \`when\` · world ${t.world}`;
     const why = document.createElement("div");
     why.className = "msg";
-    const reasons = Object.values((n.contract && n.contract.why_not) || {});
-    why.textContent = `Runs only where: ${n.when}. ${reasons[0] || "Editing a statement inside a `when` is not available yet."}`;
+    why.textContent = `Runs only where: ${n.when}.`;
     picked.append(why);
-    if (n.params && n.params.length) picked.append(paramsGrid(n, true));
-    const pre = document.createElement("pre");
-    pre.textContent = n.text;
-    picked.append(pre);
-    return;
   }
   if (!n.group) {
     if (n.params && n.params.length) picked.append(paramsGrid(n, false));

@@ -334,6 +334,105 @@ pub fn edit_text(g: &Graph, id: &str, text: &str, base: u64) -> Result<Edit, Str
     Ok(Edit::new(&g.world, base, body, rule_body_replace(g, rule_id), Some(id.to_string())))
 }
 
+/// A statement inside a `when` or `else` (`contract::Nested`): `<top-level statement id>/<path>`, where the path is
+/// `t0` (the first statement of the `then` block), `e1` (the second of the `else`), `t0.e2` (inside a deeper `when`).
+/// Returns the top-level statement's id and the way down: for each step, whether it is the `else` block and the index.
+fn nested_route(id: &str) -> Result<(&str, Vec<(bool, usize)>), String> {
+    let (container, path) = id.split_once('/').ok_or_else(|| format!("`{id}` is not a statement inside a `when`"))?;
+    let mut route = Vec::new();
+    for seg in path.split('.') {
+        let (kind, n) = seg.split_at(1);
+        let index: usize = n.parse().map_err(|_| format!("`{id}` is not a statement inside a `when`"))?;
+        match kind {
+            "t" => route.push((false, index)),
+            "e" => route.push((true, index)),
+            _ => return Err(format!("`{id}` is not a statement inside a `when`")),
+        }
+    }
+    Ok((container, route))
+}
+
+/// The statement at the end of `route` in `st`, or none if the source has moved on.
+fn nested_mut<'a>(st: &'a mut Stmt, route: &[(bool, usize)]) -> Option<&'a mut Stmt> {
+    let Some(((other, i), rest)) = route.split_first() else { return Some(st) };
+    let Stmt::When { then, otherwise, .. } = st else { return None };
+    let block = if *other { otherwise.as_mut()? } else { then };
+    nested_mut(&mut block.get_mut(*i)?.node, rest)
+}
+
+/// What changes in a nested statement: its text, one argument, or the statement itself.
+enum NestedChange {
+    Text(String),
+    Arg(String, String),
+    Delete,
+}
+
+/// An edit of a statement inside a `when`: the top-level statement that holds it is rebuilt with the change, and its rule's
+/// whole body is replaced in one patch (so one revision, one undo). The way back replaces the body with what it was.
+fn nested_edit(file: &File, world: &str, id: &str, change: NestedChange, base: u64) -> Result<Edit, String> {
+    let (container, route) = nested_route(id)?;
+    let prefix = format!("{world}.rules.");
+    let tail = container.strip_prefix(&prefix).ok_or_else(|| format!("no statement `{container}`"))?;
+    let (rule, at) = tail.split_once('#').ok_or_else(|| format!("`{container}` does not hold a `when`"))?;
+    let at: usize = at.parse().map_err(|_| format!("`{container}` does not hold a `when`"))?;
+    let w = file.items.iter().find_map(|i| match &i.node { Item::World(w) if w.name == world => Some(w), _ => None }).ok_or_else(|| format!("no world `{world}`"))?;
+    let body = w.decls.iter().find_map(|d| match &d.node { WDecl::Rule { name, body, .. } if name == rule => Some(body), _ => None }).ok_or_else(|| format!("no rule `{rule}`"))?;
+    let texts = |b: &Block| b.iter().map(|s| stmt_text(&s.node)).collect::<Vec<_>>().join(" ");
+    let mut new = body.clone();
+    let top = new.get_mut(at).ok_or_else(|| format!("no statement `{container}`"))?;
+    let gone = || format!("`{id}` is no longer in the source");
+    match change {
+        NestedChange::Delete => {
+            let (last, parent) = route.split_last().ok_or_else(gone)?;
+            let holder = nested_mut(&mut top.node, parent).ok_or_else(gone)?;
+            let Stmt::When { then, otherwise, .. } = holder else { return Err(gone()) };
+            let block = if last.0 { otherwise.as_mut().ok_or_else(gone)? } else { then };
+            if last.1 >= block.len() { return Err(gone()); }
+            block.remove(last.1);
+        }
+        NestedChange::Text(text) => {
+            let stmt = parse_stmt(&text)?;
+            *nested_mut(&mut top.node, &route).ok_or_else(gone)? = stmt;
+        }
+        NestedChange::Arg(param, value) => {
+            let v = parse_value(&value)?;
+            let Stmt::Call { call, .. } = nested_mut(&mut top.node, &route).ok_or_else(gone)? else { return Err(format!("`{id}` has no arguments to set")) };
+            put_arg(call, Some(&param), v);
+        }
+    }
+    let rel = format!("rules.{rule}");
+    Ok(Edit::new(world, base, format!("replace {rel} {{ {} }}", texts(&new)), format!("replace {rel} {{ {} }}", texts(body)), Some(id.to_string())))
+}
+
+/// One statement from source text.
+fn parse_stmt(text: &str) -> Result<Stmt, String> {
+    let src = format!("world T {{ rule r on f {{ {text} }} }}");
+    let file = crate::parse(&src).map_err(|d| format!("{}: {}", d.code, d.message))?;
+    for item in &file.items {
+        if let Item::World(w) = &item.node {
+            for d in &w.decls {
+                if let WDecl::Rule { body, .. } = &d.node {
+                    return match body.as_slice() {
+                        [one] => Ok(one.node.clone()),
+                        _ => Err("a statement inside a `when` is one statement: write a `when` of its own to hold several".to_string()),
+                    };
+                }
+            }
+        }
+    }
+    Err("not a statement".to_string())
+}
+
+/// The edit that replaces the text of the statement box `id`, wherever it is: a top-level statement (`edit_text`) or one
+/// inside a `when` (rebuilt through the statement that holds it).
+pub fn edit_text_in(file: &File, world: &str, id: &str, text: &str, base: u64) -> Result<Edit, String> {
+    if id.contains('/') {
+        return nested_edit(file, world, id, NestedChange::Text(text.to_string()), base);
+    }
+    let g = graph(file, world)?;
+    edit_text(&g, id, text, base)
+}
+
 /// An edit of the graph (`proposals/node-editor.md` §6, N3). Each one becomes one patch.
 #[derive(Clone, Debug)]
 pub enum Op {
@@ -457,6 +556,8 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<Edit, St
     };
 
     match op {
+        Op::SetParam { id, param, value } if id.contains('/') => nested_edit(file, world, id, NestedChange::Arg(param.clone(), value.clone()), base),
+        Op::Delete { id } if id.contains('/') => nested_edit(file, world, id, NestedChange::Delete, base),
         Op::Batch { ops } => op_batch(file, world, ops, base),
         Op::AddConnected { kind, from, to, substance } => {
             let field = to.strip_prefix(&prefix).and_then(|r| r.strip_prefix("fields.")).ok_or_else(|| format!("`{to}` is not a field: a new rule works on a field"))?;

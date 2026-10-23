@@ -406,8 +406,8 @@ impl Engine {
                     emerge_lang::ast::Item::World(w) => Some(w.name.clone()),
                     _ => None,
                 });
-                let g = emerge_lang::graph::graph(&file, &world.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?).map_err(|m| fault(-32005, m))?;
-                let edit = emerge_lang::graph::edit_text(&g, &id, &text, base).map_err(|m| fault(-32602, m))?;
+                let world = world.ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+                let edit = emerge_lang::graph::edit_text_in(&file, &world, &id, &text, base).map_err(|m| fault(-32602, m))?;
                 // A syntax error is told in terms of the user's text, not of the patch made from it.
                 if let Err(d) = emerge_lang::parse(&edit.patch) {
                     if let (1, Some(off)) = (d.line, edit.patch.find(&text)) {
