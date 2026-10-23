@@ -680,8 +680,63 @@ pub fn render_with(view: &View, frame: &Frame, opt: Options, panels: &[crate::ch
     pm
 }
 
+/// A creature as the live viewer draws it itself (vector shapes stay sharp at any zoom): its centre and size in picture
+/// pixels, its attributes, and the agents layer it belongs to (an index into `Vector::layers`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Glyph {
+    pub x: f32,
+    pub y: f32,
+    pub size: f32,
+    pub cd: [u8; 3],
+    pub alpha: f32,
+    pub shape: Shape,
+    pub n: [f32; 2],
+    pub layer: u8,
+}
+
+/// A frame for the live viewer: the cell layers as a picture (with any chart strip under it, no legend), the creatures as
+/// glyphs, the agents layers' blends, and every layer's legend key, for a legend the page draws beside the picture.
+pub struct Vector {
+    pub picture: Pixmap,
+    pub main_h: u32,
+    pub glyphs: Vec<Glyph>,
+    /// (name, blend, opacity) of each agents layer, in drawing order.
+    pub layers: Vec<(String, String, f32)>,
+    pub keys: Vec<LayerKey>,
+}
+
+/// `view` of `frame` for the live viewer (`Vector`), or `None` when a cell layer is drawn over an agents layer: only a
+/// raster picture keeps that order, and the caller draws one.
+pub fn render_vector(view: &View, frame: &Frame, cell_px: u32, panels: &[crate::chart::Panel]) -> Option<Vector> {
+    let mut seen_agents = false;
+    for l in &view.layers {
+        if is_agents(&l.node) {
+            seen_agents = true;
+        } else if seen_agents {
+            return None;
+        }
+    }
+    let extra = if panels.is_empty() { 0 } else { crate::chart::STRIP_H };
+    let opt = Options { cell_px, legend: false };
+    let (mut pm, main_h, out) = render_parts(view, frame, opt, extra, true);
+    if !panels.is_empty() {
+        crate::chart::draw_strip(&mut pm, main_h, panels, frame);
+    }
+    let (glyphs, layers, keys) = out;
+    Some(Vector { picture: pm, main_h, glyphs, layers, keys })
+}
+
 /// The picture, `extra` pixels taller than it needs, and the height of the picture itself.
 fn render_into(view: &View, frame: &Frame, opt: Options, extra: u32) -> (Pixmap, u32) {
+    let (pm, h, _) = render_parts(view, frame, opt, extra, false);
+    (pm, h)
+}
+
+type Parts = (Vec<Glyph>, Vec<(String, String, f32)>, Vec<LayerKey>);
+
+/// `render_into`; with `vector`, agents are not drawn but returned as glyphs (with their layers' blends), and the keys
+/// of every layer come back too.
+fn render_parts(view: &View, frame: &Frame, opt: Options, extra: u32, vector: bool) -> (Pixmap, u32, Parts) {
     let k = if opt.cell_px > 0 { opt.cell_px } else { (1024 / frame.grid_w.max(1) as u32).max(1) };
     let (w, h) = (frame.grid_w as u32 * k, frame.grid_h as u32 * k);
     let total_w = w + if opt.legend { LEGEND_W } else { 0 };
@@ -689,6 +744,7 @@ fn render_into(view: &View, frame: &Frame, opt: Options, extra: u32) -> (Pixmap,
     let mut pm = Pixmap::new(total_w, main_h + extra).expect("an image of this size");
     pm.fill(tiny_skia::Color::from_rgba8(EMPTY[0], EMPTY[1], EMPTY[2], 255));
     let mut keys = Vec::new();
+    let (mut glyphs, mut vlayers) = (Vec::new(), Vec::new());
     // World units to pixels.
     let (sx, sy) = (w as f32 / frame.world_w, h as f32 / frame.world_h);
     for layer in &view.layers {
@@ -715,6 +771,14 @@ fn render_into(view: &View, frame: &Frame, opt: Options, extra: u32) -> (Pixmap,
                 }
                 keys.push(key);
             }
+            "agents" if vector => {
+                let (agents, key) = agents_layer(l, frame);
+                let li = vlayers.len() as u8;
+                vlayers.push((l.name.clone(), blend.to_string(), opacity));
+                let px = sx.min(sy);
+                glyphs.extend(agents.iter().map(|(pos, at)| Glyph { x: pos[0] * sx, y: pos[1] * sy, size: (at.pscale * px).max(1.5), cd: at.cd, alpha: at.alpha, shape: at.shape, n: at.n, layer: li }));
+                keys.push(key);
+            }
             "agents" => {
                 let (agents, key) = agents_layer(l, frame);
                 for (pos, at) in &agents {
@@ -725,13 +789,15 @@ fn render_into(view: &View, frame: &Frame, opt: Options, extra: u32) -> (Pixmap,
             _ => {}
         }
         if let Some(layer_pm) = own {
-            composite(&mut pm, &layer_pm, blend, opacity);
+            if !(vector && kind == "agents") {
+                composite(&mut pm, &layer_pm, blend, opacity);
+            }
         }
     }
     if opt.legend {
         legend(&mut pm, w, view, frame, &keys);
     }
-    (pm, main_h)
+    (pm, main_h, (glyphs, vlayers, keys))
 }
 
 /// A layer's `blend` (default `over`) and `opacity` (default 1).

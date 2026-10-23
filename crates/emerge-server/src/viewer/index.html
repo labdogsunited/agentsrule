@@ -52,6 +52,10 @@
   #code-world { display: none; }
   #codebody { flex: 1; overflow: auto; font: 12px/1.55 ui-monospace, monospace; padding: 6px 0; tab-size: 4; }
   .cl { display: flex; white-space: pre; }
+  .cl.hide { display: none; }
+  .cfold { padding: 2px 0 2px 56px; color: var(--muted); font: 11px system-ui, sans-serif; cursor: pointer; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); background: #ffffff06; }
+  .cfold:hover { color: var(--ink); }
+  #codepart { max-width: 230px; }
   .cl .n { flex: none; width: 46px; text-align: right; padding-right: 10px; color: var(--muted); opacity: 0.7; user-select: none; cursor: pointer; }
   .cl .t { flex: 1; padding-right: 14px; }
   .cl.hl { background: #2a2f3a; }
@@ -227,8 +231,9 @@
     background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 20px 20px; }
   body.nogrid #lookbody { background-image: none; }
   #lookbody { padding: 0; flex-direction: row; gap: 0; }
-  #lookscroll { flex: 1; overflow: auto; position: relative; }
-  #lookcanvas { position: relative; min-width: 100%; min-height: 100%; }
+  #lookscroll { flex: 1; overflow: hidden; position: relative; cursor: grab; background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 20px 20px; }
+  #lookscroll.dragging { cursor: grabbing; }
+  #lookcanvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   #lookwires { position: absolute; left: 0; top: 0; pointer-events: none; } #lookwires .lw { fill: none; stroke-width: 2; opacity: .85; }
   .lbox { position: absolute; background: #1c2027; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; overflow: hidden; display: flex; flex-direction: column; }
   .lbox.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); } .lbox.bad { border-color: var(--bad); }
@@ -255,12 +260,22 @@
   #rulesbar label, #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
   #rulesbar input, #lineagebar input { width: auto; margin: 0; }
   #inspbody, #rulesbody, #lineagebody, #censusbody, #budgetbody, #familybody, #comparebody, #regionbody, #flowbody, #lifebody, #bookbody { flex: 1; overflow: auto; padding: 8px 12px; font-size: 12px; }
-  .lens-phase { margin: 12px 0 4px; font-weight: 600; letter-spacing: .04em; color: var(--accent); text-transform: uppercase; font-size: 11px; }
-  .lens-step { margin: 2px 0 2px 8px; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
-  .lens-step.placed { border-left-color: var(--accent); }
-  .lens-step .what { color: var(--muted); }
-  .lens-step .meta { color: var(--muted); font-size: 11px; }
+  .lens-intro { color: var(--muted); margin: 2px 0 6px; max-width: 900px; } .lens-intro b { color: var(--ink); }
+  .lens-opt { color: var(--muted); font-size: 11px; margin-bottom: 8px; } .lens-opt label { display: inline-flex; gap: 6px; align-items: center; margin: 0; cursor: pointer; } .lens-opt input { width: auto; margin: 0; }
+  .lens-phases { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; padding-bottom: 6px; }
+  .lens-col { flex: 1 0 220px; min-width: 220px; display: flex; flex-direction: column; gap: 6px; }
+  .lens-phase { font-weight: 600; color: var(--accent); font-size: 12px; padding: 4px 6px; border-bottom: 2px solid var(--accent); }
+  .lens-phase .num { display: inline-block; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%; background: var(--accent); color: #1a1408; font-size: 11px; margin-right: 4px; }
+  .lens-phase .ph { color: var(--muted); font-weight: normal; font-size: 11px; margin-top: 2px; }
+  .lens-card { border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; background: #1c2027; opacity: .55; }
+  .lens-card.placed { opacity: 1; border-color: #6b5a2c; } .lens-card.unplaced { opacity: 1; border-color: var(--bad); margin-top: 6px; }
+  .lens-name { display: flex; align-items: center; gap: 6px; } .lens-badge { font-size: 10px; color: #6fcf97; border: 1px solid #6fcf9766; border-radius: 3px; padding: 0 4px; }
+  .lens-what { color: var(--muted); font-size: 11px; margin: 2px 0 4px; }
+  .lens-chip { display: flex; align-items: center; gap: 4px; margin: 3px 0; padding: 3px 6px; border-radius: 4px; background: #2a2f38; cursor: pointer; font-size: 12px; } .lens-chip:hover { background: #343a45; }
+  .lens-chip.static { cursor: default; color: var(--muted); } .lens-chip .ic { color: var(--accent); min-width: 14px; } .lens-chip small { color: var(--muted); } .lens-chip .cnt { margin-left: auto; color: var(--muted); font-size: 11px; }
+  .lens-stmts { margin: 0 0 4px 10px; font: 11px ui-monospace, monospace; }
   .lens-rule { margin: 3px 0 0 14px; font-family: ui-monospace, monospace; }
+  .rmodes { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; } .rmodes label { padding: 2px 10px; cursor: pointer; margin: 0; } .rmodes input { display: none; } .rmodes label:has(input:checked) { background: var(--accent); color: #1a1408; }
   .lens-stmt { margin-left: 14px; cursor: pointer; white-space: pre-wrap; color: var(--fg); }
   .lens-stmt:hover { background: #454545; }
   #censusbody table { border-collapse: collapse; margin: 4px 0 10px; }
@@ -303,10 +318,15 @@
   #inspbody .stale { color: #e0a458; }
   #inspbody a.go { color: var(--accent); cursor: pointer; text-decoration: underline; }
   #inspbar { display: flex; gap: 10px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
-  #flowbody svg { width: 100%; height: 420px; display: block; }
+  #flowmap { flex: 1 1 60%; min-height: 160px; position: relative; overflow: hidden; cursor: grab; border-bottom: 1px solid var(--line); background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 20px 20px; }
+  #flowmap.dragging { cursor: grabbing; } #flowsvg { width: 100%; height: 100%; display: block; }
+  #flowbody { flex: 0 1 40%; } #stage-flow #flowbody details summary { cursor: pointer; color: var(--muted); }
+  #flowsvg .fe { fill: none; stroke-opacity: .7; transition: stroke-opacity .12s; } #flowsvg .fe.dim { stroke-opacity: .06; } #flowsvg .fn.dim { opacity: .25; }
+  #flowsvg .fn rect { rx: 5; } #flowsvg text { font: 11px system-ui, sans-serif; fill: var(--ink); pointer-events: none; } #flowsvg .fn { cursor: pointer; }
+  #flowhint { position: absolute; left: 10px; bottom: 8px; color: var(--muted); font-size: 11px; pointer-events: none; }
   #flowbody table { border-collapse: collapse; margin: 6px 0; }
   #flowbody td, #flowbody th { padding: 2px 8px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: left; }
-  #flowbar select, #flowbar button { margin-left: 6px; }
+  #flowbar select, #flowbar button { margin-left: 6px; width: auto; } #flowbar label { display: inline-flex; align-items: center; margin: 0; }
   #lifebody table { border-collapse: collapse; margin: 4px 0 10px; }
   #lifebody td, #lifebody th { padding: 2px 8px; border-bottom: 1px solid var(--line); font-weight: normal; text-align: left; }
   #lifebody input { width: 5em; }
@@ -363,7 +383,20 @@
   #detailstable tr.sel td { background: #4d4636; }
   #picwrap { position: absolute; left: 0; top: 0; right: 0; bottom: var(--chartsH, 0px); overflow: hidden; }
   #chartstrip { position: absolute; left: 0; right: 0; bottom: 0; height: var(--chartsH, 0px); background-repeat: no-repeat; background-color: #0d0f12; pointer-events: none; }
-  #gridov { position: absolute; left: 0; top: 0; transform-origin: 0 0; display: none; pointer-events: none; }
+  #frame { visibility: hidden; pointer-events: none; }
+  #piccv { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1; }
+  #guidecv { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 4; }
+  #legendpanel { position: absolute; right: 8px; top: 8px; z-index: 6; width: 250px; max-height: calc(100% - var(--chartsH, 0px) - 16px); overflow: auto; background: #0d1015e8; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 12px/1.4 system-ui, sans-serif; color: var(--ink); cursor: default; display: none; }
+  #legendpanel.closed { width: auto; padding: 4px 8px; } #legendpanel.closed .lgbody { display: none; }
+  #legendpanel .lghead { display: flex; align-items: center; gap: 6px; } #legendpanel .lghead b { flex: 1; font-size: 13px; } #legendpanel .lghead button { padding: 0 6px; font-size: 11px; }
+  #legendpanel .lgsub { color: var(--muted); font-size: 11px; margin: 2px 0 6px; }
+  #legendpanel .lglayer { border-top: 1px solid var(--line); padding: 6px 0 4px; } #legendpanel .lglayer h5 { margin: 0 0 2px; font-size: 12px; } #legendpanel .lglayer h5 small { color: var(--muted); font-weight: normal; }
+  #legendpanel .lgbar { height: 12px; border-radius: 2px; margin: 4px 0 1px; border: 1px solid #000; } #legendpanel .lgticks { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  #legendpanel .lgrow { display: flex; align-items: center; gap: 6px; margin: 2px 0; } #legendpanel .sw { width: 12px; height: 12px; border-radius: 2px; flex: none; border: 1px solid #0008; }
+  #legendpanel .lgnote { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  #scrubbox { display: flex; align-items: center; gap: 4px; flex: 1 1 360px; min-width: 200px; } #scrub { flex: 1; min-width: 80px; } #scrubbox button { padding: 2px 6px; }
+  #scrubinfo { color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; } #scrubbox.past #scrubinfo { color: #4fc3f7; } #scrubbox.past #scrublive { border-color: #4fc3f7; }
+  #playbar #stats { flex: 0 1 auto; }
   body.nogrid #graph, body.nogrid #genome { background-image: none; }
   #netgrid.on { color: var(--ink); } #netgrid:not(.on) { text-decoration: line-through; }
   main.dragging { cursor: grabbing; }
@@ -473,11 +506,14 @@
           <button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button>
           <button id="tracktool" title="Track on click: each click selects a creature and adds it to the Watch set (Esc leaves the tool; watches stay)">&#9678;</button>
           <button id="gridbtn" title="Show the cell grid (G)">&#9638;</button>
+          <button id="rulerbtn" title="Rulers along the top and left edges, in world units">&#8988;</button>
+          <button id="crossbtn" title="Crosshair: lines through the pointer and its position (world units and cell)">&#10011;</button>
+          <button id="onionbtn" title="Onion skin: creatures of the last frames, fading">&#9676;</button>
           <button id="zin" title="Zoom in">+</button>
           <button id="zout" title="Zoom out">&minus;</button>
           <button id="fit" title="Fit the view to the pane (double-click does it too)">&#10530;</button>
         </div>
-        <main id="stage-picture" data-view="picture"><div id="picwrap"><img id="frame" alt="the current frame" draggable="false"><div id="gridov"></div></div><div id="chartstrip"></div><span id="empty">Create a world, or pick one.<br><button id="newbtn2" class="primary">New world…</button></span><div id="pickmark"></div><svg id="trackov"></svg><div id="trackcands"></div><div id="selbar"></div><div id="followbar"></div><div id="displaybar"></div><div id="infopanel"></div></main>
+        <main id="stage-picture" data-view="picture"><div id="picwrap"><img id="frame" alt="the current frame" draggable="false"></div><canvas id="piccv"></canvas><canvas id="guidecv"></canvas><div id="legendpanel"></div><div id="chartstrip"></div><span id="empty">Create a world, or pick one.<br><button id="newbtn2" class="primary">New world…</button></span><div id="pickmark"></div><svg id="trackov"></svg><div id="trackcands"></div><div id="selbar"></div><div id="followbar"></div><div id="displaybar"></div><div id="infopanel"></div></main>
         <div class="strip" id="rstrip">
           <button id="chartsbtn" class="on" title="Charts under the picture">&#9636;</button>
           <button id="gear" title="Update rate">&#9881;</button>
@@ -502,10 +538,10 @@
   <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><span id="netcrumbs" title="Where you are in the network. Enter (or double-click a statement) goes into its rule; U goes up."></span><select id="netctx" title="Go to a network"></select><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button><button id="netdup" title="Duplicate the selected statements (Ctrl+D). Ctrl+C and Ctrl+V do the same from a copy; Ctrl+V in another world pastes them there.">Duplicate</button><span class="sep"></span><select id="netarrange" title="Arrange the selected nodes (presentation only: no revision)"><option value="">Arrange…</option><option value="left">Align left edges</option><option value="top">Align top edges</option><option value="cx">Align in a column</option><option value="cy">Align in a row</option><option value="dx">Distribute across</option><option value="dy">Distribute down</option><option value="tidy">Lay out the selection</option></select><button id="netcollapse" title="Show each rule as one box with its statements inside it, or every statement (the whole network only)">Rules as boxes</button><span class="sep"></span><button id="nettemplate" title="Keep the selected statements in the library as a template: rules with blanks for the names they use">Template…</button><button id="netoperator" title="Make the rules of the selected statements a reusable operator, with an instance in their place (one revision)">Operator…</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div><div id="obspalette"><span>Add</span><button data-mode="fixed" title="A Tracker of the selected creature and every quick watch, captured now">Tracker from selection</button><button data-mode="live" title="Whoever matches a condition now">Live query</button><button data-mode="latched" title="Everyone seen matching during a window, kept afterwards">Latched query</button><button data-mode="descendants" title="A creature and the children born to its members">Descendants</button><button data-mode="representative" title="One creature first by a ranking (it may change; each handoff is kept)">Representative</button><span style="width:10px"></span><button id="obsundo" title="Undo the last tracker change">Undo</button><button id="obsredo">Redo</button></div></main></div>
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><button id="gtrack" title="Track this creature (and select it)">Track</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"><div id="lookscroll"><div id="lookcanvas"></div></div><div id="lookparm"></div></div></main></div>
-  <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label><label><input type="radio" name="rmode" value="trace"> trace</label></div><div id="rulesbody"></div></main></div>
+  <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><span class="rmodes" title="What to look at"><label title="One tick, step by step, with the rules where they run"><input type="radio" name="rmode" value="schedule" checked> One tick</label><label title="Which rule reads or writes which substance, store or reaction"><input type="radio" name="rmode" value="matrix"> Reads and writes</label><label title="What each statement did, counted by the runner"><input type="radio" name="rmode" value="activity"> Activity</label><label title="A short recording of transfer requests"><input type="radio" name="rmode" value="trace"> Trace</label></span></div><div id="rulesbody"></div></main></div>
   <div class="editor" id="ed-book"><main id="stage-book"><div id="bookbar"><span id="booknote"></span><button id="bookexport">Export notebook (JSON)</button></div><div id="bookbody"></div></main></div>
   <div class="editor" id="ed-life"><main id="stage-life"><div id="lifebar"><span id="lifenote"></span></div><div id="lifebody"></div></main></div>
-  <div class="editor" id="ed-flow"><main id="stage-flow"><div id="flowbar"><span id="flownote"></span><label>mode <select id="flowmode"><option value="declared">declared</option><option value="measured">measured</option><option value="blocked">blocked</option></select></label><label>quantity <select id="flowqty"></select></label><button id="flowbase">Measure from now</button></div><div id="flowbody"></div></main></div>
+  <div class="editor" id="ed-flow"><main id="stage-flow"><div id="flowbar"><span id="flownote"></span><label>mode <select id="flowmode"><option value="declared">declared</option><option value="measured">measured</option><option value="blocked">blocked</option></select></label><label>quantity <select id="flowqty"></select></label><label>show <select id="flowshow"><option value="used">named and active reactions</option><option value="named">named reactions</option><option value="all">every reaction (the reaction space too)</option></select></label><button id="flowbase">Measure from now</button><button id="flowfit" title="Show the whole map (double-click on empty space does it too)">Fit</button></div><div id="flowmap"><svg id="flowsvg"><g id="flowg"></g></svg><div id="flowhint"></div></div><div id="flowbody"></div></main></div>
   <div class="editor" id="ed-region"><main id="stage-region"><div id="regionbar"><span id="regionnote"></span></div><div id="regionbody"></div></main></div>
   <div class="editor" id="ed-compare"><main id="stage-compare"><div id="comparebar"><span id="comparenote"></span></div><div id="comparebody"></div></main></div>
   <div class="editor" id="ed-family"><main id="stage-family"><div id="familybar"><span id="familynote"></span></div><div id="familybody"></div></main></div>
@@ -517,7 +553,7 @@
   <div class="editor" id="ed-watches"><main id="stage-watches"><div id="watchbar"><span id="watchnote"></span><button id="wclick" title="Each click in the Viewport selects a creature and adds it to the Watch set">Track on click</button><button id="wnew" title="A tracker over a set: a cohort, a live or latched condition, a family, or a representative">New tracker…</button><button id="wundo">Undo</button><button id="wredo">Redo</button></div><div id="wnewform"></div><div id="watchbody"></div></main></div>
   <div class="editor" id="ed-source"><section id="code">
     <div id="codehandle"></div>
-    <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
+    <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><select id="codepart" title="Show one part of the source at a time"><option value="">Whole source</option></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
     <div id="codebody"><span style="padding:10px;color:var(--muted)">Create a world, or pick one.</span></div>
     <div id="codeedit">
       <div class="note">Editing a copy. The running world is not changed until you make a new world from this text. Open any <code>.em</code> file, or write one.</div>
@@ -537,8 +573,9 @@
 <div id="tabmenu"><input id="tabq" placeholder="Add a node: type to filter, Enter to create" spellcheck="false" autocomplete="off"><div id="tablist"></div></div>
 <div id="dropzone"></div><div id="tabghost"></div><div id="lmenu"></div>
 <footer id="playbar">
-  <button id="play" title="Run">&#9654; Play</button><button id="pause">&#10074;&#10074; Pause</button>
-  <input id="steps" type="number" value="10" min="1" title="Ticks per step"><button id="step">Step</button>
+  <button id="play" title="Run or pause the world (Space)">&#9654; Play</button>
+  <input id="steps" type="number" value="10" min="1" title="Ticks per step"><button id="step" title="Run this many ticks, then stop">Step</button>
+  <span id="scrubbox" title="The frames you were shown, kept to scrub back over (the world itself is not rewound). Drag to look back; Live returns."><button id="scrubprev" title="The kept frame before">&#9664;</button><input id="scrub" type="range" min="0" max="0" value="0" step="1"><button id="scrubnext" title="The kept frame after">&#9654;</button><span id="scrubinfo">–</span><button id="scrublive" title="Back to the live world">Live</button></span>
   <span id="stats">–</span><span id="error"></span>
 </footer>
 <script>
@@ -604,22 +641,206 @@ function layoutCharts() {
   st.style.setProperty("--chartsH", `${chartsH}px`);
   $("frame").style.clipPath = `inset(0 0 ${rows}px 0)`;
 }
-// The cell grid over the picture (G): one line per cell, only where a cell is wide enough to see.
+// ---- The viewport's canvas: the server sends the cell layers as a picture and the creatures as vector glyphs (x, y,
+// size, colour, angle, shape, layer), and the page draws both here at the screen's own resolution, so a triangle stays
+// sharp at any zoom. Agents layers keep their blend and opacity. On top: the cell grid (G), the onion skin (creatures of
+// the last frames, fading), and, on a second canvas, the rulers and the crosshair. A view the server cannot split (a cell
+// layer over an agents layer) comes as one raster picture, drawn the same way without glyphs.
 let showGrid = false;
 try { showGrid = localStorage.getItem("emerge.grid") === "1"; } catch (_) {}
-function placeGrid() {
-  const g = $("gridov"), m = lastImg && lastImg.map, cam = cams.picture;
-  const k = m && m.grid_w ? m.w / m.grid_w : 0;
-  if (!showGrid || !k || k * cam.s < 5) { g.style.display = "none"; return; }
-  g.style.display = "block";
-  g.style.width = `${m.w}px`;
-  g.style.height = `${m.h}px`;
-  g.style.backgroundImage = "linear-gradient(to right, rgba(255,255,255,0.22) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.22) 1px, transparent 1px)";
-  g.style.backgroundSize = `${k}px ${k}px`;
-  g.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
+const pic = { img: null, glyphs: null, count: 0, layers: [], onion: [], onionN: 0, off: null };
+try { pic.onionN = +(localStorage.getItem("emerge.onion") || 0); } catch (_) {}
+const guides = { ruler: false, cross: false, ptr: null };
+try { guides.ruler = localStorage.getItem("emerge.ruler") === "1"; guides.cross = localStorage.getItem("emerge.cross") === "1"; } catch (_) {}
+function fitCanvas(cv) {
+  const r = stages.picture.getBoundingClientRect(), dpr = window.devicePixelRatio || 1, w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height - chartsH));
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = `${w}px`; cv.style.height = `${h}px`; }
+  return { w, h, dpr };
 }
-$("gridbtn").classList.toggle("on", showGrid);
-$("gridbtn").onclick = () => { showGrid = !showGrid; $("gridbtn").classList.toggle("on", showGrid); try { localStorage.setItem("emerge.grid", showGrid ? "1" : "0"); } catch (_) {} placeGrid(); };
+const mapSize = () => (lastImg && lastImg.map ? { w: lastImg.map.w, h: lastImg.map.h } : lastImg ? { w: lastImg.nw, h: lastImg.nh } : null);
+// The glyphs of one frame as paths in screen space, one path a colour within each layer (a few dozen fills for thousands
+// of creatures). Off-screen ones are skipped; on a wrapping world one near an edge is drawn on both sides.
+function glyphPaths(vf, alphaMul, w, h) {
+  const cam = cams.picture, m = mapSize(), wrap = lastImg && lastImg.map && lastImg.map.wrap, dv = vf.glyphs, out = new Map();
+  for (let i = 0; i < vf.count; i++) {
+    const o = i * 24, px = dv.getFloat32(o, true), py = dv.getFloat32(o + 4, true), size = dv.getFloat32(o + 8, true);
+    const r = dv.getUint8(o + 12), gg = dv.getUint8(o + 13), b = dv.getUint8(o + 14), a = dv.getUint8(o + 15) / 255 * alphaMul;
+    const ang = dv.getFloat32(o + 16, true), arrow = dv.getUint8(o + 20) === 1, layer = dv.getUint8(o + 21);
+    if (a <= 0.003) continue;
+    let byColor = out.get(layer);
+    if (!byColor) out.set(layer, (byColor = new Map()));
+    const key = `rgba(${r},${gg},${b},${a.toFixed(3)})`;
+    let path = byColor.get(key);
+    const S = Math.max(size * cam.s, 3), ux = Math.cos(ang), uy = Math.sin(ang);   // never smaller than 3 screen pixels
+    const xs = [px], ys = [py];
+    if (wrap && m) { if (px < size) xs.push(px + m.w); else if (px > m.w - size) xs.push(px - m.w); if (py < size) ys.push(py + m.h); else if (py > m.h - size) ys.push(py - m.h); }
+    for (const qx of xs) for (const qy of ys) {
+      const x = cam.x + qx * cam.s, y = cam.y + qy * cam.s;
+      if (x < -S || y < -S || x > w + S || y > h + S) continue;
+      if (!path) byColor.set(key, (path = new Path2D()));
+      if (arrow && S >= 2) {
+        path.moveTo(x + ux * S * 0.6, y + uy * S * 0.6);
+        path.lineTo(x - ux * S * 0.4 - uy * S * 0.32, y - uy * S * 0.4 + ux * S * 0.32);
+        path.lineTo(x - ux * S * 0.2, y - uy * S * 0.2);
+        path.lineTo(x - ux * S * 0.4 + uy * S * 0.32, y - uy * S * 0.4 - ux * S * 0.32);
+        path.closePath();
+      } else if (S >= 3) { path.moveTo(x + S * 0.5, y); path.arc(x, y, S * 0.5, 0, Math.PI * 2); }
+      else { const q = Math.max(1, S * 0.8); path.rect(x - q / 2, y - q / 2, q, q); }
+    }
+  }
+  return out;
+}
+const BLEND_OP = { over: "source-over", add: "lighter", multiply: "multiply", screen: "screen", subtract: "difference" };
+function drawPicture() {
+  const cv = $("piccv"), g = cv.getContext("2d"), { w, h, dpr } = fitCanvas(cv), cam = cams.picture;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, cv.width, cv.height);
+  const m = mapSize();
+  if (!pic.img || !m || !visible.picture) return;
+  g.setTransform(dpr * cam.s, 0, 0, dpr * cam.s, dpr * cam.x, dpr * cam.y);
+  g.imageSmoothingEnabled = cam.s < 1;   // exact cells when enlarged
+  g.drawImage(pic.img, 0, 0, m.w, m.h, 0, 0, m.w, m.h);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (showGrid && lastImg && lastImg.map && lastImg.map.grid_w) drawGrid(g, w, h);
+  if (pic.glyphs) {
+    // The onion skin: older frames first, faintest.
+    pic.onion.forEach((vf, i) => { const paths = glyphPaths(vf, 0.1 + 0.35 * (i + 1) / (pic.onion.length + 1), w, h); for (const [, byColor] of paths) for (const [c, p] of byColor) { g.fillStyle = c; g.fill(p); } });
+    const paths = glyphPaths(pic, 1, w, h);
+    pic.layers.forEach((L, li) => {
+      const byColor = paths.get(li);
+      if (!byColor) return;
+      if ((L.blend || "over") === "over" && L.opacity >= 1) { for (const [c, p] of byColor) { g.fillStyle = c; g.fill(p); } return; }
+      // Another blend or an opacity: the layer on its own canvas, then composited.
+      if (!pic.off) pic.off = document.createElement("canvas");
+      pic.off.width = cv.width; pic.off.height = cv.height;
+      const o = pic.off.getContext("2d");
+      o.setTransform(dpr, 0, 0, dpr, 0, 0);
+      for (const [c, p] of byColor) { o.fillStyle = c; o.fill(p); }
+      g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = BLEND_OP[L.blend] || "source-over"; g.globalAlpha = L.opacity; g.drawImage(pic.off, 0, 0); g.restore();
+    });
+  }
+}
+// The grid: a line on every cell edge where cells are at least 6 pixels wide on screen; farther out, every 2nd, 4th, …
+// edge, and a note says which.
+function drawGrid(g, w, h) {
+  const cam = cams.picture, mp = lastImg.map, cell = (mp.w / mp.grid_w) * cam.s;
+  let step = 1;
+  while (cell * step < 6) step *= 2;
+  const x0 = Math.max(0, Math.floor(-cam.x / (cell * step))), x1 = Math.min(Math.ceil(mp.grid_w / step), Math.ceil((w - cam.x) / (cell * step)));
+  const y0 = Math.max(0, Math.floor(-cam.y / (cell * step))), y1 = Math.min(Math.ceil(mp.grid_h / step), Math.ceil((h - cam.y) / (cell * step)));
+  g.beginPath();
+  for (let i = x0; i <= x1; i++) { const x = Math.round(cam.x + i * step * cell) + 0.5; g.moveTo(x, Math.max(0, cam.y)); g.lineTo(x, Math.min(h, cam.y + mp.h * cam.s)); }
+  for (let j = y0; j <= y1; j++) { const y = Math.round(cam.y + j * step * cell) + 0.5; g.moveTo(Math.max(0, cam.x), y); g.lineTo(Math.min(w, cam.x + mp.w * cam.s), y); }
+  g.strokeStyle = step === 1 ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.14)";
+  g.lineWidth = 1;
+  g.stroke();
+  if (step > 1) { g.font = "11px system-ui"; g.fillStyle = "rgba(255,255,255,0.7)"; g.fillText(`grid: every ${step} cells (zoom in for every cell)`, guides.ruler ? 26 : 8, h - 8); }
+}
+// A round step for ruler ticks: 1, 2 or 5 times a power of ten, at least `min` world units.
+function niceStep(min) { const p = Math.pow(10, Math.floor(Math.log10(min))); for (const k of [1, 2, 5, 10]) if (k * p >= min) return k * p; return 10 * p; }
+const fmtNum = (x) => (Math.abs(x) >= 100 || Number.isInteger(x) ? String(Math.round(x)) : x.toFixed(Math.abs(x) >= 10 ? 1 : 2));
+function drawGuides() {
+  const cv = $("guidecv"), g = cv.getContext("2d"), { w, h, dpr } = fitCanvas(cv), cam = cams.picture, mp = lastImg && lastImg.map;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, cv.width, cv.height);
+  if (!mp || !visible.picture || !(guides.ruler || guides.cross)) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const unit = (mp.w / mp.world_w) * cam.s;   // screen pixels a world unit
+  const toWX = (x) => (x - cam.x) / unit, toWY = (y) => (y - cam.y) / unit;
+  const p = guides.ptr;
+  if (guides.ruler) {
+    const B = 18, step = niceStep(70 / unit);
+    g.fillStyle = "rgba(13,16,21,0.88)"; g.fillRect(0, 0, w, B); g.fillRect(0, 0, B, h);
+    g.strokeStyle = "rgba(255,255,255,0.5)"; g.fillStyle = "rgba(230,232,238,0.85)"; g.font = "10px system-ui"; g.lineWidth = 1;
+    g.beginPath();
+    for (let v = Math.ceil(Math.max(0, toWX(B)) / step) * step; v <= Math.min(mp.world_w, toWX(w)); v += step) { const x = Math.round(cam.x + v * unit) + 0.5; g.moveTo(x, B - 7); g.lineTo(x, B); g.fillText(fmtNum(v), x + 2, 10); for (let k = 1; k < 5; k++) { const xx = Math.round(x + (k * step * unit) / 5) + 0.5; if (xx < w) { g.moveTo(xx, B - 3); g.lineTo(xx, B); } } }
+    for (let v = Math.ceil(Math.max(0, toWY(B)) / step) * step; v <= Math.min(mp.world_h, toWY(h)); v += step) { const y = Math.round(cam.y + v * unit) + 0.5; g.moveTo(B - 7, y); g.lineTo(B, y); g.save(); g.translate(10, y + 2); g.rotate(-Math.PI / 2); g.fillText(fmtNum(v), 0, 0); g.restore(); for (let k = 1; k < 5; k++) { const yy = Math.round(y + (k * step * unit) / 5) + 0.5; if (yy < h) { g.moveTo(B - 3, yy); g.lineTo(B, yy); } } }
+    g.stroke();
+    g.fillStyle = "rgba(13,16,21,1)"; g.fillRect(0, 0, B, B);
+    if (p) { g.fillStyle = "#4fc3f7"; g.fillRect(p.x - 0.5, 0, 1, B); g.fillRect(0, p.y - 0.5, B, 1); }
+  }
+  if (guides.cross && p) {
+    g.strokeStyle = "rgba(79,195,247,0.8)"; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(0, p.y + 0.5); g.lineTo(w, p.y + 0.5); g.moveTo(p.x + 0.5, 0); g.lineTo(p.x + 0.5, h); g.stroke(); g.setLineDash([]);
+    const wx = toWX(p.x), wy = toWY(p.y), inside = wx >= 0 && wy >= 0 && wx < mp.world_w && wy < mp.world_h;
+    const cx = Math.floor((wx / mp.world_w) * mp.grid_w), cy = Math.floor((wy / mp.world_h) * mp.grid_h);
+    const text = inside ? `x ${fmtNum(wx)}  y ${fmtNum(wy)}  ·  cell (${cx}, ${cy})` : "outside the world";
+    g.font = "12px system-ui"; const tw = g.measureText(text).width + 12, bx = Math.min(p.x + 14, w - tw - 4), by = Math.min(p.y + 14, h - 24);
+    g.fillStyle = "rgba(13,16,21,0.9)"; g.fillRect(bx, by, tw, 20); g.fillStyle = "#e8eaee"; g.fillText(text, bx + 6, by + 14);
+  }
+}
+function placeGrid() { drawPicture(); drawGuides(); }
+const toggleBtn = (id, on) => $(id).classList.toggle("on", on);
+toggleBtn("gridbtn", showGrid); toggleBtn("rulerbtn", guides.ruler); toggleBtn("crossbtn", guides.cross); toggleBtn("onionbtn", pic.onionN > 0);
+const keep = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
+$("gridbtn").onclick = () => { showGrid = !showGrid; toggleBtn("gridbtn", showGrid); keep("emerge.grid", showGrid ? "1" : "0"); drawPicture(); };
+$("rulerbtn").onclick = () => { guides.ruler = !guides.ruler; toggleBtn("rulerbtn", guides.ruler); keep("emerge.ruler", guides.ruler ? "1" : "0"); drawGuides(); };
+$("crossbtn").onclick = () => { guides.cross = !guides.cross; toggleBtn("crossbtn", guides.cross); keep("emerge.cross", guides.cross ? "1" : "0"); drawGuides(); };
+$("onionbtn").onclick = () => {
+  const steps = [0, 3, 6, 12], i = (steps.indexOf(pic.onionN) + 1) % steps.length;
+  pic.onionN = steps[i]; pic.onion = pic.onion.slice(-pic.onionN || 0);
+  if (!pic.onionN) pic.onion = [];
+  toggleBtn("onionbtn", pic.onionN > 0);
+  $("onionbtn").title = `Onion skin: ${pic.onionN ? `the creatures of the last ${pic.onionN} frames, fading` : "off"} (click for ${steps[(i + 1) % steps.length] || "off"})`;
+  keep("emerge.onion", String(pic.onionN));
+  drawPicture();
+};
+stages.picture.addEventListener("pointermove", (e) => { const r = stages.picture.getBoundingClientRect(); guides.ptr = { x: e.clientX - r.left, y: e.clientY - r.top }; if (guides.ruler || guides.cross) drawGuides(); });
+stages.picture.addEventListener("pointerleave", () => { guides.ptr = null; if (guides.ruler || guides.cross) drawGuides(); });
+// The legend, beside the picture and not part of it: it stays put while you zoom and pan. For each layer it says what the
+// colour stands for in words, with its range and scale, the identities by name, the shape and the size.
+let legendOpen = true;
+try { legendOpen = localStorage.getItem("emerge.legend") !== "0"; } catch (_) {}
+const rgbCss = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
+function legendWords(e) {
+  const m = /^(\w+): (.*)$/.exec(e);
+  if (!m) return [e, ""];
+  const [, k, v] = m;
+  if (k === "glyph") return ["Shape", /arrow\(dir: heading\)/.test(v) ? "an arrow, pointing where the creature is heading" : /arrow/.test(v) ? `an arrow (${v})` : /dot/.test(v) ? "a dot" : v];
+  if (k === "size") return ["Size", /^[\d.]+$/.test(v) ? `${v} world units across` : `${v} (world units across)`];
+  if (k === "color") return ["Colour", v];
+  if (k === "made") return ["Made", v];
+  return [k, v];
+}
+function renderLegend(L) {
+  const box = $("legendpanel");
+  if (!L) { box.style.display = "none"; return; }
+  box.style.display = "block";
+  box.classList.toggle("closed", !legendOpen);
+  const esc2 = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  let html = `<div class="lghead"><b>${esc2(L.view)}</b><button id="legendtoggle" title="Show or hide the legend">${legendOpen ? "hide" : "legend"}</button></div><div class="lgbody">`;
+  html += `<div class="lgsub">world ${esc2(L.world)} · tick ${L.tick} · ${L.agents.toLocaleString()} creatures · ${L.grid[0]} × ${L.grid[1]} cells${L.wrap ? ", wrapping" : ""}</div>`;
+  for (const k of L.layers) {
+    const sub = /^\w+\.(\w+), in units per cell/.exec(k.source);
+    const what = k.kind === "cells" ? (sub ? `${sub[1]} per cell (units)` : k.source) : k.source === "agents" || k.source === "agents where true" ? "every creature" : k.source.replace(/^agents where /, "creatures where ");
+    html += `<div class="lglayer"><h5>${esc2(k.name)} <small>${esc2(what)}</small></h5>`;
+    const colourEntry = k.entries.find((e) => /^color: /.test(e));
+    if (k.ramp) {
+      const r = k.ramp, mid = r.log ? Math.sqrt(r.lo * r.hi) : (r.lo + r.hi) / 2;
+      const subject = colourEntry ? colourEntry.replace(/^color: /, "").split("|>")[0].trim() : "value";
+      html += `<div class="lgnote">Colour: ${esc2(subject === "value" && k.kind === "cells" ? what : subject)}, ${r.log ? "log" : "linear"} scale, ${esc2(r.palette)}</div>`;
+      html += `<div class="lgbar" style="background:linear-gradient(to right, ${r.colours.map(rgbCss).join(", ")})"></div><div class="lgticks"><span>${fmtNum(r.lo)}</span><span>${fmtNum(mid)}</span><span>${fmtNum(r.hi)}</span></div>`;
+      html += `<div class="lgnote">below ${fmtNum(r.lo)}: the first colour · above ${fmtNum(r.hi)}: the last</div>`;
+    }
+    if (k.empty) html += `<div class="lgrow"><span class="sw" style="background:${rgbCss(L.empty_rgb)}"></span>none here (zero, which a log scale cannot show)</div>`;
+    if (k.categories.length) {
+      html += `<div class="lgnote">Colour: ${colourEntry && /lineage/.test(colourEntry) || k.categories.length ? "founding lineage" : ""}</div>`;
+      for (const c of k.categories) html += `<div class="lgrow"><span class="sw" style="background:${rgbCss(c.rgb)}"></span>${esc2(c.name)}</div>`;
+    }
+    for (const e of k.entries) {
+      if (/^color: /.test(e) && (k.ramp || k.categories.length)) continue;
+      const [a, b] = legendWords(e);
+      html += `<div class="lgnote"><b>${esc2(a)}</b>${b ? ": " + esc2(b) : ""}</div>`;
+    }
+    for (const u of k.unavailable) html += `<div class="lgrow"><span class="sw" style="background:${rgbCss(L.unavailable_rgb)}"></span>${esc2(u)}: not computed yet (drawn grey)</div>`;
+    if (k.kind === "agents") html += `<div class="lgnote">${k.count.toLocaleString()} shown</div>`;
+    html += "</div>";
+  }
+  html += "</div>";
+  box.innerHTML = html;
+  $("legendtoggle").onclick = (e) => { e.stopPropagation(); legendOpen = !legendOpen; keep("emerge.legend", legendOpen ? "1" : "0"); renderLegend(L); };
+  box.onpointerdown = (e) => e.stopPropagation();
+  box.onwheel = (e) => e.stopPropagation();
+}
 let netGrid = true;
 try { netGrid = localStorage.getItem("emerge.netgrid") !== "0"; } catch (_) {}
 const setNetGrid = (on) => { netGrid = on; document.body.classList.toggle("nogrid", !on); $("netgrid").classList.toggle("on", on); try { localStorage.setItem("emerge.netgrid", on ? "1" : "0"); } catch (_) {} };
@@ -643,7 +864,6 @@ function applyCam(cam = cams[mode]) {
   const el = cam === cams.graph ? $("graph") : cam === cams.genome ? $("genome") : $("frame");
   el.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
   // Exact cells when enlarged; smooth when shrunk, so the legend's text stays readable.
-  if (cam === cams.picture) el.classList.toggle("enlarged", cam.s > 1);
   if (cam === cams.picture) { placeGrid(); placeMark(); drawTrack(); }
   if (cam === cams.picture) $("zoom").textContent = `${Math.round(cam.s * 100)}%`;
 }
@@ -908,6 +1128,76 @@ function renderCode(src, prev) {
   body.scrollTop = keep;
 }
 
+// ---- Parts of the source: the world's declarations grouped by what they are about (settings, chemistry, fields and
+// stores, what creatures pay and can do, rules, genesis), each lineage, each view. Choosing one shows only its lines (with
+// the line that opens its block); the rest folds into bars that open on a click.
+const PART_OF = { space: "Settings", max_age: "Settings", child_offset: "Settings", mind_steps: "Settings", element: "Settings", second_law: "Settings", const: "Settings",
+  substance: "Chemistry", reaction: "Chemistry", reaction_space: "Chemistry",
+  field: "Fields and stores", source: "Fields and stores", sink: "Fields and stores", waste: "Fields and stores", remains: "Fields and stores", decompose: "Fields and stores",
+  upkeep: "What creatures pay and can do", limits: "What creatures pay and can do", senses: "What creatures pay and can do", actions: "What creatures pay and can do", regulation: "What creatures pay and can do",
+  rule: "Rules", operator: "Rules", use: "Rules", genesis: "Genesis" };
+let codeParts = [], codePart = "";
+try { codePart = localStorage.getItem("emerge.codepart") || ""; } catch (_) {}
+function computeParts(lines) {
+  const parts = new Map(), add = (key, label, from, to) => { if (!parts.has(key)) parts.set(key, { key, label, lines: new Set() }); for (let l = from; l <= to; l++) parts.get(key).lines.add(l); };
+  let i = 0, pending = null;
+  while (i < lines.length) {
+    const t = lines[i].trim(), top = /^(world|lineage|view|chart|ruleset|explore|patch)\s+(\w+)/.exec(t);
+    if (top && !/^\s/.test(lines[i])) {
+      const end = spanEnd(i + 1) - 1;
+      if (top[1] === "world") {
+        // Inside the world: each declaration (and the comments just before it) to its group.
+        const opener = i;
+        for (let j = i + 1; j < end; j++) {
+          const u = lines[j].trim();
+          if (!u) { pending = null; continue; }
+          if (u.startsWith("//")) { if (pending === null) pending = j; continue; }
+          const word = (/^(\w+)/.exec(u) || [, ""])[1], group = PART_OF[word] || "Other declarations", stop = spanEnd(j + 1) - 1;
+          add(`w:${group}`, `${top[2]}: ${group}`, pending ?? j, stop);
+          add(`w:${group}`, "", opener, opener); add(`w:${group}`, "", end, end);
+          pending = null;
+          j = stop;
+        }
+      } else {
+        const label = top[1] === "lineage" ? `Lineage ${top[2]}` : top[1] === "view" ? `View ${top[2]}` : `${top[1]} ${top[2]}`;
+        add(`${top[1]}:${top[2]}`, label, pending ?? i, end);
+      }
+      pending = null;
+      i = end + 1;
+      continue;
+    }
+    if (t.startsWith("//") && pending === null) pending = i; else if (!t) pending = null;
+    i++;
+  }
+  return [...parts.values()];
+}
+function applyCodePart() {
+  const body = $("codebody"), part = codeParts.find((p) => p.key === codePart);
+  for (const f of body.querySelectorAll(".cfold")) f.remove();
+  const rows = [...body.querySelectorAll(".cl")];
+  if (!part) { rows.forEach((r) => r.classList.remove("hide")); return; }
+  let run = [];
+  const fold = (before) => {
+    if (!run.length) return;
+    const f = document.createElement("div"), lines = run;
+    f.className = "cfold";
+    f.textContent = `··· ${lines.length} line${lines.length === 1 ? "" : "s"} of other parts (click to show)`;
+    f.onclick = () => { lines.forEach((r) => r.classList.remove("hide")); f.remove(); };
+    body.insertBefore(f, before || null);
+    run = [];
+  };
+  rows.forEach((r, i) => { const show = part.lines.has(i); r.classList.toggle("hide", !show); if (show) fold(r); else run.push(r); });
+  fold(null);
+}
+function renderCodeParts() {
+  const sel = $("codepart");
+  codeParts = computeParts(codeLines);
+  sel.innerHTML = `<option value="">Whole source (${codeLines.length} lines)</option>` + codeParts.map((p) => `<option value="${p.key}">${p.label.replace(/[<>&]/g, "")} (${[...p.lines].length})</option>`).join("");
+  if (!codeParts.some((p) => p.key === codePart)) codePart = "";
+  sel.value = codePart;
+  applyCodePart();
+}
+$("codepart").onchange = () => { codePart = $("codepart").value; try { localStorage.setItem("emerge.codepart", codePart); } catch (_) {} applyCodePart(); $("codebody").scrollTop = 0; };
 async function loadCode() {
   const w = codeWorld();
   if (!w || !codeOpen()) return;
@@ -918,6 +1208,7 @@ async function loadCode() {
   codeRev = r.revision;
   $("codeinfo").textContent = `${w} · revision ${r.revision} · ${r.source.split("\n").length - 1} lines`;
   renderCode(r.source, prev);
+  renderCodeParts();
   if (selected) highlightCode(selected, false);
 }
 
@@ -941,6 +1232,7 @@ function highlightCode(id, scroll = true) {
   const n = graphData && graphData.nodes.find((x) => x.id === id);
   if (!n || !n.line || n.line > codeLines.length) return;
   const end = spanEnd(n.line);
+  if (rows[n.line - 1] && rows[n.line - 1].classList.contains("hide")) { codePart = ""; $("codepart").value = ""; applyCodePart(); }
   for (let l = n.line; l <= end; l++) rows[l - 1] && rows[l - 1].classList.add("hl");
   if (scroll && rows[n.line - 1]) rows[n.line - 1].scrollIntoView({ block: "center", behavior: "smooth" });
 }
@@ -2931,6 +3223,13 @@ function buildLeaf(l) {
   max.textContent = maxLeaf === l.id ? "◱" : "▢";
   max.title = maxLeaf === l.id ? "Restore the arrangement" : "Maximize this pane";
   max.onclick = () => { maxLeaf = maxLeaf === l.id ? null : l.id; renderWorkspace(); };
+  // Tabs wider than the pane scroll sideways with the mouse wheel; the active one is brought into view.
+  tabs.addEventListener("wheel", (e) => {
+    if (tabs.scrollWidth <= tabs.clientWidth) return;
+    tabs.scrollLeft += Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    e.preventDefault();
+  }, { passive: false });
+  requestAnimationFrame(() => { const on = tabs.querySelector(".ptab.on"); if (on && tabs.scrollWidth > tabs.clientWidth) on.scrollIntoView({ block: "nearest", inline: "nearest" }); });
   head.append(tabs, fill, menu, max);
   head.ondblclick = (e) => { if (!e.target.closest(".ptab") || true) { maxLeaf = maxLeaf === l.id ? null : l.id; renderWorkspace(); } };
   const body = el("lbody");
@@ -3267,11 +3566,18 @@ function onFrame(buf) {
   const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, n)));
   if (!sub || header.subscription !== sub) return;
   info.map = header.map || null;
-  const url = URL.createObjectURL(new Blob([new Uint8Array(buf, 4 + n)], { type: "image/png" }));
+  const pngLen = header.png_bytes || buf.byteLength - 4 - n;
+  const url = URL.createObjectURL(new Blob([new Uint8Array(buf, 4 + n, pngLen)], { type: "image/png" }));
+  // The creatures as vector glyphs, after the picture (none for a raster frame).
+  const gl = header.glyphs ? { glyphs: new DataView(buf, 4 + n + pngLen, header.glyphs.count * 24), count: header.glyphs.count, layers: header.glyphs.layers, tick: header.tick } : null;
   const img = $("frame");
   img.onload = () => {
     if (shown) URL.revokeObjectURL(shown);
     shown = url;
+    // The onion skin keeps the glyphs of the frames before this one (a jump back in time starts it again).
+    if (pic.glyphs && pic.onionN && gl && pic.tick !== undefined && gl.tick > pic.tick && !header.past) { pic.onion.push({ glyphs: pic.glyphs, count: pic.count }); while (pic.onion.length > pic.onionN) pic.onion.shift(); }
+    else if (!gl || header.past || (pic.tick !== undefined && gl.tick < pic.tick)) pic.onion = [];
+    Object.assign(pic, { img, glyphs: gl && gl.glyphs, count: gl ? gl.count : 0, layers: gl ? gl.layers : [], tick: header.tick });
     // A new picture size (another world or view) fits the window again; the same size keeps the camera.
     const cam = cams.picture;
     lastImg = { url, nw: img.naturalWidth, nh: img.naturalHeight, map: info.map };
@@ -3279,9 +3585,11 @@ function onFrame(buf) {
     const ph = lastImg.map && lastImg.nh > lastImg.map.h ? lastImg.map.h : img.naturalHeight;   // the picture without the charts
     if (cam.fit || cam.w !== img.naturalWidth || cam.h !== ph) { cam.w = img.naturalWidth; cam.h = ph; fitCam(cam); }
     applyCam(cam);
+    renderLegend(header.legend || null);
     trackFrame(header);
   };
   img.src = url;
+  updateScrub(header);
   if (isShown("picture")) {
     img.style.display = "block";
     $("empty").style.display = "none";
@@ -3352,6 +3660,7 @@ function renderLookBar() {
     btn("Undo", "Undo the last change of the views", () => lookStep("views.undo"), !look.history.undo);
     btn("Redo", "Redo it", () => lookStep("views.redo"), !look.history.redo);
   }
+  btn("Fit", "Show the whole network (double-click on empty space does it too); the wheel zooms, a drag pans", fitLook);
   const pv = btn(look.previews ? "Previews on" : "Previews off", "A small picture of what each node gives (drawn by the server from the current frame)", () => { look.previews = !look.previews; loadLook().catch(oops); });
   pv.classList.toggle("on", look.previews);
   if (lookDisplay && lookDisplay.world === $("world").value && lookDisplay.view === g.view) btn("Show the whole view", "Take the display flag off: the viewport shows the view again", () => setDisplay(null));
@@ -3385,6 +3694,36 @@ function lookLayout(g) {
   for (const [id, p] of pos) out.set(id, { x: 16 + p.c * (W + 40), y: 16 + p.r * (H + 18), w: W, h: H });
   return out;
 }
+// The Look network's camera: the wheel zooms about the pointer, a drag on empty space pans, a double-click (or Fit) shows
+// it all. It is kept while the network is redrawn, and fits again for another view.
+const lookCam = { s: 1, x: 0, y: 0, fit: true, view: null };
+function applyLookCam() { $("lookcanvas").style.transform = `translate(${lookCam.x}px, ${lookCam.y}px) scale(${lookCam.s})`; }
+function fitLook() {
+  const sc = $("lookscroll"), cv = $("lookcanvas"), r = sc.getBoundingClientRect(), w = parseFloat(cv.style.width) || 1, h = parseFloat(cv.style.height) || 1;
+  if (!r.width) return;
+  lookCam.s = Math.min(1.2, r.width / w, r.height / h);
+  lookCam.x = (r.width - w * lookCam.s) / 2; lookCam.y = Math.max(0, (r.height - h * lookCam.s) / 2); lookCam.fit = true;
+  applyLookCam();
+}
+(() => {
+  const sc = $("lookscroll");
+  sc.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const r = sc.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, s = Math.min(4, Math.max(0.1, lookCam.s * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015))));
+    lookCam.x = px - (px - lookCam.x) * (s / lookCam.s); lookCam.y = py - (py - lookCam.y) * (s / lookCam.s); lookCam.s = s; lookCam.fit = false;
+    applyLookCam();
+  }, { passive: false });
+  sc.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || e.target.closest(".lbox")) return;
+    const sx = e.clientX - lookCam.x, sy = e.clientY - lookCam.y;
+    sc.setPointerCapture(e.pointerId); sc.classList.add("dragging");
+    const mv = (ev) => { lookCam.x = ev.clientX - sx; lookCam.y = ev.clientY - sy; lookCam.fit = false; applyLookCam(); };
+    const up = () => { sc.removeEventListener("pointermove", mv); sc.removeEventListener("pointerup", up); sc.classList.remove("dragging"); };
+    sc.addEventListener("pointermove", mv); sc.addEventListener("pointerup", up);
+  });
+  sc.addEventListener("dblclick", (e) => { if (!e.target.closest(".lbox")) fitLook(); });
+  new ResizeObserver(() => { if (lookCam.fit) fitLook(); }).observe(sc);
+})();
 function drawLook() {
   const g = look.graph, cv = $("lookcanvas");
   cv.textContent = "";
@@ -3416,6 +3755,8 @@ function drawLook() {
   }
   cv.style.width = `${mx}px`; cv.style.height = `${my}px`;
   svg.setAttribute("width", mx); svg.setAttribute("height", my);
+  if (lookCam.view !== `${$("world").value}|${g.view}`) { lookCam.view = `${$("world").value}|${g.view}`; lookCam.fit = true; }
+  if (lookCam.fit) fitLook(); else applyLookCam();
   for (const w of g.wires) {
     const a = lay.get(w.from), c = lay.get(w.to);
     if (!a || !c) continue;
@@ -3920,36 +4261,69 @@ async function loadRules() {
   const r = await call("rules.lens", { world: w });
   if (w !== $("world").value || !visible.rules) return;
   rulesRev = r.revision;
-  note.textContent = `${w} · checked schedule of revision ${r.revision} (read at tick ${r.tick}) · click a statement to open it in the network`;
+  note.textContent = `${w} · revision ${r.revision} · tick ${r.tick}`;
   const keep = body.scrollTop;
   body.textContent = "";
-  let phase = null;
+  // One tick, left to right: each phase a column, each step a card saying what happens there; the world's rules are
+  // placed where the engine runs them (by the effect they have), with their statements one click away.
+  const intro = el("lens-intro");
+  intro.innerHTML = "<b>One tick, from left to right.</b> Every rule reads the world as it was at the start of the tick, so rules in one step never see each other's effects; a later step sees what the earlier ones changed. Click a rule to see its statements, a statement to open it in the Network.";
+  const opt = el("lens-opt"), cb = tag("input"), lab = tag("label");
+  cb.type = "checkbox"; cb.checked = lensAll; cb.onchange = () => { lensAll = cb.checked; loadRules().catch(oops); };
+  lab.append(cb, " show the engine's steps no rule uses");
+  opt.append(lab);
+  body.append(intro, opt);
+  const PHASES = { Set: "deciding: senses and minds read the world, signal rules write their fields", Move: "upkeep and fees are paid, then every transfer is settled together, then creatures move", Transform: "creatures' reactions, then the world's reaction rules, then waste is vented", Restructure: "the dying are removed, then creatures divide" };
+  const KIND_ICON = { transfer: "→", react: "⚗", diffuse: "≈", signal: "∿", code: "{ }", when: "?" };
+  const row = el("lens-phases");
+  let col = null, phase = null, n = 0;
   for (const s of r.steps) {
-    if (s.phase !== phase) { phase = s.phase; const ph = el("lens-phase"); ph.textContent = phase; body.append(ph); }
-    const d = el(`lens-step${s.rules.length ? " placed" : ""}`);
-    d.innerHTML = `<b></b> <span class="what"></span><div class="meta"></div>`;
-    d.querySelector("b").textContent = s.name;
-    d.querySelector(".what").textContent = s.what;
-    d.querySelector(".meta").textContent = `reads ${s.reads}; settles: ${s.settles}`;
+    if (s.phase !== phase) {
+      phase = s.phase; n++;
+      col = el("lens-col");
+      const h = el("lens-phase");
+      h.innerHTML = `<span class="num">${n}</span> ${esc(phase)}<div class="ph">${esc(PHASES[phase] || "")}</div>`;
+      col.append(h);
+      row.append(col);
+    }
+    const used = s.rules.length > 0 || (s.name === "Venting" && r.waste.length) || (s.name === "Disposal" && r.disposal);
+    if (!used && !lensAll) continue;
+    const d = el(`lens-card${used ? " placed" : ""}`);
+    d.title = `reads ${s.reads}; settles ${s.settles}`;
+    const head = el("lens-name");
+    head.innerHTML = `<b></b>${s.creatures ? '<span class="lens-badge" title="creatures act in this step">creatures</span>' : ""}`;
+    head.firstChild.textContent = s.name;
+    const what = el("lens-what"); what.textContent = s.what;
+    d.append(head, what);
     for (const ru of s.rules) {
-      const rd = el("lens-rule");
-      rd.textContent = `rule ${ru.rule} on ${ru.on}`;
-      d.append(rd);
+      const chip = el("lens-chip"), stmts = el("lens-stmts");
+      const kinds = [...new Set(ru.statements.map((st) => (/^when /.test(st.text) ? "when" : /^transfer/.test(st.text) ? "transfer" : /^react/.test(st.text) ? "react" : /^diffuse/.test(st.text) ? "diffuse" : /^self\.value|life_like/.test(st.text) ? "signal" : "code")))];
+      chip.innerHTML = `<span class="ic"></span><b></b> <small></small><span class="cnt"></span>`;
+      chip.querySelector(".ic").textContent = kinds.map((k) => KIND_ICON[k] || "·").join(" ");
+      chip.querySelector("b").textContent = ru.rule;
+      chip.querySelector("small").textContent = `on ${ru.on}`;
+      chip.querySelector(".cnt").textContent = `${ru.statements.length} statement${ru.statements.length === 1 ? "" : "s"} ▾`;
+      stmts.hidden = !lensOpen.has(ru.rule);
+      chip.onclick = () => { stmts.hidden = !stmts.hidden; if (stmts.hidden) lensOpen.delete(ru.rule); else lensOpen.add(ru.rule); };
       for (const st of ru.statements) {
         const sd = el("lens-stmt");
         sd.textContent = st.text;
-        sd.title = st.path;
-        sd.onclick = () => { setMode("graph"); loadGraph().then(() => select(st.path)).catch(oops); };
-        d.append(sd);
+        sd.title = `${st.path} · open in the Network`;
+        sd.onclick = () => { setMode("graph"); loadGraph().then(() => revealStatement(st.path)).catch(oops); };
+        stmts.append(sd);
       }
+      d.append(chip, stmts);
     }
-    if (s.name === "Venting") for (const x of r.waste) { const m = el("lens-rule"); m.textContent = `waste ${x.substance} -> ${x.sink}`; d.append(m); }
-    if (s.name === "Disposal" && r.disposal) { const m = el("lens-rule"); m.textContent = [r.disposal.decompose && `decompose: ${r.disposal.decompose}`, r.disposal.remains && `remains: ${r.disposal.remains}`].filter(Boolean).join("; "); if (m.textContent) d.append(m); }
-    body.append(d);
+    if (s.name === "Venting") for (const x of r.waste) { const m = el("lens-chip static"); m.textContent = `waste ${x.substance} → ${x.sink}`; d.append(m); }
+    if (s.name === "Disposal" && r.disposal) { const m = el("lens-chip static"); m.textContent = [r.disposal.decompose && `the dead rot into ${r.disposal.decompose}`, r.disposal.remains && `what does not fit goes to ${r.disposal.remains}`].filter(Boolean).join("; "); if (m.textContent) d.append(m); }
+    col.append(d);
   }
-  for (const u of r.unplaced) { const d = el("lens-step"); d.textContent = `rule ${u.rule} on ${u.on}: not placed, ${u.why}`; body.append(d); }
+  body.append(row);
+  for (const u of r.unplaced) { const d = el("lens-card unplaced"); d.textContent = `rule ${u.rule} on ${u.on}: not placed, ${u.why}`; body.append(d); }
   body.scrollTop = keep;
 }
+let lensAll = true;
+const lensOpen = new Set();
 
 // Notebook (S5): the run's timeline on one tick axis (edits accepted and rejected kept apart, thresholds as the interval
 // between two samples) and bookmarks that carry copies of their evidence. An edit followed by a change is an
@@ -4037,25 +4411,9 @@ async function loadFlow() {
   const subs = f.substances, R = f.reactions;
   const delta = (r, m) => Math.max(0, m.extent - (base && base.ext[r.name + "|" + m.by] !== undefined ? base.ext[r.name + "|" + m.by] : 0));
   const comp = (s) => (el >= 0 ? subs.find((x) => x.name === s).comp[el] / 1 : 1);
-  const edgeW = (r, s, coeff) => (mode !== "measured" ? 1 : r.measured.reduce((a, m) => a + delta(r, m), 0) * (qty === "extent" ? 1 : coeff * (el >= 0 ? comp(s) : 1)));
-  const Wd = 900, Hh = 420, cx = Wd / 2, cy = Hh / 2, rad = Math.min(cx, cy) - 40;
-  const pos = {}; subs.forEach((s, i) => { const a = (2 * Math.PI * i) / subs.length - Math.PI / 2; pos["s:" + s.name] = [cx + rad * Math.cos(a), cy + rad * 0.85 * Math.sin(a)]; });
-  R.forEach((r, i) => { const ids = [...r.inputs, ...r.outputs].map((x) => pos["s:" + x.substance]); const mx = ids.reduce((a, p) => a + p[0], 0) / ids.length, my = ids.reduce((a, p) => a + p[1], 0) / ids.length; pos["r:" + r.name] = [cx + (mx - cx) * 0.45 + (i % 3 - 1) * 14, cy + (my - cy) * 0.45 + (Math.floor(i / 3) % 3 - 1) * 14]; });
-  const ws = R.flatMap((r) => [...r.inputs, ...r.outputs].map((x) => edgeW(r, x.substance, x.coeff))), wmax = Math.max(1, ...ws);
-  let g = `<svg viewBox="0 0 ${Wd} ${Hh}"><defs><marker id="ah" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#999"/></marker></defs>`;
-  for (const r of R) {
-    const rp = pos["r:" + r.name];
-    for (const [side, list] of [["in", r.inputs], ["out", r.outputs]]) for (const x of list) {
-      const sp = pos["s:" + x.substance], v = edgeW(r, x.substance, x.coeff), wd = mode === "measured" ? 0.6 + 9 * v / wmax : 1.4;
-      const [a, b] = side === "in" ? [sp, rp] : [rp, sp];
-      g += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${mode === "measured" && v === 0 ? "#555" : side === "in" ? "#d98" : "#6a9"}" stroke-width="${wd}" stroke-opacity=".75" marker-end="url(#ah)"><title>${side === "in" ? "consumes" : "makes"} ${esc(x.substance)}: coefficient ${x.coeff}${mode === "measured" ? `, ${Math.round(v).toLocaleString()}` : ""}</title></line>`;
-    }
-    if (r.catalyst) { const sp = pos["s:" + r.catalyst]; g += `<line x1="${sp[0]}" y1="${sp[1]}" x2="${rp[0]}" y2="${rp[1]}" stroke="#89b" stroke-dasharray="4 3"><title>${esc(r.catalyst)} speeds ${esc(r.name)} up (not consumed)</title></line>`; }
-  }
-  for (const s of subs) { const p = pos["s:" + s.name]; g += `<circle cx="${p[0]}" cy="${p[1]}" r="6" fill="#89b"/><text x="${p[0] + 9}" y="${p[1] + 4}" font-size="12" fill="currentColor">${esc(s.name)}</text>`; }
-  for (const r of R) { const p = pos["r:" + r.name]; g += `<rect x="${p[0] - 5}" y="${p[1] - 5}" width="10" height="10" fill="#cb6"/><text x="${p[0] + 8}" y="${p[1] + 4}" font-size="11" fill="#cb6">${esc(r.name)}</text>`; }
-  body.innerHTML = g + "</svg>";
-  const t = tag("table");
+  const total = (r) => r.measured.reduce((a, m) => a + delta(r, m), 0);
+  const edgeW = (r, s, coeff) => (mode !== "measured" ? 1 : total(r) * (qty === "extent" ? 1 : coeff * (el >= 0 ? comp(s) : 1)));
+  drawFlowMap(f, R, mode, edgeW, total);  const t = tag("table");
   if (mode === "blocked") {
     t.innerHTML = "<tr><th>reaction</th><th>ran at its cap</th><th>ran, limited</th><th>cap zero</th><th>missing an input</th><th>no room for outputs</th></tr>" + R.map((r) => r.blocked ? `<tr><td>${esc(r.name)}</td><td>${r.blocked.full}</td><td>${r.blocked.limited}</td><td>${r.blocked.cap_zero}</td><td>${r.blocked.no_input.reduce((a, b) => a + b, 0)}</td><td>${r.blocked.no_room}</td></tr>` : `<tr><td>${esc(r.name)}</td><td colspan="5">not counting</td></tr>`).join("");
     const b = tag("button"); b.textContent = "Start counting blocked outcomes"; b.onclick = async () => { await call("flow.blocked_start", { world: w }).catch((e) => oops(e)); loadFlow().catch(oops); };
@@ -4065,9 +4423,107 @@ async function loadFlow() {
       const formula = `${r.inputs.map((x) => (x.coeff > 1 ? x.coeff + " " : "") + x.substance).join(" + ")} → ${r.outputs.map((x) => (x.coeff > 1 ? x.coeff + " " : "") + x.substance).join(" + ")}`;
       return mode === "measured" ? r.measured.map((m) => `<tr><td>${esc(r.name)}</td><td>${esc(formula)}</td><td>${esc(m.by)}</td><td>${Math.round(delta(r, m)).toLocaleString()}</td><td>${esc(Object.entries(m.elements_out_mu).map(([k, v]) => k + " " + v.toLocaleString()).join(", ") || "–")}</td></tr>`) : [`<tr><td>${esc(r.name)}</td><td>${esc(formula)}</td><td>${esc(r.catalyst || "–")}</td></tr>`];
     }).join("");
-    body.append(t, Object.assign(tag("div"), { textContent: mode === "measured" ? f.meaning : "Declared: what can happen. A reaction node keeps all of its inputs together; a dashed edge is a catalyst, not consumed." }));
+    const d = tag("details"), sm = tag("summary");
+    sm.textContent = `Table: ${R.length} reactions${mode === "measured" ? ", what each source ran" : ", their formulas"}`;
+    d.append(sm, t, Object.assign(tag("div"), { textContent: mode === "measured" ? f.meaning : "Declared: what can happen. A reaction node keeps all of its inputs together." }));
+    body.append(d);
   }
 }
+// The Flow Map as three columns: what is consumed (left), the reactions (middle), what is made (right); a substance that
+// is both is on both sides, so every wire runs left to right. Wire width is the chosen quantity in Measured mode. Hover
+// a node to see only its wires; click to keep that; the wheel zooms and a drag pans. Generated reactions of the reaction
+// space are left out unless they ran (or "every reaction" is chosen).
+const flowCam = { s: 1, x: 0, y: 0, fit: true, key: null };
+let flowPin = null;
+function applyFlowCam() { $("flowg").setAttribute("transform", `translate(${flowCam.x},${flowCam.y}) scale(${flowCam.s})`); }
+function fitFlow() {
+  const box = $("flowmap").getBoundingClientRect(), g = $("flowg"), w = +g.dataset.w || 1, h = +g.dataset.h || 1;
+  if (!box.width) return;
+  flowCam.s = Math.min(1.4, box.width / w, box.height / h);
+  flowCam.x = (box.width - w * flowCam.s) / 2; flowCam.y = Math.max(0, (box.height - h * flowCam.s) / 2); flowCam.fit = true;
+  applyFlowCam();
+}
+function drawFlowMap(f, all, mode, edgeW, total) {
+  const show = $("flowshow").value;
+  // A generated reaction of the reaction space is named by its formula (`light -> heat`).
+  const isGen = (n) => /->/.test(n) || /^gen_/.test(n);
+  // "Named and active": the world's own reactions, and the 12 generated ones of the reaction space that ran the most.
+  const ran = (r) => (r.measured || []).reduce((a, m) => a + m.extent, 0);
+  const generated = all.filter((r) => isGen(r.name) && ran(r) > 0).sort((a, b) => ran(b) - ran(a));
+  const pick = show === "all" ? all : show === "named" ? all.filter((r) => !isGen(r.name)) : [...all.filter((r) => !isGen(r.name)), ...generated.slice(0, 12)];
+  const left = show === "used" ? generated.length - Math.min(12, generated.length) : 0;
+  const R = pick.sort((a, b) => (mode === "measured" ? total(b) - total(a) : 0) || (isGen(a.name) - isGen(b.name)) || a.name.localeCompare(b.name));
+  const order = f.substances.map((x) => x.name);
+  const ins = order.filter((n) => R.some((r) => r.inputs.some((x) => x.substance === n) || r.catalyst === n));
+  const outs = order.filter((n) => R.some((r) => r.outputs.some((x) => x.substance === n)));
+  const RH = 30, GAP = 12, W0 = 140, W1 = 190, X0 = 20, X1 = 320, X2 = 650, rows = Math.max(ins.length, R.length, outs.length, 1);
+  const H = rows * (RH + GAP) + 20, y = (i, n) => 10 + (rows - n) * (RH + GAP) / 2 + i * (RH + GAP);
+  const pos = {};
+  ins.forEach((n, i) => (pos["in:" + n] = [X0, y(i, ins.length)]));
+  R.forEach((r, i) => (pos["r:" + r.name] = [X1, y(i, R.length)]));
+  outs.forEach((n, i) => (pos["out:" + n] = [X2, y(i, outs.length)]));
+  const hueOf = (n) => { let h = 0; for (const c of n) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+  const ws = R.flatMap((r) => [...r.inputs, ...r.outputs].map((x) => edgeW(r, x.substance, x.coeff))), wmax = Math.max(1, ...ws);
+  let g = "";
+  const edge = (a, b, sub, w, title, ids, dash) => {
+    const [x0, y0] = a, [x1, y1] = b, d = (x1 - x0) / 2;
+    g += `<path class="fe" data-ids="${ids}" d="M${x0},${y0} C${x0 + d},${y0} ${x1 - d},${y1} ${x1},${y1}" stroke="hsl(${hueOf(sub)} 60% 62%)" stroke-width="${w}"${dash ? ' stroke-dasharray="4 4"' : ""}><title>${esc(title)}</title></path>`;
+  };
+  for (const r of R) {
+    const rp = pos["r:" + r.name];
+    for (const x of r.inputs) { const v = edgeW(r, x.substance, x.coeff); edge([X0 + W0, pos["in:" + x.substance][1] + RH / 2], [X1, rp[1] + RH / 2], x.substance, mode === "measured" ? 0.8 + 12 * v / wmax : 1.6, `${r.name} consumes ${x.coeff > 1 ? x.coeff + " " : ""}${x.substance}${mode === "measured" ? `: ${Math.round(v).toLocaleString()}` : ""}`, `in:${x.substance} r:${r.name}`); }
+    for (const x of r.outputs) { const v = edgeW(r, x.substance, x.coeff); edge([X1 + W1, rp[1] + RH / 2], [X2, pos["out:" + x.substance][1] + RH / 2], x.substance, mode === "measured" ? 0.8 + 12 * v / wmax : 1.6, `${r.name} makes ${x.coeff > 1 ? x.coeff + " " : ""}${x.substance}${mode === "measured" ? `: ${Math.round(v).toLocaleString()}` : ""}`, `out:${x.substance} r:${r.name}`); }
+    if (r.catalyst && pos["in:" + r.catalyst]) edge([X0 + W0, pos["in:" + r.catalyst][1] + RH / 2], [X1, rp[1] + RH / 2], r.catalyst, 1, `${r.catalyst} speeds ${r.name} up (not consumed)`, `in:${r.catalyst} r:${r.name}`, true);
+  }
+  const node = (id, [x, yy], w, label, sub, fill, title) => { g += `<g class="fn" data-id="${id}"><rect x="${x}" y="${yy}" width="${w}" height="${RH}" fill="${fill}" stroke="#0008"/><text x="${x + 8}" y="${yy + 13}">${esc(label)}</text>${sub ? `<text x="${x + 8}" y="${yy + 25}" style="fill:var(--muted);font-size:10px">${esc(sub)}</text>` : ""}<title>${esc(title)}</title></g>`; };
+  for (const n of ins) node("in:" + n, pos["in:" + n], W0, n, "consumed", `hsl(${hueOf(n)} 30% 24%)`, `${n}: what the reactions on the right of it consume`);
+  for (const r of R) {
+    const formula = `${r.inputs.map((x) => (x.coeff > 1 ? x.coeff + " " : "") + x.substance).join(" + ")} → ${r.outputs.map((x) => (x.coeff > 1 ? x.coeff + " " : "") + x.substance).join(" + ")}`;
+    node("r:" + r.name, pos["r:" + r.name], W1, r.name, mode === "measured" ? `extent ${Math.round(total(r)).toLocaleString()}` : formula, mode === "measured" && total(r) === 0 ? "#2a2d33" : "#4a3f22", `${r.name}: ${formula}${r.catalyst ? ` · speeded up by ${r.catalyst}` : ""}`);
+  }
+  for (const n of outs) node("out:" + n, pos["out:" + n], W0, n, "made", `hsl(${hueOf(n)} 30% 24%)`, `${n}: what the reactions on the left of it make`);
+  g += `<text x="${X0}" y="${H + 4}" style="fill:var(--muted)">consumed</text><text x="${X1}" y="${H + 4}" style="fill:var(--muted)">reactions (${R.length} of ${all.length})</text><text x="${X2}" y="${H + 4}" style="fill:var(--muted)">made</text>`;
+  const fg = $("flowg");
+  fg.innerHTML = g;
+  fg.dataset.w = X2 + W0 + 20; fg.dataset.h = H + 12;
+  $("flowhint").textContent = `${left ? `${left} other generated reactions ran (show "every reaction" to see them) · ` : ""}hover a node to see its wires · click to keep it · wheel zooms · drag pans · double-click fits`;
+  const key = `${$("world").value}|${show}|${R.length}`;
+  if (flowCam.key !== key) { flowCam.key = key; flowCam.fit = true; }
+  if (flowCam.fit) fitFlow(); else applyFlowCam();
+  const focus = (id) => {
+    for (const e of fg.querySelectorAll(".fe")) e.classList.toggle("dim", !!id && !e.dataset.ids.split(" ").includes(id));
+    const near = new Set(id ? [...fg.querySelectorAll(".fe")].filter((e) => e.dataset.ids.split(" ").includes(id)).flatMap((e) => e.dataset.ids.split(" ")) : []);
+    for (const n of fg.querySelectorAll(".fn")) n.classList.toggle("dim", !!id && !near.has(n.dataset.id));
+  };
+  for (const n of fg.querySelectorAll(".fn")) {
+    n.onmouseenter = () => focus(n.dataset.id);
+    n.onmouseleave = () => focus(flowPin);
+    n.onclick = (e) => { e.stopPropagation(); flowPin = flowPin === n.dataset.id ? null : n.dataset.id; focus(flowPin); };
+  }
+  focus(flowPin);
+}
+(() => {
+  const box = $("flowmap");
+  box.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const r = box.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, s = Math.min(5, Math.max(0.1, flowCam.s * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015))));
+    flowCam.x = px - (px - flowCam.x) * (s / flowCam.s); flowCam.y = py - (py - flowCam.y) * (s / flowCam.s); flowCam.s = s; flowCam.fit = false;
+    applyFlowCam();
+  }, { passive: false });
+  box.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || e.target.closest(".fn")) return;
+    const sx = e.clientX - flowCam.x, sy = e.clientY - flowCam.y;
+    box.setPointerCapture(e.pointerId); box.classList.add("dragging");
+    const mv = (ev) => { flowCam.x = ev.clientX - sx; flowCam.y = ev.clientY - sy; flowCam.fit = false; applyFlowCam(); };
+    const up = () => { box.removeEventListener("pointermove", mv); box.removeEventListener("pointerup", up); box.classList.remove("dragging"); };
+    box.addEventListener("pointermove", mv); box.addEventListener("pointerup", up);
+  });
+  box.addEventListener("dblclick", (e) => { if (!e.target.closest(".fn")) fitFlow(); });
+  box.addEventListener("click", (e) => { if (!e.target.closest(".fn") && flowPin) { flowPin = null; const fg = $("flowg"); for (const x of fg.querySelectorAll(".dim")) x.classList.remove("dim"); } });
+  new ResizeObserver(() => { if (flowCam.fit) fitFlow(); }).observe(box);
+  $("flowfit").onclick = fitFlow;
+  $("flowshow").onchange = () => loadFlow().catch(oops);
+})();
 
 // Region (S4): totals over a rectangle of the world, in one reading so cells and creatures are of one tick.
 // A range that starts past its end runs across the edge of a wrapping world.
@@ -4381,6 +4837,7 @@ async function refreshWorlds(select) {
   const gen = ++worldGen;
   const { worlds } = await call("world.list");
   runningNow = Object.fromEntries(worlds.map((w) => [w.world, !!w.running]));
+  updatePlay();
   if (gen !== worldGen) return worlds;
   const sel = $("world"), keep = select || sel.value;
   const cwPrev = $("code-world").value;
@@ -4411,7 +4868,8 @@ async function subscribe() {
   renderDisplayBar();
   if (sub) { await call("view.unsubscribe", { subscription: sub }).catch(() => {}); sub = null; }
   const charts = $("charts").checked ? ["default"] : [];
-  const r = await call("view.subscribe", { world, view, views: viewsText(), charts, every: +$("every").value || 1, max_fps: +$("fps").value || 8, pick: true, watch: watchIds() });
+  scrub.at = null;
+  const r = await call("view.subscribe", { world, view, views: viewsText(), charts, every: +$("every").value || 1, max_fps: +$("fps").value || 8, pick: true, watch: watchIds(), vector: true });
   sub = r.subscription;
   if (r.run !== track.run) { track.run = r.run; trackRestore(); }
   await sendWatch();
@@ -4542,10 +5000,59 @@ let runningNow = {};
 function toggleRun() {
   const w = $("world").value;
   if (!w) return;
+  if (!runningNow[w] && scrub.at !== null) showTick(null);   // playing is the live world
   call(runningNow[w] ? "run.pause" : "run.resume", { world: w }).then(() => refreshWorlds()).catch(oops);
 }
-$("play").onclick = () => call("run.resume", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
-$("pause").onclick = () => call("run.pause", { world: $("world").value }).then(() => refreshWorlds()).catch(oops);
+// One button: Play while paused, Pause while running (Space does the same). Playing goes back to the live world.
+$("play").onclick = () => { if (!runningNow[$("world").value] && scrub.at !== null) showTick(null); toggleRun(); };
+function updatePlay() { const on = !!runningNow[$("world").value]; $("play").innerHTML = on ? "&#10074;&#10074; Pause" : "&#9654; Play"; $("play").classList.toggle("on", on); }
+// ---- The playbar's scrubber: the frames you were shown are kept on the server (`view.timeline`); dragging shows a kept
+// frame (`view.show`) drawn with the current view, and pauses the world. The world itself is not rewound: Live (or Play)
+// comes back to it. Ticks between kept frames were not kept, so the scrubber steps from one kept frame to the next.
+const scrub = { ticks: [], live: 0, at: null, shown: null, first: null, dragging: false, timer: null };
+function updateScrub(h) {
+  const r = $("scrub");
+  if (scrub.first === null || h.tick < scrub.first) scrub.first = h.tick;
+  scrub.live = h.live_tick ?? h.tick;
+  scrub.shown = h.tick;
+  if (!scrub.dragging) { r.min = Math.min(scrub.ticks[0] ?? scrub.first, scrub.first); r.max = Math.max(scrub.live, +r.min); r.value = h.tick; }
+  const past = !!h.past;
+  $("scrubbox").classList.toggle("past", past);
+  $("scrubinfo").textContent = past ? `tick ${h.tick} (kept frame) · the world is at ${scrub.live}` : `tick ${h.tick} · live`;
+}
+async function loadTimeline() {
+  if (!sub) return;
+  const t = await call("view.timeline", { subscription: sub }).catch(() => null);
+  if (!t) return;
+  scrub.ticks = t.ticks; scrub.live = t.live_tick;
+  if (t.ticks.length) { $("scrub").min = t.ticks[0]; $("scrub").max = Math.max(t.live_tick, t.ticks[t.ticks.length - 1]); }
+}
+async function showTick(t) {
+  if (!sub) return;
+  scrub.at = t;
+  await call("view.show", { subscription: sub, tick: t }).catch(oops);
+}
+const nearestKept = (v, dir) => {
+  const ts = scrub.ticks;
+  if (!ts.length) return null;
+  if (dir > 0) return ts.find((x) => x > v) ?? null;
+  if (dir < 0) return [...ts].reverse().find((x) => x < v) ?? ts[0];
+  return [...ts].reverse().find((x) => x <= v) ?? ts[0];
+};
+$("scrub").addEventListener("pointerdown", async () => {
+  scrub.dragging = true;
+  const w = $("world").value;
+  if (runningNow[w]) { await call("run.pause", { world: w }).catch(() => {}); refreshWorlds(); }
+  await loadTimeline();
+});
+$("scrub").addEventListener("input", () => {
+  clearTimeout(scrub.timer);
+  scrub.timer = setTimeout(() => { const v = +$("scrub").value; if (v >= scrub.live && (!scrub.ticks.length || v >= scrub.ticks[scrub.ticks.length - 1])) showTick(null); else showTick(nearestKept(v, 0)); }, 60);
+});
+window.addEventListener("pointerup", () => { scrub.dragging = false; });
+$("scrubprev").onclick = async () => { await loadTimeline(); const t = nearestKept(scrub.shown ?? scrub.live, -1); if (t !== null) showTick(t); };
+$("scrubnext").onclick = async () => { await loadTimeline(); const t = nearestKept(scrub.shown ?? scrub.live, 1); showTick(t !== null && t < scrub.live ? t : null); };
+$("scrublive").onclick = () => showTick(null);
 $("step").onclick = () => call("run.step", { world: $("world").value, ticks: +$("steps").value || 1 }).then(stats).catch(oops);
 // Stop and restart end the process, so the answer may be a closing socket. The token survives a
 // restart (`agentsrule web` hands it to each new server), so the page reconnects by itself.

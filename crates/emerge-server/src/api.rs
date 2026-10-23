@@ -301,6 +301,11 @@ impl Engine {
         self.runs.get(id).map(|e| &e.run)
     }
 
+    /// Whether world `id` is ticking in the background (`run.resume`).
+    pub fn running(&self, id: &str) -> bool {
+        self.runs.get(id).is_some_and(|e| e.running)
+    }
+
     /// Whether any run is ticking in the background.
     pub fn busy(&self) -> bool {
         self.runs.values().any(|e| e.running)

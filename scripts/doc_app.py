@@ -50,25 +50,29 @@ The window is split into panes, and each pane holds tabs. Drag a tab to move it,
 
 | Editor | What it shows |
 | :--- | :--- |
-| **Viewport** | the live picture of the world: wheel zooms, drag pans, a click selects a creature (see *Tracking creatures*), **i** picks what is under the pointer (cell contents, nearby creatures, open a creature's genome), **g** shows the cell grid |
+| **Viewport** | the live picture of the world: wheel zooms, drag pans, a click selects a creature or, where there is none, the cell (see *Tracking creatures*). Creatures are drawn as vector shapes, so they stay sharp at any zoom. Beside the picture: **i** picks what is under the pointer, **◎** tracks on click, **▦** (or **g**) the cell grid, **⌜** rulers in world units along the edges, **✛** a crosshair with the pointer's position and cell, **◌** the onion skin (the creatures of the last 3, 6 or 12 frames, fading). The **legend** stays in the corner while you zoom: for each layer it says what the colour stands for, its range and scale, the lineages, the shape and the size; **hide** folds it |
 | **Parameters** | the box selected in the Network: its parameters, its text, and one edit for several selected boxes |
 | **Network** | the world's rules as boxes and wires (see *The network editor*) |
 | **Genome** | one living creature's genes in module frames, with the signals between them as wires |
 | **Look** | how the picture is drawn, as a network of the view's pieces with typed sockets, previews and a display flag (see *The Look network*) |
 | **Details** | a table of agents: an even sample, all of them paged, the selection, the tracked ones or one tracker's members, with a condition the server evaluates; click selects, double-click opens the genome, the star tracks |
 | **Inspector** | what the selected box *is*, what the world holds in it, and what the runner counted for it, kept apart (see *The network editor*); for a selected creature, one exact reading of it, which can be pinned; for a selected cell, what it holds and what touches it |
-| **Source** | the complete source of the running world; edit a copy, open a file, make a new world from it |
-| **Rule Lens** | the checked schedule: the steps of one tick and the rules and statements in each; also a read/write matrix, per-statement activity and a trace |
+| **Source** | the complete source of the running world, or one part of it at a time (settings, chemistry, fields and stores, what creatures pay and can do, rules, genesis, each lineage, each view: the rest folds into bars that open on a click); edit a copy, open a file, make a new world from it |
+| **Rule Lens** | one tick from left to right: its four phases as columns, each step a card saying what happens there, the world's rules placed where they run (click one for its statements); also *Reads and writes*, *Activity* and *Trace* |
 | **Lineage History** | population by lineage over time; drag on the chart to brush a span of ticks |
 | **Genome Census** | every living creature's active genes by lineage, and a comparison of two creatures |
 | **Resource Budget** | where the upkeep substance came from and went, by lineage, closed to the integer µ |
 | **Ancestry** | one creature's ancestors and descendants |
 | **Compare Runs** | two worlds side by side, on the ticks both sampled |
 | **Region** | creatures and amounts inside a rectangle of the world, read in one call |
-| **Flow Map** | the reactions of the world: declared, measured, and which outcomes blocked them |
+| **Flow Map** | the reactions of the world in three columns (consumed, reactions, made), declared or measured, with the table folded under it; hover or click a node to see only its wires, the wheel zooms and a drag pans |
 | **Life Histories** | ages and carried stock of the living, and one birth cohort |
 | **Notebook** | bookmarks that carry copies of their evidence, and a timeline of edits |
 | **Watches** | every tracker of the world: watches and sets, their recordings, exports and nodes (see *Tracking creatures*) |
+
+## The playbar
+
+**Play** and **Pause** are one button (Space does the same). **Step** runs the number of ticks beside it; a paused world shows every tick it moves. The **scrubber** goes back over the frames the viewport was shown: drag it (the world pauses), or use ◀ and ▶ to go from one kept frame to the next. A kept frame is drawn again with the current view, but the world itself is not rewound: **Live** (or Play) comes back to it. Ticks between kept frames were not kept; older frames are thinned out as the run grows, so the scrubber reaches back to the start at a coarser grain.
 
 ## Keys
 
@@ -182,6 +186,8 @@ agents(where: true) → units(energy) → scale(…) → palette(inferno) → co
 | **body** | a layer's VEX-like statements |
 | **layer** | the layer, with its blend and opacity |
 | **view** | the composite of the layers, the last on top |
+
+The wheel zooms about the pointer, a drag on empty space pans, and a double-click (or **Fit**) shows the whole network.
 
 ## Previews and the display flag
 
@@ -473,7 +479,7 @@ A request that fails answers with an error code and a message that says why; an 
 | Runs | `runs.compare`, `runs.outcomes`, `runs.pair`, `export.provenance`, `journal.read` |
 | Notebook | `notebook.add`, `notebook.list`, `notebook.events`, `notebook.export` |
 | Tracking | `entities.get`, `entities.find`, `tracker.create`, `tracker.update`, `tracker.stop`, `tracker.resume`, `tracker.remove`, `tracker.undo`, `tracker.redo`, `tracker.list`, `tracker.query`, `tracker.record_start`, `tracker.record_stop`, `tracker.samples`, `tracker.export`, `tracker.interactions` |
-| Frames (WebSocket only) | `view.subscribe` (with `pick` and `watch`), `view.unsubscribe`, `view.watch`, `view.pick_frame`, `view.record`, `view.recordings` |
+| Frames (WebSocket only) | `view.subscribe` (with `pick`, `watch` and `vector`), `view.unsubscribe`, `view.watch`, `view.pick_frame`, `view.timeline`, `view.show`, `view.record`, `view.recordings` |
 | Help | `docs.query`, `docs.examples`, `docs.example` |
 
 Answers to questions about the world carry an `observation` object: the token, world, run, tick, revision and backend they were read at.
@@ -492,7 +498,7 @@ A tracker is a named set of creatures with a membership rule: `fixed` (these ind
 
 ## Frames
 
-`view.subscribe` with `pick: true` keeps an index of the agents each sent frame drew. Each frame header carries `frame`, `run`, the map's size, and `agents`: the selected creatures (`view.watch`) and every visible tracker's members, with their position in that same frame. `view.pick_frame` names the creatures under a point of a frame the subscription was sent; once the frame is no longer kept it answers `frame expired` (code `-32011`) rather than picking from the present.
+`view.subscribe` with `vector: true` sends the cell layers as the PNG and each creature after it as 24 bytes (x, y and size in picture pixels as f32; red, green, blue and alpha as bytes; the angle it points as f32; its shape and its layer as bytes; two bytes unused); the header gives `png_bytes`, `glyphs` (count and each agents layer's blend and opacity) and `legend` (each layer's source, ramp with its colours, identities, entries). A view that draws a cell layer over an agents layer comes as one raster PNG instead. While a world runs a frame is sent every `every` ticks; paused, every tick it moves. `view.timeline` lists the ticks kept of what a subscription was shown, and `view.show` with a `tick` sends that kept frame again (`past: true`, with `live_tick`), with `null` back to live; the world is never rewound. `view.subscribe` with `pick: true` keeps an index of the agents each sent frame drew. Each frame header carries `frame`, `run`, the map's size, and `agents`: the selected creatures (`view.watch`) and every visible tracker's members, with their position in that same frame. `view.pick_frame` names the creatures under a point of a frame the subscription was sent; once the frame is no longer kept it answers `frame expired` (code `-32011`) rather than picking from the present.
 
 ## Edits and revisions
 

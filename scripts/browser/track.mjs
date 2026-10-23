@@ -16,13 +16,15 @@ export default async (page) => {
   await page.eval(`call("run.step", { world: ${W}, ticks: 20 })`);
   await page.wait(1500);
   ok(await j(`!!(track.frame && track.frame.pickable && track.frame.drawn_agents > 0)`), "frames carry a frame id and a pick index of the agents they drew");
-  // Zoom in so creatures are apart, then click one where the frame drew it.
+  // The legend folded (it sits over the picture's corner), then zoom in so creatures are apart, and click one where the frame drew it.
+  await page.eval(`legendOpen = false; document.getElementById("legendpanel").classList.add("closed")`);
   await page.eval(`(() => { const c = cams.picture, r = stage.getBoundingClientRect(); c.s = 6; c.x = r.width / 2 - 300 * 6; c.y = (r.height - chartsH) / 2 - 300 * 6; c.fit = false; applyCam(c); })()`);
   await page.wait(1200);
   const target = await j(`(async () => {
     const r = stage.getBoundingClientRect(), h = track.frame, k = h.map.w / h.map.world_w;
     const all = await call("entities.find", { world: ${W}, limit: 1000 });
-    for (const a of all.agents) { const s = toScreen({ px: a.x * k, py: a.y * k }); if (s.x > 60 && s.y > 60 && s.x < r.width - 60 && s.y < r.height - chartsH - 60) return { id: a.id, x: r.left + s.x, y: r.top + s.y }; }
+    // A Builder (it lives through the test; a Drifter of the dish may starve while it is followed).
+    for (const a of [...all.agents.filter(a => a.lineage === "Builder"), ...all.agents]) { const s = toScreen({ px: a.x * k, py: a.y * k }); if (s.x > 60 && s.y > 60 && s.x < r.width - 60 && s.y < r.height - chartsH - 60) return { id: a.id, x: r.left + s.x, y: r.top + s.y }; }
     return null;
   })()`);
   ok(target, `a creature on screen: #${target && target.id}`);
@@ -93,9 +95,7 @@ export default async (page) => {
   await page.eval(`activate("viewport")`);
   await page.wait(500);
   await page.eval(`followAgent(${JSON.stringify(target.id)})`);
-  await page.eval(`call("run.resume", { world: ${W} })`);
-  await page.wait(2500);
-  await page.eval(`call("run.pause", { world: ${W} })`);
+  for (let i = 0; i < 6; i++) { await page.eval(`call("run.step", { world: ${W}, ticks: 5 })`); await page.wait(400); }
   const fol = await j(`(() => { const a = track.frame.agents.find(x => x.id === ${JSON.stringify(target.id)}); if (!a) return null; const r = stage.getBoundingClientRect(), s = toScreen(a); return { x: s.x / r.width, y: s.y / (r.height - chartsH) }; })()`);
   ok(fol && fol.x > 0.25 && fol.x < 0.75 && fol.y > 0.25 && fol.y < 0.75, `the camera keeps the followed creature in the middle (${fol && fol.x.toFixed(2)}, ${fol && fol.y.toFixed(2)})`);
   ok(/Follow camera: #/.test(await page.eval(`document.getElementById("followbar").innerText`)), "the follow bar shows with its Stop");

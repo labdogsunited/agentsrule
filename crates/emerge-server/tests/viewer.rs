@@ -220,3 +220,54 @@ fn a_recording_of_a_world_that_dies_out_ends() {
     assert!(manifest["frames"].as_array().unwrap().len() < 1000);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The live viewer's vector frames (the user's list of 2026-10-23): the picture holds the cell layers only (no legend, no
+/// creatures), every creature the view draws comes as a 24-byte glyph after it, and the legend comes as data. The frames
+/// shown are kept to scrub back over (`view.timeline`, `view.show`) without rewinding the world, and a paused world sends a
+/// frame for every tick it moves.
+#[test]
+fn a_vector_frame_carries_glyphs_a_legend_and_a_timeline() {
+    use serde_json::json;
+    let (port, _) = start();
+    let (mut ws, _) = connect(format!("ws://127.0.0.1:{port}/")).unwrap();
+    let mut id = 0;
+    let mut call = |ws: &mut tungstenite::WebSocket<_>, method: &str, params: serde_json::Value| {
+        id += 1;
+        ws.send(Message::Text(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string().into())).unwrap();
+        loop {
+            if let Message::Text(t) = ws.read().unwrap() {
+                let v: serde_json::Value = serde_json::from_str(&t).unwrap();
+                assert!(v.get("error").is_none(), "{method}: {v}");
+                return v["result"].clone();
+            }
+        }
+    };
+    let source = DISH.replace("Grid(w: 256, h: 256)", "Grid(w: 48, h: 48)").replace("count: 2_000;", "count: 150;");
+    let w = call(&mut ws, "world.create", json!({"source": source, "lineages": ["Drifter", "Builder"], "seed": 4}))["world"].clone();
+    let sub = call(&mut ws, "view.subscribe", json!({"world": w, "views": VIEWS, "view": "Lineages", "every": 10, "cell": 4, "vector": true}))["subscription"].clone();
+    let (h, tail) = frame(&mut ws);
+    let png = h["png_bytes"].as_u64().unwrap() as usize;
+    let count = h["glyphs"]["count"].as_u64().unwrap() as usize;
+    assert_eq!(count, 300, "every creature as a glyph");
+    assert_eq!(tail.len(), png + count * 24, "the glyphs follow the picture, 24 bytes each");
+    assert_eq!((h["width"].as_u64(), h["map"]["w"].as_u64()), (Some(192), Some(192)), "the picture is the map alone: no legend in it");
+    assert_eq!(h["legend"]["layers"][1]["categories"][0]["name"], "Drifter");
+    assert!(h["legend"]["layers"][0]["ramp"]["colours"].as_array().unwrap().len() == 17);
+    let x = f32::from_le_bytes(tail[png..png + 4].try_into().unwrap());
+    assert!((0.0..=192.0).contains(&x), "a glyph's centre in picture pixels: {x}");
+    // Paused, each tick sends a frame (every 10 applies while it runs).
+    for t in 1..=3 {
+        call(&mut ws, "run.step", json!({"world": w, "ticks": 1}));
+        assert_eq!(frame(&mut ws).0["tick"], t);
+    }
+    // The timeline holds what was shown; showing tick 1 sends that frame again, the world stays at tick 3.
+    let tl = call(&mut ws, "view.timeline", json!({"subscription": sub}));
+    assert_eq!(tl["ticks"], json!([0, 1, 2, 3]));
+    call(&mut ws, "view.show", json!({"subscription": sub, "tick": 1}));
+    let (past, _) = frame(&mut ws);
+    assert_eq!((past["tick"].as_u64(), past["past"].as_bool(), past["live_tick"].as_u64()), (Some(1), Some(true), Some(3)));
+    call(&mut ws, "view.show", json!({"subscription": sub, "tick": null}));
+    call(&mut ws, "run.step", json!({"world": w, "ticks": 1}));
+    let (live, _) = frame(&mut ws);
+    assert_eq!((live["tick"].as_u64(), live["past"].as_bool()), (Some(4), Some(false)));
+}

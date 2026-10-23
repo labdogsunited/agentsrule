@@ -95,11 +95,39 @@ pub struct Shot {
 }
 
 pub fn shot(run: &Run, view: &View, cell_px: u32, charts: &[Charts], hits: bool) -> Result<Shot, String> {
-    let panels: Vec<emerge_view::chart::Panel> = charts.iter().map(|c| match c {
+    shot_of(run.frame(), view, cell_px, charts, hits)
+}
+
+fn panels(charts: &[Charts]) -> Vec<emerge_view::chart::Panel<'_>> {
+    charts.iter().map(|c| match c {
         Charts::Default => emerge_view::chart::Panel::Default,
         Charts::Block(b) => emerge_view::chart::Panel::Block(b),
-    }).collect();
-    let frame = run.frame();
+    }).collect()
+}
+
+/// A live frame drawn for the viewer: the cell layers as a PNG (charts under them, no legend), the creatures as vector
+/// glyphs the page draws itself (so they stay sharp at any zoom), and the legend as data. `None` for a view that draws a
+/// cell layer over an agents layer: the caller sends a raster `Shot` instead.
+pub struct VectorShot {
+    pub shot: Shot,
+    pub glyphs: Vec<emerge_view::render::Glyph>,
+    pub layers: Vec<(String, String, f32)>,
+    pub keys: Vec<emerge_view::render::LayerKey>,
+}
+
+pub fn vector_of(frame: emerge_view::Frame, view: &View, cell_px: u32, charts: &[Charts], hits: bool) -> Result<Option<VectorShot>, String> {
+    let Some(v) = emerge_view::render::render_vector(view, &frame, cell_px, &panels(charts)) else { return Ok(None) };
+    let png = v.picture.encode_png().map_err(|e| e.to_string())?;
+    let k = if cell_px > 0 { cell_px } else { (1024 / frame.grid_w.max(1) as u32).max(1) };
+    let map = MapInfo { w: frame.grid_w as u32 * k, h: frame.grid_h as u32 * k, grid_w: frame.grid_w, grid_h: frame.grid_h, world_w: frame.world_w, world_h: frame.world_h };
+    let hits = if hits { emerge_view::render::agent_hits(view, &frame, cell_px) } else { Vec::new() };
+    let (w, h) = (v.picture.width(), v.picture.height());
+    Ok(Some(VectorShot { shot: Shot { png, w, h, map, frame, hits }, glyphs: v.glyphs, layers: v.layers, keys: v.keys }))
+}
+
+/// `shot` of a frame already read (a live one, or one kept for the timeline).
+pub fn shot_of(frame: emerge_view::Frame, view: &View, cell_px: u32, charts: &[Charts], hits: bool) -> Result<Shot, String> {
+    let panels = panels(charts);
     let image = emerge_view::render_with(view, &frame, emerge_view::Options { cell_px, legend: true }, &panels);
     let png = image.encode_png().map_err(|e| e.to_string())?;
     // The renderer's rule: `cell_px` pixels a cell, or a size near 1024 pixels across.

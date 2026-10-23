@@ -46,6 +46,63 @@ struct Sub {
     /// The tracking revision of the last frame: a changed selection or tracker sends a fresh frame of the same tick,
     /// so a paused world's markers are not out of date.
     marks: Option<u64>,
+    /// Creatures as vector glyphs the page draws (`vector: true`), not drawn into the picture.
+    vector: bool,
+    /// A tick of the timeline the viewer scrubbed to (`view.show`): that kept frame is shown instead of the live one.
+    at: Option<u64>,
+    /// The kept tick last sent, so a scrubbed-to frame is sent once.
+    shown_at: Option<u64>,
+}
+
+/// The frames the viewer drew of one run, for scrubbing back over what it showed (the playbar): kept in memory, the
+/// newest at full density; past a byte budget every other frame of the older half goes, so the timeline covers the whole
+/// run at a coarser grain farther back. A kept frame is drawn again with any view; the world is never rewound.
+#[derive(Default)]
+pub struct Timeline {
+    frames: std::collections::VecDeque<(u64, Arc<emerge_view::Frame>)>,
+    bytes: usize,
+}
+
+/// The bytes a run's timeline keeps at most.
+const TIMELINE_BYTES: usize = 384 << 20;
+
+fn frame_bytes(f: &emerge_view::Frame) -> usize {
+    f.cells.len() * 4 + f.agents.len() * (64 + f.substances.len() * 4) + f.states.iter().map(|s| s.cells.len()).sum::<usize>() + 256
+}
+
+impl Timeline {
+    fn push(&mut self, f: &emerge_view::Frame) {
+        let mut f = f.clone();
+        f.history = None;
+        if self.frames.back().is_some_and(|(t, _)| *t == f.tick) {
+            if let Some((_, old)) = self.frames.pop_back() { self.bytes -= frame_bytes(&old); }
+        }
+        // A frame of an earlier tick (another run's history is never mixed in: the timeline is per run) replaces
+        // everything after it.
+        while self.frames.back().is_some_and(|(t, _)| *t > f.tick) {
+            if let Some((_, old)) = self.frames.pop_back() { self.bytes -= frame_bytes(&old); }
+        }
+        self.bytes += frame_bytes(&f);
+        self.frames.push_back((f.tick, Arc::new(f)));
+        while self.bytes > TIMELINE_BYTES && self.frames.len() > 2 {
+            let half = self.frames.len() / 2;
+            let old: Vec<_> = self.frames.drain(..half).collect();
+            let mut kept = std::collections::VecDeque::new();
+            for (i, x) in old.into_iter().enumerate() {
+                if i % 2 == 0 { kept.push_back(x); } else { self.bytes -= frame_bytes(&x.1); }
+            }
+            kept.extend(self.frames.drain(..));
+            self.frames = kept;
+            if self.frames.len() <= 2 { break; }
+        }
+    }
+    /// The kept frame at `tick`, or the last one before it.
+    fn at(&self, tick: u64) -> Option<Arc<emerge_view::Frame>> {
+        self.frames.iter().rev().find(|(t, _)| *t <= tick).or(self.frames.front()).map(|(_, f)| f.clone())
+    }
+    pub fn ticks(&self) -> Vec<u64> {
+        self.frames.iter().map(|(t, _)| *t).collect()
+    }
 }
 
 /// What a sent frame showed, for picking against the picture on screen: the run, the tick and revision, and
@@ -127,6 +184,7 @@ fn engine(calls: mpsc::Receiver<Call>, journal_dir: Option<std::path::PathBuf>, 
         engine = engine.with_state_dir(dir);
     }
     let (mut subs, mut next_sub) = (Vec::<Sub>::new(), 0u64);
+    let mut timelines: std::collections::HashMap<String, Timeline> = Default::default();
     let mut recs = Vec::<Recording>::new();
     loop {
         let next = if engine.busy() {
@@ -139,7 +197,7 @@ fn engine(calls: mpsc::Receiver<Call>, journal_dir: Option<std::path::PathBuf>, 
         match next {
             Ok((message, reply, conn)) => {
                 let answer = recording(&message, &engine, &mut recs, &mut next_sub, journal_dir.as_deref())
-                    .or_else(|| subscription(&message, &engine, &mut subs, &mut next_sub, conn))
+                    .or_else(|| subscription(&message, &engine, &mut subs, &mut next_sub, conn, &timelines))
                     .unwrap_or_else(|| engine.handle(&message));
                 let _ = reply.send(answer);
             }
@@ -157,7 +215,7 @@ fn engine(calls: mpsc::Receiver<Call>, journal_dir: Option<std::path::PathBuf>, 
             Err(false) => {}
         }
         advance(&engine, &mut recs);
-        push_frames(&engine, &mut subs);
+        push_frames(&engine, &mut subs, &mut timelines);
     }
 }
 
@@ -194,14 +252,30 @@ fn recording(message: &str, engine: &Engine, recs: &mut Vec<Recording>, next_id:
 }
 
 /// `view.subscribe` and `view.unsubscribe`, which need the connection; `None` for any other call.
-fn subscription(message: &str, engine: &Engine, subs: &mut Vec<Sub>, next_sub: &mut u64, conn: Arc<Conn>) -> Option<Option<String>> {
+fn subscription(message: &str, engine: &Engine, subs: &mut Vec<Sub>, next_sub: &mut u64, conn: Arc<Conn>, timelines: &std::collections::HashMap<String, Timeline>) -> Option<Option<String>> {
     let req: Value = serde_json::from_str(message).ok()?;
     let method = req["method"].as_str()?;
-    if !["view.subscribe", "view.unsubscribe", "view.watch", "view.pick_frame"].contains(&method) {
+    if !["view.subscribe", "view.unsubscribe", "view.watch", "view.pick_frame", "view.timeline", "view.show"].contains(&method) {
         return None;
     }
     let p = &req["params"];
-    let result = if method == "view.watch" {
+    let result = if method == "view.timeline" || method == "view.show" {
+        // The playbar: the ticks kept of what this viewer was shown, and scrubbing to one of them (`tick: null` is live).
+        (|| {
+            let id = p["subscription"].as_u64().ok_or("`subscription` must be a subscription id")?;
+            let s = subs.iter_mut().find(|s| s.id == id).ok_or("no such subscription")?;
+            let run = engine.run(&s.world).ok_or("the world is gone")?;
+            let tl = timelines.get(&run.run_id);
+            if method == "view.show" {
+                s.at = p["tick"].as_u64();
+                s.shown_at = None;
+                s.marks = None;
+                return Ok(json!({"subscription": id, "at": s.at, "live_tick": run.tick()}));
+            }
+            Ok(json!({"subscription": id, "ticks": tl.map(Timeline::ticks).unwrap_or_default(), "live_tick": run.tick(), "bytes": tl.map_or(0, |t| t.bytes), "budget": TIMELINE_BYTES,
+                "meaning": "the frames this viewer was shown, kept to scrub back over; ticks between them were not kept, and the world itself is never rewound"}))
+        })()
+    } else if method == "view.watch" {
         // The creatures this viewer has selected: their place comes with every frame, from that frame.
         (|| {
             let id = p["subscription"].as_u64().ok_or("`subscription` must be a subscription id")?;
@@ -231,7 +305,7 @@ fn subscription(message: &str, engine: &Engine, subs: &mut Vec<Sub>, next_sub: &
             let fps = num("max_fps", 10).clamp(1, 60);
             let watch = if p["watch"].is_null() { vec![] } else { crate::track::parse_ids(&p["watch"])? };
             subs.push(Sub { id: *next_sub, conn, world: world.to_string(), view, charts, every: num("every", 1).max(1), min_gap: Duration::from_secs_f64(1.0 / fps as f64), cell: num("cell", 0) as u32, last_tick: None, last_sent: Instant::now(),
-                pick: p["pick"].as_bool().unwrap_or(false), watch, kept: Default::default(), marks: None });
+                pick: p["pick"].as_bool().unwrap_or(false), watch, kept: Default::default(), marks: None, vector: p["vector"].as_bool().unwrap_or(false), at: p["at"].as_u64(), shown_at: None });
             Ok(json!({"subscription": *next_sub, "run": run.run_id}))
         })()
     };
@@ -247,15 +321,48 @@ fn subscription(message: &str, engine: &Engine, subs: &mut Vec<Sub>, next_sub: &
 /// the last one (the first is sent at once), the viewer has sent the last, and `max_fps` allows it.
 /// A frame is a binary message: the length of a JSON header (4 bytes, little-endian), the header,
 /// then the PNG.
-fn push_frames(engine: &Engine, subs: &mut Vec<Sub>) {
+fn push_frames(engine: &Engine, subs: &mut Vec<Sub>, timelines: &mut std::collections::HashMap<String, Timeline>) {
+    timelines.retain(|run, _| subs.iter().any(|s| engine.run(&s.world).is_some_and(|r| r.run_id == *run)));
     subs.retain_mut(|s| {
         let Some(run) = engine.run(&s.world) else { return false };
         let marks_moved = s.last_tick.is_some() && s.marks != Some(run.track.revision);
-        let due = (s.last_tick.is_none_or(|t| run.tick() >= t + s.every) || marks_moved) && s.conn.ready.load(Ordering::Acquire) && (s.last_tick.is_none() || s.last_sent.elapsed() >= s.min_gap);
+        let ready = s.conn.ready.load(Ordering::Acquire) && (s.last_tick.is_none() || s.last_sent.elapsed() >= s.min_gap);
+        // Scrubbed back: the kept frame of that tick, sent once (again if the marks changed).
+        let past = match s.at {
+            Some(t) if ready && (s.shown_at != Some(t) || marks_moved) => timelines.get(&run.run_id).and_then(|tl| tl.at(t)),
+            Some(_) => return true,
+            None => None,
+        };
+        // While the world runs, a frame every `every` ticks; paused (stepping), every tick it moved.
+        let every = if engine.running(&s.world) { s.every } else { 1 };
+        let due = past.is_some() || ((s.last_tick.is_none_or(|t| run.tick() >= t + every) || marks_moved) && ready);
         if !due {
             return true;
         }
-        let Ok(shot) = crate::picture::shot(run, &s.view, s.cell, &s.charts, s.pick) else { return false };
+        let frame = match &past {
+            Some(f) => {
+                // A kept frame drawn again: its charts end at its own tick.
+                let mut f = (**f).clone();
+                let mut h = run.history.clone();
+                h.samples.retain(|x| x.tick <= f.tick);
+                f.history = Some(h);
+                f
+            }
+            None => {
+                let f = run.frame();
+                timelines.entry(run.run_id.clone()).or_default().push(&f);
+                f
+            }
+        };
+        let (shot, vector) = if s.vector {
+            match crate::picture::vector_of(frame.clone(), &s.view, s.cell, &s.charts, s.pick) {
+                Ok(Some(v)) => (v.shot, Some((v.glyphs, v.layers, v.keys))),
+                Ok(None) => match crate::picture::shot_of(frame, &s.view, s.cell, &s.charts, s.pick) { Ok(x) => (x, None), Err(_) => return false },
+                Err(_) => return false,
+            }
+        } else {
+            match crate::picture::shot_of(frame, &s.view, s.cell, &s.charts, s.pick) { Ok(x) => (x, None), Err(_) => return false }
+        };
         let (map, f) = (shot.map, &shot.frame);
         let frame_id = NEXT_FRAME.fetch_add(1, Ordering::Relaxed);
         // Overlays from this same frame: the viewer's selection and every visible tracker's members.
@@ -280,10 +387,25 @@ fn push_frames(engine: &Engine, subs: &mut Vec<Sub>) {
                 }
             }
         }
-        let header = json!({"subscription": s.id, "world": s.world, "run": run.run_id, "frame": frame_id, "view": s.view.name, "tick": f.tick, "revision": f.revision, "width": shot.w, "height": shot.h, "format": "png",
+        let mut header = json!({"subscription": s.id, "world": s.world, "run": run.run_id, "frame": frame_id, "view": s.view.name, "tick": f.tick, "revision": f.revision, "width": shot.w, "height": shot.h, "format": "png",
             "map": {"w": map.w, "h": map.h, "grid_w": map.grid_w, "grid_h": map.grid_h, "world_w": map.world_w, "world_h": map.world_h, "wrap": f.wrap},
             "tracking_revision": run.track.revision, "agents": overlay, "absent": absent, "agents_truncated": want.len().saturating_sub(overlay.len() + absent.len()),
-            "pickable": s.pick, "drawn_agents": shot.hits.len()}).to_string();
+            "pickable": s.pick, "drawn_agents": shot.hits.len(), "past": past.is_some(), "live_tick": run.tick(), "png_bytes": shot.png.len()});
+        let mut glyph_bytes = Vec::new();
+        if let Some((glyphs, layers, keys)) = &vector {
+            // 24 bytes a creature: x, y, size (f32, picture pixels), r, g, b, alpha (u8), the angle it points (f32, radians),
+            // its shape (0 dot, 1 arrow), its layer, two bytes unused.
+            glyph_bytes.reserve(glyphs.len() * 24);
+            for g in glyphs {
+                for v in [g.x, g.y, g.size] { glyph_bytes.extend_from_slice(&v.to_le_bytes()); }
+                glyph_bytes.extend_from_slice(&[g.cd[0], g.cd[1], g.cd[2], (g.alpha.clamp(0.0, 1.0) * 255.0).round() as u8]);
+                glyph_bytes.extend_from_slice(&g.n[1].atan2(g.n[0]).to_le_bytes());
+                glyph_bytes.extend_from_slice(&[u8::from(g.shape == emerge_view::render::Shape::Arrow), g.layer, 0, 0]);
+            }
+            header["glyphs"] = json!({"count": glyphs.len(), "stride": 24, "layers": layers.iter().map(|(n, b, o)| json!({"name": n, "blend": b, "opacity": o})).collect::<Vec<_>>()});
+            header["legend"] = legend_json(&s.view, f, keys);
+        }
+        let header = header.to_string();
         if s.pick {
             let agents = shot.hits.iter().map(|h| { let a = &f.agents[h.agent]; (a.id, h.px, h.r, a.pos, f.lineages.get(a.lineage).cloned().unwrap_or_default()) }).collect();
             s.kept.push_back(Kept { frame: frame_id, tick: f.tick, revision: f.revision, run: run.run_id.clone(), map, wrap: f.wrap, agents });
@@ -293,9 +415,15 @@ fn push_frames(engine: &Engine, subs: &mut Vec<Sub>) {
         let mut frame = (header.len() as u32).to_le_bytes().to_vec();
         frame.extend_from_slice(header.as_bytes());
         frame.extend_from_slice(&png);
+        frame.extend_from_slice(&glyph_bytes);
         s.conn.ready.store(false, Ordering::Release);
         s.marks = Some(run.track.revision);
-        (s.last_tick, s.last_sent) = (Some(run.tick()), Instant::now());
+        if past.is_some() {
+            s.shown_at = s.at;
+            s.last_sent = Instant::now();
+        } else {
+            (s.last_tick, s.last_sent) = (Some(run.tick()), Instant::now());
+        }
         s.conn.push.send(frame).is_ok() // a closed connection ends its subscriptions
     });
     // All kept pick indexes within the byte budget: the oldest frames go first.
@@ -308,6 +436,20 @@ fn push_frames(engine: &Engine, subs: &mut Vec<Sub>) {
 }
 
 static NEXT_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// What the page needs to draw a legend beside the picture: for each layer what it shows, its colour ramp with its range
+/// and scale (and the colours along it), the identities and their colours, the entries quoted from the view, and what is
+/// not computed yet.
+fn legend_json(view: &View, f: &emerge_view::Frame, keys: &[emerge_view::render::LayerKey]) -> Value {
+    json!({"view": view.name, "world": view.world, "tick": f.tick, "revision": f.revision, "agents": f.agents.len(), "grid": [f.grid_w, f.grid_h], "wrap": f.wrap,
+        "layers": keys.iter().map(|k| json!({
+            "name": k.name, "source": k.source, "kind": if k.source.starts_with("agents") { "agents" } else { "cells" },
+            "ramp": k.ramp.as_ref().map(|(p, lo, hi, log)| json!({"palette": p, "lo": lo, "hi": hi, "log": log, "colours": (0..17).map(|i| emerge_view::palette::sample(p, i as f64 / 16.0)).collect::<Vec<_>>()})),
+            "categories": k.categories.iter().map(|(n, c)| json!({"name": n, "rgb": c})).collect::<Vec<_>>(),
+            "entries": k.entries, "unavailable": k.unavailable, "empty": k.empty, "count": k.count,
+        })).collect::<Vec<_>>(),
+        "empty_rgb": emerge_view::palette::EMPTY, "unavailable_rgb": emerge_view::palette::UNAVAILABLE})
+}
 
 /// `view.pick_frame`: the creatures under a point of a frame this subscription was sent, from what that frame drew
 /// (never the world as it is now). `x`, `y` are picture pixels of the map; `tolerance` is the smallest hit radius in

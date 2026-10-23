@@ -9,9 +9,10 @@ export default async (page) => {
   await page.eval(`call("run.step", { world: document.getElementById("world").value, ticks: 40 })`);
   await page.eval(`loadDesktop("Science")`);
   await page.wait(1500);
+  await page.eval(`[...document.querySelectorAll("#rulesbody .lens-chip")].find(c => /sunlight/.test(c.textContent)).click()`);
   const txt = await page.eval(`document.getElementById("rulesbody").innerText`);
-  ok(/Field signals|Transfers/.test(txt) && /rule sunlight on cells/.test(txt) && /when tick < 300/.test(txt), "Rule Lens lists the sunlight rule with its condition under Transfers");
-  ok(/checked schedule of revision 0/.test(await page.eval(`document.getElementById("rulesnote").innerText`)), "revision shown");
+  ok(/Transfers/.test(txt) && /sunlight\s*on cells/.test(txt) && /when tick < 300/.test(txt), "Rule Lens lists the sunlight rule with its condition under Transfers");
+  ok(/revision 0/.test(await page.eval(`document.getElementById("rulesnote").innerText`)), "revision shown");
   const ln = await page.eval(`document.getElementById("lineagenote").innerText + " | " + document.querySelectorAll("#lineagebody polyline").length`);
   ok(/samples of living creatures/.test(ln) && /\| 1$/.test(ln), "lineage history drawn with one line and its sampling label: " + ln);
   await page.shot(S + "science.png");
