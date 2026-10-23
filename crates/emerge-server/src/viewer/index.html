@@ -146,6 +146,10 @@
   .box.ghost { opacity: 0.6; border-style: dashed; }
   .nwhen { position: absolute; border: 1px dashed #8b93a1; border-radius: 8px; background: rgba(139,147,161,0.06); pointer-events: none; }
   .nwhen span { position: absolute; left: 8px; top: -9px; padding: 0 6px; background: var(--bg, #15181d); font: 10px ui-monospace, monospace; color: var(--muted); max-width: 90%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #picked .batch { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
+  #picked .batch h4 { margin: 0 0 6px; font-size: 12px; }
+  #picked .namer { display: flex; gap: 6px; margin: 6px 0; }
+  #picked .namer input { flex: 1; }
   .box.okdrop { border-color: #6fcf97; box-shadow: 0 0 0 1px #6fcf97; }
   .box.nodrop { border-color: #d96666; box-shadow: 0 0 0 1px #d96666; }
   #wirehint { position: absolute; z-index: 20; max-width: 320px; padding: 4px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font-size: 11px; pointer-events: none; display: none; }
@@ -413,7 +417,7 @@
     
 
       </div></div>
-  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><span id="netcrumbs" title="Where you are in the network. Enter (or double-click a statement) goes into its rule; U goes up."></span><select id="netctx" title="Go to a network"></select><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
+  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><span id="netcrumbs" title="Where you are in the network. Enter (or double-click a statement) goes into its rule; U goes up."></span><select id="netctx" title="Go to a network"></select><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button><button id="netdup" title="Duplicate the selected statements (Ctrl+D). Ctrl+C and Ctrl+V do the same from a copy.">Duplicate</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label><label><input type="radio" name="rmode" value="trace"> trace</label></div><div id="rulesbody"></div></main></div>
@@ -607,6 +611,7 @@ function bindStage(view) {
       if (multi.has(id)) multi.delete(id); else multi.add(id);
       if (!multi.has(selected)) selected = multi.size ? [...multi][multi.size - 1] : null;
       markSel();
+      renderParm();
       return;
     } else if (box && multi.size > 1 && multi.has(box.dataset.id)) {
       // A selected box drags every selected box with it.
@@ -1323,6 +1328,7 @@ function clearWirePreview() {
   if (h) h.style.display = "none";
 }
 async function previewWire(e, from) {
+  wirePointer = { x: e.clientX, y: e.clientY };
   const t = document.elementFromPoint(e.clientX, e.clientY), box = t && t.closest(".box");
   const to = box && box.dataset.id !== from ? box.dataset.id : null;
   let h = $("wirehint");
@@ -1437,6 +1443,93 @@ function savePosition(id) {
 }
 for (const b of document.querySelectorAll("#palette button[data-kind]")) b.onclick = () => graphOp({ op: "add_rule", kind: b.dataset.kind });
 
+// ---- Editing commands (`proposals/houdini-node-system.md` §5, H3): duplicate, copy and paste, naming a statement and one
+// edit for several statements. Each is one server operation, so one revision and one undo, and a refusal gives its reason.
+const dupable = (id) => { const n = graphData && graphData.nodes.find((x) => x.id === id); return n && n.contract && n.contract.can.duplicate ? n : null; };
+function dupReason(ids) {
+  for (const id of ids) { const n = graphData.nodes.find((x) => x.id === id); const r = n && n.contract && n.contract.why_not && n.contract.why_not.duplicate; if (r) return `${n.title}: ${r}`; }
+  return "Select statements first (click one, or Shift-click several).";
+}
+async function duplicateIds(ids) {
+  const ok = [...ids].filter(dupable);
+  if (!ok.length) return oops(dupReason(ids));
+  oops();
+  const r = await graphOp({ op: "duplicate", ids: ok });
+  if (r) $("netfound").textContent = `${ok.length} duplicated`;
+  return r;
+}
+let netClip = null;
+function copySelection() {
+  const ids = [...(multi.size ? multi : selected ? [selected] : [])].filter(dupable);
+  if (!ids.length) return oops(dupReason(multi.size ? multi : selected ? [selected] : []));
+  oops();
+  netClip = { world: $("world").value, ids };
+  $("netfound").textContent = `${ids.length} copied`;
+}
+async function pasteClip() {
+  if (!netClip) return oops("Nothing copied: select statements and press Ctrl+C.");
+  if (netClip.world !== $("world").value) return oops(`These statements were copied in ${netClip.world}; paste works inside the same world.`);
+  return duplicateIds(netClip.ids);
+}
+$("netdup").onclick = () => duplicateIds(multi.size ? multi : selected ? [selected] : []);
+window.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || typing() || !isShown("graph") || mode !== "graph") return;
+  const k = e.key.toLowerCase();
+  if (k === "d") { e.preventDefault(); e.stopImmediatePropagation(); duplicateIds(multi.size ? multi : selected ? [selected] : []); }
+  else if (k === "c") { e.preventDefault(); copySelection(); }
+  else if (k === "v") { e.preventDefault(); pasteClip(); }
+}, true);
+// Several statements selected: the parameters they share, edited once for all of them in one batch.
+function renderBatch() {
+  const picked = $("picked"), nodes = [...multi].map((id) => graphData.nodes.find((x) => x.id === id)).filter((n) => n && n.contract && n.contract.can.set_param && n.params && n.params.length);
+  const box = document.createElement("div");
+  box.className = "batch";
+  const h = document.createElement("h4");
+  h.textContent = `${multi.size} selected`;
+  box.append(h);
+  const names = nodes.length ? nodes[0].params.map((p) => p[0]).filter((k) => nodes.every((n) => n.params.some((p) => p[0] === k))) : [];
+  if (nodes.length < 2 || !names.length) {
+    box.append(document.createTextNode(nodes.length < 2 ? "Fewer than two of these have parameters to edit together." : "These statements share no parameter."));
+    picked.append(box);
+    return;
+  }
+  const grid = document.createElement("div");
+  grid.className = "params";
+  for (const name of names) {
+    const vals = nodes.map((n) => n.params.find((p) => p[0] === name)[1]), same = vals.every((v) => v === vals[0]);
+    const l = document.createElement("label"), inp = document.createElement("input");
+    l.textContent = name;
+    inp.value = same ? vals[0] : "";
+    inp.placeholder = same ? "" : "(differs)";
+    inp.spellcheck = false;
+    inp.dataset.param = name;
+    inp.onchange = async () => {
+      if (inp.value === "" || (same && inp.value === vals[0])) return;
+      oops();
+      await graphOp({ op: "batch", ops: nodes.map((n) => ({ op: "set_param", id: n.id, param: name, value: inp.value })) });
+    };
+    grid.append(l, inp);
+  }
+  box.append(grid);
+  const note = document.createElement("small");
+  note.textContent = `One edit for ${nodes.length} statements: one revision, one undo. A value one of them refuses leaves all of them as they were.`;
+  box.append(note);
+  picked.append(box);
+}
+// Name an unlabelled statement, so a name keeps it in place whatever is inserted before it.
+function namerRow(n) {
+  const row = document.createElement("div"), inp = document.createElement("input"), b = document.createElement("button");
+  row.className = "namer";
+  inp.placeholder = "name this statement (label)";
+  inp.spellcheck = false;
+  inp.dataset.role = "label";
+  b.textContent = "Name";
+  b.onclick = async () => { if (inp.value.trim()) await graphOp({ op: "label", id: n.id, label: inp.value.trim() }); };
+  inp.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") b.click(); };
+  row.append(inp, b);
+  return row;
+}
+
 // Tab: a menu to add a node at the pointer (Houdini's Tab menu). Type to filter, arrows and Enter (or a
 // click) create it; Escape sends nothing. A new box is placed where the menu was opened.
 const TAB_NODES = [
@@ -1448,8 +1541,39 @@ const TAB_NODES = [
 let netPointer = null, tabSel = 0, tabAt = null;
 stages.graph.addEventListener("pointermove", (e) => { netPointer = { x: e.clientX, y: e.clientY, t: performance.now() }; });
 stages.graph.addEventListener("pointerleave", () => { netPointer = null; });
+// Tab while pulling a wire makes a new statement already connected: from a source, a transfer of one of its substances
+// into the field under the pointer; from a reaction, a react. `tabMode` holds what the menu then offers.
+let tabMode = null, wirePointer = null;
+function openConnectMenu(from) {
+  const g = graphData, n = g.nodes.find((x) => x.id === from);
+  const over = wirePointer && document.elementFromPoint(wirePointer.x, wirePointer.y), hov = over && over.closest(".box");
+  const isField = (x) => x && /\.fields\./.test(x.id) && /holds/.test(x.text);
+  const target = g.nodes.find((x) => hov && x.id === hov.dataset.id && isField(x)) || g.nodes.find(isField);
+  const items = [];
+  if (n && /\.sources\./.test(n.id)) {
+    const m = /\[([^\]]*)\]/.exec(n.text);
+    const holds = target ? [...(/holds\s*\[([^\]]*)\]/.exec(target.text.replace(/\s+/g, " ")) || [, ""])[1].matchAll(/(\w+)\s*:/g)].map((x) => x[1]) : [];
+    const emits = m ? m[1].split(",").map((x) => x.trim()).filter(Boolean) : [];
+    if (target && emits.length && !emits.some((x) => holds.includes(x))) { if (drag && drag.wire) { clearWirePreview(); if (drag.port) drag.port.classList.remove("hot"); const t = $("tempwire"); if (t) t.remove(); drag = null; stages.graph.classList.remove("dragging"); } return oops(`${n.title} emits ${emits.join(", ")}, and ${target.title} holds none of them (it holds ${holds.join(", ")}), so a transfer between them cannot run.`); }
+    for (const sub of emits.filter((x) => !target || holds.includes(x))) items.push([JSON.stringify({ kind: "transfer", substance: sub }), `transfer ${sub}`, `from ${n.title} into ${target ? target.title : "the field"}`]);
+  } else if (n && n.kind === "reaction") items.push([JSON.stringify({ kind: "react" }), `react ${n.title}`, `run ${n.title} in every cell of ${target ? target.title : "the field"}`]);
+  if (drag && drag.wire) { clearWirePreview(); if (drag.port) drag.port.classList.remove("hot"); const t = $("tempwire"); if (t) t.remove(); drag = null; stages.graph.classList.remove("dragging"); }
+  if (!items.length || !target) return oops(!target ? "The world has no field that holds substances for a new statement to work on." : "Tab while connecting makes a new statement from a source (a transfer) or from a reaction (a react): pull the wire from one of those.");
+  oops();
+  openTabMenu();
+  tabMode = { from, to: target.id, items };
+  $("tabq").placeholder = "Create connected: type to filter, Enter to create";
+  drawTabList();
+}
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab" || !drag || !drag.wire) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  openConnectMenu(drag.wire);
+}, true);
 function tabItems() {
   const q = $("tabq").value.trim().toLowerCase();
+  if (tabMode) return tabMode.items.filter(([k, name, d]) => !q || name.toLowerCase().includes(q) || d.toLowerCase().includes(q));
   return TAB_NODES.filter(([k, name, d]) => !q || name.includes(q) || d.includes(q) || k.startsWith(q));
 }
 function drawTabList() {
@@ -1465,7 +1589,7 @@ function drawTabList() {
   });
   if (!items.length) $("tablist").textContent = "Nothing matches.";
 }
-function closeTabMenu() { $("tabmenu").style.display = "none"; tabAt = null; }
+function closeTabMenu() { $("tabmenu").style.display = "none"; tabAt = null; tabMode = null; $("tabq").placeholder = "Add a node: type to filter, Enter to create"; }
 function openTabMenu() {
   const r = stages.graph.getBoundingClientRect(), at = netPointer || { x: r.left + 80, y: r.top + 60 };
   const cam = cams.graph;
@@ -1480,9 +1604,9 @@ function openTabMenu() {
   $("tabq").focus();
 }
 async function createFromTab(kind) {
-  const at = tabAt;
+  const at = tabAt, mode = tabMode;
   closeTabMenu();
-  const r = await graphOp({ op: "add_rule", kind });
+  const r = mode ? await (() => { const k = JSON.parse(kind); return graphOp({ op: "add_connected", kind: k.kind, from: mode.from, to: mode.to, substance: k.substance }); })() : await graphOp({ op: "add_rule", kind });
   if (!r || !r.selected || !at) return;
   const p = placed.get(r.selected), box = [...$("graph").querySelectorAll(".box")].find((b) => b.dataset.id === r.selected);
   if (!p || !box) return;
@@ -1641,6 +1765,7 @@ function renderParm() {
     picked.append(document.createElement("br"), b);
     return;
   }
+  if (!pinned && multi.size > 1) return renderBatch();
   const n = parmNode(t);
   const d = drafts.get(dkey(t.world, t.id));
   if (!n) {
@@ -1672,6 +1797,7 @@ function renderParm() {
     return noteFor(t);
   }
   if (n.params && n.params.length) picked.append(paramsGrid(n, !!d && d.state !== "pending" ? true : !!d));
+  if (n.contract && n.contract.can.label && !/@/.test(n.id)) picked.append(namerRow(n));
   picked.append(draftBlock(n, d));
   noteFor(t);
 }
