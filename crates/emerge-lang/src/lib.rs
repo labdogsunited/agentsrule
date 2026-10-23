@@ -12,6 +12,7 @@ pub mod expand;
 pub mod fmt;
 pub mod graph;
 pub mod lexer;
+pub mod look;
 pub mod order;
 pub mod schedule;
 pub mod unroll;

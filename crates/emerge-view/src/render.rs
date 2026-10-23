@@ -612,6 +612,58 @@ fn agents_layer_at(layer: &Layer, frame: &Frame) -> (Vec<(usize, [f32; 2], Attri
     (out, key)
 }
 
+/// The smallest and largest number `e` gives over what `layer` draws in `frame` (the cells of its field, or the agents its
+/// source passes), for a picture of an intermediate value of the Look network (`emerge_lang::look::derived`): it is mapped
+/// over this range, which the picture then names. `None` if it gives no number there.
+pub fn value_range(layer: &Layer, e: &Expr, frame: &Frame) -> Option<(f64, f64)> {
+    let mut key = LayerKey::default();
+    let mut lo_hi: Option<(f64, f64)> = None;
+    let mut see = |v: Val| {
+        let x = match v {
+            Val::Num(x) => x,
+            Val::Int(i) => i as f64,
+            Val::Amount(a) => a as f64 / 1000.0,
+            Val::Scaled(Some(t)) => t,
+            _ => return,
+        };
+        if x.is_finite() {
+            lo_hi = Some(lo_hi.map_or((x, x), |(a, b)| (a.min(x), b.max(x))));
+        }
+    };
+    if crate::render::is_agents(layer) {
+        let filter = named(&layer.source, "where");
+        for a in &frame.agents {
+            let cx = Ctx { frame, cell: 0, substance: None, state: None, value: None, agent: Some(a), locals: None };
+            if filter.is_some_and(|f| eval(f, &cx, &mut key) != Val::Bool(true)) {
+                continue;
+            }
+            see(eval(e, &cx, &mut key));
+        }
+    } else {
+        let state = match positional(&layer.source).first() {
+            Some(Expr::Path(p)) if p.segs.is_empty() => frame.states.iter().position(|s| s.name == p.root),
+            _ => None,
+        };
+        let substance = match positional(&layer.source).first() {
+            Some(Expr::Path(p)) if state.is_none() => match p.segs.as_slice() {
+                [Seg::Field(s)] => frame.substance(s),
+                _ => None,
+            },
+            _ => None,
+        };
+        for cell in 0..frame.grid_w * frame.grid_h {
+            let cx = Ctx { frame, cell, substance, state, value: None, agent: None, locals: None };
+            see(eval(e, &cx, &mut key));
+        }
+    }
+    lo_hi
+}
+
+/// Whether a layer draws agents (`agents(…)` or `context(agents)`) rather than cells.
+pub fn is_agents(layer: &Layer) -> bool {
+    layer.source.name == "agents" || (layer.source.name == "context" && matches!(positional(&layer.source).first(), Some(Expr::Path(p)) if p.root == "agents"))
+}
+
 /// Renders `view` of `frame`. The picture is the grid at `cell_px` pixels per cell, with the
 /// legend to its right.
 pub fn render(view: &View, frame: &Frame, opt: Options) -> Pixmap {

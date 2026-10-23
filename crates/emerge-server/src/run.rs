@@ -102,6 +102,8 @@ struct Trace {
     /// Only requests with one of these creatures at either end (a tracker's recording on the CPU; the device keeps every
     /// creature's requests and they are filtered when read).
     ids: Option<std::collections::HashSet<u64>>,
+    /// Only requests with one of these cells (by index) at either end: the Inspector's trace of a selected cell. CPU only.
+    cells: Option<std::collections::HashSet<usize>>,
 }
 
 /// The start of a budget window: tick, revision, and each lineage's creature count and stock of the
@@ -892,6 +894,10 @@ impl Run {
             if let Some(ids) = &t.ids {
                 if !(m.origin_id.is_some_and(|i| ids.contains(&i)) || m.dest_id.is_some_and(|i| ids.contains(&i))) { continue; }
             }
+            if let Some(cells) = &t.cells {
+                let at = |e: &emerge_ref::world::End| matches!(e, emerge_ref::world::End::Cell(c) if cells.contains(&(*c as usize)));
+                if !(at(&x.origin) || at(&x.dest)) { continue; }
+            }
             t.seen += 1;
             if t.records.len() >= t.cap { t.dropped += 1; continue; }
             t.records.push(TraceRec { tick, law: m.law, origin: end(&x.origin, m.origin_id), dest: end(&x.dest, m.dest_id), steal: m.steal, substance: x.s, requested: x.requested, delivered: x.delivered, overflowed: x.overflowed });
@@ -918,8 +924,19 @@ impl Run {
             if cap > emerge_gpu::pack::TRACE_CAP { return Err(format!("the GPU keeps at most {} records", emerge_gpu::pack::TRACE_CAP)); }
             r.trace_start(cap, laws.as_deref(), creatures)?;
         }
-        self.trace = Some(Trace { from, until: from + ticks, cap, laws, creatures, records: vec![], seen: 0, dropped: 0, last_tick: from, owner: owner.to_string(), ids: None });
+        self.trace = Some(Trace { from, until: from + ticks, cap, laws, creatures, records: vec![], seen: 0, dropped: 0, last_tick: from, owner: owner.to_string(), ids: None, cells: None });
         Ok(json!({"from_tick": from, "until_tick": from + ticks, "cap": cap, "owner": owner}))
+    }
+
+    /// Keeps only requests with one of `cells` at either end in the recording just started (the Inspector's trace of a
+    /// selected cell). The CPU runner filters as it records; the device does not, so a GPU run refuses it.
+    pub fn trace_cells(&mut self, cells: std::collections::HashSet<usize>) -> Result<(), String> {
+        if matches!(self.backend, Backend::Gpu(_)) {
+            return Err("the device keeps records of every cell up to its cap and cannot keep one cell's: trace a statement instead".into());
+        }
+        let t = self.trace.as_mut().ok_or("no recording")?;
+        t.cells = Some(cells);
+        Ok(())
     }
 
     /// A tracker's claim on the transfer recording: an open one that keeps creatures' actions is shared (its owner

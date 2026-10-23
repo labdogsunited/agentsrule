@@ -69,6 +69,16 @@ struct Entry {
     /// The world's declared name (`world Dish`): its network's organisation is kept under it in the state directory, so
     /// it comes back when the same world is created again after a restart.
     name: String,
+    /// The world's view document (`proposals/houdini-node-system.md` H5): `.em` text of `view` items, edited by the Look
+    /// network, checked against the world on every change (a refused change keeps the last valid one). Kept by the world's
+    /// name in the state directory as `views/<name>.em`, a file the CLI renderer reads too (`render --views`). Presentation:
+    /// its own revision and undo, never the world's.
+    views: Option<String>,
+    views_rev: u64,
+    views_undo: Vec<Option<String>>,
+    views_redo: Vec<Option<String>>,
+    /// The Look network's display flag: the node of a view the viewport shows instead of the whole view.
+    display: Option<(String, String)>,
     /// The graph edits made, newest last, and the ones undone (`world.undo`, `world.redo`).
     undo: Vec<Step>,
     redo: Vec<Step>,
@@ -116,6 +126,51 @@ pub struct Engine {
 /// The organisation of a network kept across restarts: `<state>/layouts/<world name>.json`.
 fn layout_path(state: &std::path::Path, name: &str) -> std::path::PathBuf {
     state.join("layouts").join(format!("{name}.json"))
+}
+
+/// A world's view document kept across restarts: `<state>/views/<world name>.em`.
+fn views_path(state: &std::path::Path, name: &str) -> std::path::PathBuf {
+    state.join("views").join(format!("{name}.em"))
+}
+
+/// The world's source with a view document after it, parsed: what a view of the document is checked and drawn against.
+fn with_views(source: &str, doc: &str) -> Result<emerge_lang::ast::File, String> {
+    let mut file = emerge_lang::parse(source).map_err(|d| d.message)?;
+    if !doc.trim().is_empty() {
+        let more = emerge_lang::parse(doc).map_err(|d| format!("views:{}:{}: {} {}", d.line, d.col, d.code, d.message))?;
+        if let Some(i) = more.items.iter().find(|i| !matches!(i.node, emerge_lang::ast::Item::View(_) | emerge_lang::ast::Item::Chart(_))) {
+            return Err(format!("views:{}: a view document holds `view` and `chart` items only", i.pos.line));
+        }
+        file.items.extend(more.items);
+    }
+    Ok(file)
+}
+
+/// Whether a view document is valid for the world: it parses, holds views and charts only, and every view checks.
+fn check_views(source: &str, doc: &str) -> Result<(), String> {
+    let file = with_views(source, doc)?;
+    let (errors, _) = emerge_lang::view::check(&file);
+    match errors.first() {
+        Some(e) => Err(format!("{}: {} {}", e.path, e.code, e.message)),
+        None => Ok(()),
+    }
+}
+
+/// Bytes as base64 (a preview's PNG in a JSON answer).
+fn base64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        for k in 0..4 {
+            if k <= c.len() {
+                out.push(T[((n >> (18 - 6 * k)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
 }
 
 /// The longest one `run.step` call runs, so that a client waiting on it does not time out.
@@ -167,6 +222,27 @@ fn graph_op(v: &Value) -> Result<(emerge_lang::graph::Op, String), Fault> {
             (Op::Batch { ops }, format!("{n} edits together"))
         }
         _ => return Err(bad("`op.op` must be set_param, wire, delete, add_rule, add_connected, duplicate, label, unwire, paste, insert, add_inside, condition or batch")),
+    })
+}
+
+/// An edit of a view as the API takes it (`emerge_lang::look::LookOp`): `{"op": "set_stage", "layer", "entry", "index", "text"}`,
+/// `insert_stage` (`after`), `remove_stage`, `set_entry` (`key`, `text` or null to remove), `set_body`, `set_source`,
+/// `add_layer` (`name`, `source`, `color`), `remove_layer`, `move_layer` (`up`).
+fn look_op(v: &Value) -> Result<emerge_lang::look::LookOp, Fault> {
+    use emerge_lang::look::LookOp;
+    let get = |k: &str| v[k].as_str().map(str::to_string).ok_or_else(|| bad(format!("`op.{k}` must be a string")));
+    let n = |k: &str| v[k].as_u64().map(|x| x as usize).ok_or_else(|| bad(format!("`op.{k}` must be a whole number")));
+    Ok(match v["op"].as_str() {
+        Some("set_stage") => LookOp::SetStage { layer: get("layer")?, entry: get("entry")?, index: n("index")?, text: get("text")? },
+        Some("insert_stage") => LookOp::InsertStage { layer: get("layer")?, entry: get("entry")?, after: n("after")?, text: get("text")? },
+        Some("remove_stage") => LookOp::RemoveStage { layer: get("layer")?, entry: get("entry")?, index: n("index")? },
+        Some("set_entry") => LookOp::SetEntry { layer: get("layer")?, key: get("key")?, text: v["text"].as_str().map(str::to_string) },
+        Some("set_body") => LookOp::SetBody { layer: get("layer")?, text: get("text")? },
+        Some("set_source") => LookOp::SetSource { layer: get("layer")?, text: get("text")? },
+        Some("add_layer") => LookOp::AddLayer { name: get("name")?, source: get("source")?, color: get("color")? },
+        Some("remove_layer") => LookOp::RemoveLayer { layer: get("layer")? },
+        Some("move_layer") => LookOp::MoveLayer { layer: get("layer")?, up: v["up"].as_bool().unwrap_or(true) },
+        _ => return Err(bad("`op.op` must be set_stage, insert_stage, remove_stage, set_entry, set_body, set_source, add_layer, remove_layer or move_layer")),
     })
 }
 
@@ -318,8 +394,137 @@ impl Engine {
         out.map_err(|m| if m.starts_with("stale") { Fault { code: -32001, message: m, data: Some(json!({"kind": "stale"})) } } else { bad(m) })
     }
 
+    /// The Look network's methods (`proposals/houdini-node-system.md` §11, H5): the world's view document with its own
+    /// revision and undo, a view as a typed network, edits of it (checked before they are kept), copies, a picture of any
+    /// node, and the display flag. None of it is a revision of the world or reaches the simulation.
+    fn look_call(&mut self, method: &str, p: &Value) -> Result<Value, Fault> {
+        use emerge_lang::look;
+        let state = self.state_dir.clone();
+        let e = self.entry(p)?;
+        let source = e.run.live.source.clone();
+        let doc = e.views.clone().unwrap_or_default();
+        let invalid = |m: String| Fault { code: -32001, message: format!("refused, the last valid views are kept: {m}"), data: Some(json!({"kind": "invalid"})) };
+        // A new document: the old one on the undo stack, its revision moved on, kept on disk by the world's name.
+        let keep = |e: &mut Entry, next: Option<String>, undoing: Option<bool>| -> Result<(), Fault> {
+            let old = std::mem::replace(&mut e.views, next);
+            match undoing {
+                None => {
+                    e.views_undo.push(old);
+                    e.views_redo.clear();
+                }
+                Some(true) => e.views_redo.push(old),
+                Some(false) => e.views_undo.push(old),
+            }
+            e.views_rev += 1;
+            if let (Some(dir), false) = (&state, e.name.is_empty()) {
+                let path = views_path(dir, &e.name);
+                let r = match &e.views {
+                    Some(t) => std::fs::create_dir_all(path.parent().unwrap()).and_then(|_| std::fs::write(&path, t)),
+                    None => std::fs::remove_file(&path).or_else(|err| if err.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(err) }),
+                };
+                r.map_err(|err| fault(-32603, format!("could not keep the views: {err}")))?;
+            }
+            Ok(())
+        };
+        let stamp = |e: &Entry| json!({"tick": e.run.tick(), "revision": e.run.revision(), "views_revision": e.views_rev, "run": e.run.run_id});
+        let in_source = |name: &str| emerge_lang::parse(&source).ok().is_some_and(|f| f.items.iter().any(|i| matches!(&i.node, emerge_lang::ast::Item::View(v) if v.name == name)));
+        match method {
+            "views.get" => Ok(json!({"text": e.views, "saved": e.views.is_some(), "revision": e.views_rev, "undo": e.views_undo.len(), "redo": e.views_redo.len(),
+                "display": e.display.as_ref().map(|(v, n)| json!({"view": v, "node": n})), "file": e.name.is_empty().then_some(Value::Null).unwrap_or(json!(format!("views/{}.em", e.name)))})),
+            "views.set" => {
+                let next = text(p, "text")?.to_string();
+                if let Some(b) = p["base"].as_u64().filter(|&b| b != e.views_rev) {
+                    return Err(Fault { code: -32001, message: format!("stale: the views were written against revision {b}, they are at {}", e.views_rev), data: Some(json!({"kind": "stale", "current_revision": e.views_rev})) });
+                }
+                check_views(&source, &next).map_err(invalid)?;
+                keep(e, Some(next), None)?;
+                Ok(json!({"revision": e.views_rev}))
+            }
+            "views.undo" | "views.redo" => {
+                let undoing = method == "views.undo";
+                let back = (if undoing { e.views_undo.last() } else { e.views_redo.last() }).cloned().ok_or_else(|| bad(if undoing { "nothing to undo in the views" } else { "nothing to redo in the views" }))?;
+                if let Some(t) = &back {
+                    check_views(&source, t).map_err(invalid)?;
+                }
+                if undoing { e.views_undo.pop(); } else { e.views_redo.pop(); }
+                keep(e, back, Some(undoing))?;
+                Ok(json!({"revision": e.views_rev}))
+            }
+            "view.graph" => {
+                let name = text(p, "view")?;
+                let file = with_views(&source, &doc).map_err(bad)?;
+                let pl = look::pipeline(&file, name).map_err(bad)?;
+                let owned = if look::view_in(&doc, name).is_some() { "views" } else if in_source(name) { "source" } else { "none" };
+                let v = file.items.iter().rev().find_map(|i| match &i.node { emerge_lang::ast::Item::View(v) if v.name == name => Some(v.clone()), _ => None }).unwrap();
+                let vtext = emerge_lang::format(&emerge_lang::ast::File { items: vec![emerge_lang::ast::Node { trivia: Default::default(), pos: Default::default(), node: emerge_lang::ast::Item::View(v) }], tail: vec![] });
+                Ok(json!({"view": pl.view, "world": pl.world, "owned": owned, "text": vtext, "stamp": stamp(e),
+                    "display": e.display.as_ref().filter(|(v, _)| v == name).map(|(_, n)| n.clone()),
+                    "nodes": pl.nodes.iter().map(|n| json!({"id": n.id, "kind": n.kind, "title": n.title, "text": n.text, "out": n.out, "layer": n.layer, "params": n.params, "problems": n.problems})).collect::<Vec<_>>(),
+                    "wires": pl.wires.iter().map(|w| json!({"from": w.from, "to": w.to, "type": w.ty})).collect::<Vec<_>>()}))
+            }
+            "view.edit" | "view.copy" => {
+                let name = text(p, "view")?;
+                if let Some(b) = p["base"].as_u64().filter(|&b| b != e.views_rev) {
+                    return Err(Fault { code: -32001, message: format!("stale: the edit was made against views revision {b}, they are at {}", e.views_rev), data: Some(json!({"kind": "stale", "current_revision": e.views_rev})) });
+                }
+                let next = if method == "view.copy" {
+                    let to = text(p, "name")?;
+                    let file = with_views(&source, &doc).map_err(bad)?;
+                    if file.items.iter().any(|i| matches!(&i.node, emerge_lang::ast::Item::View(v) if v.name == to)) {
+                        return Err(bad(format!("there is a view `{to}` already")));
+                    }
+                    let mut v = file.items.iter().rev().find_map(|i| match &i.node { emerge_lang::ast::Item::View(v) if v.name == name => Some(v.clone()), _ => None }).ok_or_else(|| bad(format!("no view `{name}`")))?;
+                    v.name = to.to_string();
+                    look::put_view(&doc, &v).map_err(bad)?
+                } else {
+                    let Some(v) = look::view_in(&doc, name) else {
+                        return Err(bad(if in_source(name) { format!("view `{name}` is part of the world's source: edit a copy (view.copy)") } else { format!("no view `{name}` in the world's views") }));
+                    };
+                    let op = look_op(&p["op"])?;
+                    let nv = look::edit_view(&v, &op).map_err(bad)?;
+                    look::put_view(&doc, &nv).map_err(bad)?
+                };
+                check_views(&source, &next).map_err(invalid)?;
+                keep(e, Some(next), None)?;
+                Ok(json!({"revision": e.views_rev}))
+            }
+            "view.preview" | "view.display" => {
+                let name = text(p, "view")?.to_string();
+                if method == "view.display" && p["node"].is_null() {
+                    e.display = None;
+                    return Ok(json!({"display": null}));
+                }
+                let node = text(p, "node")?.to_string();
+                let file = with_views(&source, &doc).map_err(bad)?;
+                let v = file.items.iter().rev().find_map(|i| match &i.node { emerge_lang::ast::Item::View(v) if v.name == name => Some(v.clone()), _ => None }).ok_or_else(|| bad(format!("no view `{name}`")))?;
+                let world = file.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) if w.name == v.world => Some(w.clone()), _ => None }).ok_or_else(|| bad("the view's world is not here"))?;
+                let frame = e.run.frame();
+                let shown = format!("{name}__{}", if method == "view.display" { "display" } else { "preview" });
+                let mut d = look::derived(&v, &node, &shown, None, &world).map_err(bad)?;
+                if let Some((layer, expr)) = d.needs_range.take() {
+                    let l = v.layers.iter().find(|l| l.node.name == layer).map(|l| l.node.clone()).ok_or_else(|| bad("no such layer"))?;
+                    let r = emerge_view::render::value_range(&l, &expr, &frame).ok_or_else(|| bad("this node gives no number in this frame (nothing to show)"))?;
+                    d = look::derived(&v, &node, &shown, Some(r), &world).map_err(bad)?;
+                }
+                let at = stamp(e);
+                if method == "view.display" {
+                    e.display = Some((name, node));
+                    let text = emerge_lang::format(&emerge_lang::ast::File { items: vec![emerge_lang::ast::Node { trivia: Default::default(), pos: Default::default(), node: emerge_lang::ast::Item::View(d.view) }], tail: vec![] });
+                    return Ok(json!({"display": e.display.as_ref().map(|(v, n)| json!({"view": v, "node": n})), "view": shown, "text": text, "shows": d.shows, "measured_at": at}));
+                }
+                let px = p["px"].as_u64().unwrap_or(160).clamp(32, 1024) as usize;
+                let cell_px = (px / frame.grid_w.max(1)).max(1) as u32;
+                let image = emerge_view::render_with(&d.view, &frame, emerge_view::Options { cell_px, legend: false }, &[]);
+                let png = image.encode_png().map_err(|err| fault(-32603, err.to_string()))?;
+                Ok(json!({"png": base64(&png), "w": image.width(), "h": image.height(), "shows": d.shows, "stamp": at}))
+            }
+            _ => Err(bad("no such method")),
+        }
+    }
+
     fn call_inner(&mut self, method: &str, p: &Value) -> Result<Value, Fault> {
         match method {
+            "views.get" | "views.set" | "views.undo" | "views.redo" | "view.graph" | "view.edit" | "view.copy" | "view.preview" | "view.display" => self.look_call(method, p),
             "world.create" => {
                 let lineages: Vec<String> = p["lineages"].as_array().ok_or_else(|| bad("`lineages` must be a list of names"))?.iter().filter_map(|l| l.as_str().map(String::from)).collect();
                 let backend = p["backend"].as_str().unwrap_or("cpu");
@@ -350,7 +555,14 @@ impl Engine {
                 run.run_id = format!("{}-{id}", self.session);
                 let mut out = json!({"world": id, "run": run.run_id, "revision": 0, "tick": 0, "population": run.population(), "backend": run.device});
                 let name = emerge_lang::parse(&run.live.source).ok().and_then(|f| f.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) => Some(w.name.clone()), _ => None })).unwrap_or_default();
-                let mut entry = Entry { run, running: false, layout: Default::default(), notes: Default::default(), frames: Default::default(), routes: Default::default(), name, undo: Vec::new(), redo: Vec::new(), notebook: Vec::new() };
+                let mut entry = Entry { run, running: false, layout: Default::default(), notes: Default::default(), frames: Default::default(), routes: Default::default(), name, views: None, views_rev: 0, views_undo: Vec::new(), views_redo: Vec::new(), display: None, undo: Vec::new(), redo: Vec::new(), notebook: Vec::new() };
+                // The view document this world had when it was last edited, if kept; checked again, as any change is.
+                if let Some(doc) = self.state_dir.as_ref().and_then(|d| std::fs::read_to_string(views_path(d, &entry.name)).ok()) {
+                    if check_views(&entry.run.live.source, &doc).is_ok() {
+                        entry.views = Some(doc);
+                        out["views_restored"] = json!(entry.name);
+                    }
+                }
                 // The organisation this world's network had when it was last arranged (by its name), if it was kept.
                 if let Some(saved) = self.state_dir.as_ref().and_then(|d| std::fs::read_to_string(layout_path(d, &entry.name)).ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
                     let map = |k: &str| saved[k].as_object().cloned().unwrap_or_default();
@@ -938,7 +1150,22 @@ impl Engine {
                     }
                 };
                 let creatures = p["creatures"].as_bool().unwrap_or(laws.is_none());
-                e.run.start_trace_as(ticks, cap, laws, creatures, p["owner"].as_str().unwrap_or("trace.start"), p["replace"].as_bool().unwrap_or(false)).map_err(bad)
+                // `cells`: only requests with one of these cells at either end (by index, `iy * w + ix`; CPU only).
+                let cells = match p["cells"].as_array() {
+                    None => None,
+                    Some(list) => {
+                        let set: std::collections::HashSet<usize> = list.iter().filter_map(|c| c.as_u64().map(|c| c as usize)).collect();
+                        if set.is_empty() || set.len() > 64 || set.len() != list.len() { return Err(bad("`cells` is 1 to 64 cell indices")); }
+                        if e.run.spec.gpu { return Err(bad("a recording of chosen cells is kept by the CPU runner only: trace a statement instead")); }
+                        Some(set)
+                    }
+                };
+                let mut out = e.run.start_trace_as(ticks, cap, laws, creatures, p["owner"].as_str().unwrap_or("trace.start"), p["replace"].as_bool().unwrap_or(false)).map_err(bad)?;
+                if let Some(c) = cells {
+                    out["cells"] = json!(c.len());
+                    e.run.trace_cells(c).map_err(bad)?;
+                }
+                Ok(out)
             }
             "flow.blocked_start" => {
                 let e = self.entry(p)?;

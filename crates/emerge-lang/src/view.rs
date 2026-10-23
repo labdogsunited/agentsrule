@@ -84,6 +84,22 @@ impl Ty {
     fn number(self) -> bool {
         matches!(self, Ty::F32 | Ty::Int | Ty::Later)
     }
+    /// The type's short name, as a socket of the Look network shows it.
+    pub(crate) fn short(self) -> &'static str {
+        match self {
+            Ty::F32 => "number",
+            Ty::Int => "whole number",
+            Ty::Bool => "condition",
+            Ty::Vec2 => "direction",
+            Ty::Category => "identity",
+            Ty::Amount => "amount",
+            Ty::Scaled => "scaled",
+            Ty::Color => "colour",
+            Ty::Glyph => "glyph",
+            Ty::Str => "string",
+            Ty::Later => "not computed yet",
+        }
+    }
 }
 
 /// What a layer's expressions see.
@@ -448,76 +464,106 @@ fn substances(w: &World) -> Vec<String> {
     }).collect()
 }
 
+/// What a layer's expressions see and which entries it takes, from its source; `None` (with the problem in `ck`) when the
+/// source is not one a layer can have.
+fn layer_scope<'a>(world: &World, l: &Layer, subs: &'a [String], held: &'a [String], ck: &mut Checker) -> Option<(Scope<'a>, &'static [&'static str])> {
+    // `context(agents)` and `context(FIELD)` are the VEX-like spellings of the two sources.
+    let context = match (l.source.name.as_str(), Checker::subject(&l.source)) {
+        ("context", Some(Expr::Path(p))) if p.segs.is_empty() => Some(p.root.as_str()),
+        _ => None,
+    };
+    Some(match (l.source.name.as_str(), context) {
+        ("context", Some("agents")) => (Scope::Agents { substances: subs }, &["glyph", "color", "size", "blend", "opacity"]),
+        ("context", Some(f)) => {
+            let field = world.decls.iter().find_map(|d| match &d.node {
+                WDecl::Field { name, holds, .. } if name == f => Some(holds.is_some()),
+                _ => None,
+            });
+            if field.is_none() {
+                ck.error("E0114", format!("unknown field `{f}`: `context(agents)` or `context(FIELD)`"));
+            }
+            // The conserved field's cells read their substances; another field reads `@value`.
+            (Scope::Field { substances: held, value: field == Some(false) }, &["color", "blend", "opacity"])
+        }
+        ("context", None) => {
+            ck.error("E0116", "`context` needs `agents` or a field: `context(agents)`, `context(cells)`".into());
+            return None;
+        }
+        ("field", _) => {
+            match Checker::subject(&l.source) {
+                Some(Expr::Path(p)) => {
+                    let field = world.decls.iter().find_map(|d| match &d.node {
+                        WDecl::Field { name, holds, .. } if *name == p.root => Some(holds),
+                        _ => None,
+                    });
+                    let kind = if world.decls.iter().any(|d| matches!(&d.node, WDecl::Field { name, states: Some(_), .. } if *name == p.root)) { "state" } else { "signal" };
+                    match (field, p.segs.as_slice()) {
+                        (None, _) => ck.error("E0114", format!("unknown field `{}`", p.root)),
+                        (Some(Some(holds)), [Seg::Field(s)]) if !holds.iter().any(|(h, _)| h == s) => ck.error("E0114", format!("field `{}` holds no `{s}`", p.root)),
+                        (Some(Some(_)), [Seg::Field(_)]) | (Some(None), []) => {}
+                        (Some(Some(_)), _) => ck.error("E0116", format!("say which substance of `{}` to show: `field({}.NAME)`", p.root, p.root)),
+                        (Some(None), _) => ck.error("E0114", format!("`{}` is a {kind} field: show it as `field({})`", p.root, p.root)),
+                    }
+                }
+                _ => ck.error("E0116", "`field` needs a field, such as `field(cells.sugar)`".into()),
+            }
+            (Scope::Field { substances: held, value: true }, &["color", "blend", "opacity"])
+        }
+        ("agents", _) => {
+            let scope = Scope::Agents { substances: subs };
+            if let Some(Value::Expr(e)) = Checker::arg(&l.source, "where") {
+                let t = ck.expr(e, &scope);
+                ck.expect(t, &[Ty::Bool], "`where`");
+            }
+            (scope, &["glyph", "color", "size", "blend", "opacity"])
+        }
+        (other, _) => {
+            ck.error("E0114", format!("unknown layer source `{other}`: `field`, `agents` or `context`"));
+            return None;
+        }
+    })
+}
+
+/// The substances a conserved field of `world` holds (what a cells layer reads).
+fn held(world: &World) -> Vec<String> {
+    world.decls.iter().find_map(|d| match &d.node {
+        WDecl::Field { holds: Some(h), .. } => Some(h.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>()),
+        _ => None,
+    }).unwrap_or_default()
+}
+
+/// The type of `e` read in `layer` of a view for `world`, as the checker gives it, with the problems found on the way
+/// (the Look network's typed sockets, `look::pipeline`). The layer body's locals are not in scope here.
+pub(crate) fn expr_type(world: &World, layer: &Layer, e: &Expr) -> (&'static str, Vec<Problem>) {
+    let (subs, held) = (substances(world), held(world));
+    let mut ck = Checker { errors: Vec::new(), warnings: Vec::new(), path: layer.name.clone(), pos: Pos::default(), locals: Default::default() };
+    let Some((scope, _)) = layer_scope(world, layer, &subs, &held, &mut ck) else { return ("not computed yet", ck.errors) };
+    let t = ck.expr(e, &scope);
+    (t.short(), ck.errors)
+}
+
+/// What a layer's source gives its expressions: `cells` (a field's value per cell) or `agents`.
+pub(crate) fn source_kind(layer: &Layer) -> &'static str {
+    match (layer.source.name.as_str(), Checker::subject(&layer.source)) {
+        ("agents", _) => "agents",
+        ("context", Some(Expr::Path(p))) if p.root == "agents" => "agents",
+        _ => "cells",
+    }
+}
+
 fn view(v: &View, pos: Pos, worlds: &[&World], errors: &mut Vec<Problem>, warnings: &mut Vec<Problem>) {
     let Some(world) = worlds.iter().find(|w| w.name == v.world) else {
         errors.push(Problem { code: "E0114", path: v.name.clone(), pos, message: format!("view `{}` is for `{}`, which is not a world in this file", v.name, v.world), fix: None });
         return;
     };
     let subs = substances(world);
+    let held = held(world);
     for layer in &v.layers {
         let mut ck = Checker { errors: Vec::new(), warnings: Vec::new(), path: format!("{}.layers.{}", v.name, layer.node.name), pos: layer.pos, locals: Default::default() };
         let l = &layer.node;
-        // `context(agents)` and `context(FIELD)` are the VEX-like spellings of the two sources.
-        let context = match (l.source.name.as_str(), Checker::subject(&l.source)) {
-            ("context", Some(Expr::Path(p))) if p.segs.is_empty() => Some(p.root.as_str()),
-            _ => None,
-        };
-        let conserved = world.decls.iter().find_map(|d| match &d.node {
-            WDecl::Field { name, holds: Some(h), .. } => Some((name.as_str(), h.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>())),
-            _ => None,
-        });
-        let held: Vec<String> = conserved.as_ref().map(|c| c.1.clone()).unwrap_or_default();
-        let (scope, keys): (Scope, &[&str]) = match (l.source.name.as_str(), context) {
-            ("context", Some("agents")) => (Scope::Agents { substances: &subs }, &["glyph", "color", "size", "blend", "opacity"]),
-            ("context", Some(f)) => {
-                let field = world.decls.iter().find_map(|d| match &d.node {
-                    WDecl::Field { name, holds, .. } if name == f => Some(holds.is_some()),
-                    _ => None,
-                });
-                if field.is_none() {
-                    ck.error("E0114", format!("unknown field `{f}`: `context(agents)` or `context(FIELD)`"));
-                }
-                // The conserved field's cells read their substances; another field reads `@value`.
-                (Scope::Field { substances: &held, value: field == Some(false) }, &["color", "blend", "opacity"])
-            }
-            ("context", None) => {
-                ck.error("E0116", "`context` needs `agents` or a field: `context(agents)`, `context(cells)`".into());
-                errors.append(&mut ck.errors);
-                continue;
-            }
-            ("field", _) => {
-                match Checker::subject(&l.source) {
-                    Some(Expr::Path(p)) => {
-                        let field = world.decls.iter().find_map(|d| match &d.node {
-                            WDecl::Field { name, holds, .. } if *name == p.root => Some(holds),
-                            _ => None,
-                        });
-                        let kind = if world.decls.iter().any(|d| matches!(&d.node, WDecl::Field { name, states: Some(_), .. } if *name == p.root)) { "state" } else { "signal" };
-                        match (field, p.segs.as_slice()) {
-                            (None, _) => ck.error("E0114", format!("unknown field `{}`", p.root)),
-                            (Some(Some(holds)), [Seg::Field(s)]) if !holds.iter().any(|(h, _)| h == s) => ck.error("E0114", format!("field `{}` holds no `{s}`", p.root)),
-                            (Some(Some(_)), [Seg::Field(_)]) | (Some(None), []) => {}
-                            (Some(Some(_)), _) => ck.error("E0116", format!("say which substance of `{}` to show: `field({}.NAME)`", p.root, p.root)),
-                            (Some(None), _) => ck.error("E0114", format!("`{}` is a {kind} field: show it as `field({})`", p.root, p.root)),
-                        }
-                    }
-                    _ => ck.error("E0116", "`field` needs a field, such as `field(cells.sugar)`".into()),
-                }
-                (Scope::Field { substances: &held, value: true }, &["color", "blend", "opacity"])
-            }
-            ("agents", _) => {
-                let scope = Scope::Agents { substances: &subs };
-                if let Some(Value::Expr(e)) = Checker::arg(&l.source, "where") {
-                    let t = ck.expr(e, &scope);
-                    ck.expect(t, &[Ty::Bool], "`where`");
-                }
-                (scope, &["glyph", "color", "size", "blend", "opacity"])
-            }
-            (other, _) => {
-                ck.error("E0114", format!("unknown layer source `{other}`: `field`, `agents` or `context`"));
-                errors.append(&mut ck.errors);
-                continue;
-            }
+        let Some((scope, keys)) = layer_scope(world, l, &subs, &held, &mut ck) else {
+            errors.append(&mut ck.errors);
+            continue;
         };
         for entry in &l.entries {
             ck.pos = entry.pos;

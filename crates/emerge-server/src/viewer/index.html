@@ -220,20 +220,30 @@
   #lookbody { flex: 1; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px;
     background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 20px 20px; }
   body.nogrid #lookbody { background-image: none; }
-  .lrow { display: flex; align-items: center; }
-  .lnode { background: #494949; border: 1px solid #222; border-radius: 3px; min-width: 120px; }
-  .lnode .t { padding: 2px 8px; font: 600 12px system-ui, sans-serif; color: #1a1a1a; border-radius: 2px 2px 0 0; }
-  .lnode .b { padding: 6px 8px; font: 12px ui-monospace, monospace; color: var(--ink); }
-  .lnode.layer .t { background: #6f9bd1; } .lnode.ramp .t { background: #e0a050; } .lnode.out .t { background: #8cc06a; } .lnode.custom .t { background: #9aa1ad; }
-  .lwire { flex: none; width: 34px; height: 2px; background: #b0b0b0; position: relative; }
-  .lwire::before, .lwire::after { content: ""; position: absolute; top: -3px; width: 7px; height: 7px; border-radius: 50%; background: #2b313b; border: 2px solid #8b93a1; box-sizing: border-box; }
-  .lwire::before { left: -4px; } .lwire::after { right: -4px; }
-  .lnode.ramp { width: 270px; }
-  .lnode.ramp .b { display: grid; grid-template-columns: 56px 1fr; gap: 4px 8px; align-items: center; white-space: normal; }
-  .lnode.ramp select, .lnode.ramp input { padding: 2px 4px; font: 12px ui-monospace, monospace; }
-  .lnode.ramp .range { display: flex; gap: 4px; }
-  .rampbar { grid-column: 1 / 3; height: 16px; border: 1px solid #222; border-radius: 2px; }
-  .lnode .err { grid-column: 1 / 3; color: var(--bad); font: 11px system-ui, sans-serif; white-space: pre-wrap; }
+  #lookbody { padding: 0; flex-direction: row; gap: 0; }
+  #lookscroll { flex: 1; overflow: auto; position: relative; }
+  #lookcanvas { position: relative; min-width: 100%; min-height: 100%; }
+  #lookwires { position: absolute; left: 0; top: 0; pointer-events: none; } #lookwires .lw { fill: none; stroke-width: 2; opacity: .85; }
+  .lbox { position: absolute; background: #1c2027; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; overflow: hidden; display: flex; flex-direction: column; }
+  .lbox.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); } .lbox.bad { border-color: var(--bad); }
+  .lbox .t { display: flex; align-items: center; gap: 6px; padding: 2px 6px; font: 600 12px system-ui, sans-serif; color: #101318; background: #9aa1ad; }
+  .lbox .t .ty { margin-left: auto; padding: 0 5px; border-radius: 3px; font: 600 10px system-ui; color: #101318; }
+  .lbox .t .dflag { color: #555; cursor: pointer; font-size: 13px; } .lbox .t .dflag.on { color: #4fc3f7; }
+  .lbox .b { padding: 3px 6px; font: 11px/1.3 ui-monospace, monospace; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
+  .lbox img.pv { flex: 1; min-height: 0; object-fit: contain; image-rendering: pixelated; background: #0b0d10; border-top: 1px solid var(--line); } .lbox img.pv.none { visibility: hidden; }
+  .lbox.k-source .t { background: #6f9bd1; } .lbox.k-read .t, .lbox.k-expression .t { background: #8cc06a; } .lbox.k-stage .t { background: #e0a050; }
+  .lbox.k-entry .t { background: #d78aa8; } .lbox.k-body .t { background: #b48ad6; } .lbox.k-layer .t { background: #5fbfae; } .lbox.k-composite .t { background: #c9b26b; }
+  #lookparm { flex: none; width: 270px; overflow: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 8px 10px; font: 12px system-ui, sans-serif; color: var(--ink); }
+  #lookparm h4 { margin: 0 0 2px; font-size: 13px; } #lookparm small { display: block; color: var(--muted); margin-bottom: 8px; word-break: break-all; }
+  #lookparm .lrowp { display: grid; grid-template-columns: 58px 1fr; gap: 6px; align-items: center; margin: 4px 0; } #lookparm .lrowp span { color: var(--muted); }
+  #lookparm input, #lookparm select, #lookparm textarea { width: 100%; font: 12px ui-monospace, monospace; padding: 3px 5px; box-sizing: border-box; }
+  #lookparm select, #lookparm button { margin-top: 6px; } #lookparm .edit { display: flex; flex-wrap: wrap; gap: 4px; } #lookparm .edit button { margin-top: 2px; }
+  #lookparm .msg { margin-top: 8px; white-space: pre-wrap; } #lookparm .msg.bad { color: var(--bad); } #lookparm .msg.ok { color: var(--ok); }
+  .rampbar { height: 14px; border: 1px solid #222; border-radius: 2px; margin-top: 4px; }
+  #lookbar button.on { border-color: var(--accent); }
+  #displaybar { position: absolute; left: 50%; transform: translateX(-50%); top: 8px; display: none; gap: 8px; align-items: center; z-index: 5; background: #000c; border: 1px solid #4fc3f7; border-radius: 8px; padding: 4px 8px; font-size: 12px; max-width: 90%; }
+  #displaybar span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } #displaybar button { white-space: nowrap; flex: none; padding: 2px 8px; }
+  #trackov .cellsel { fill: none; stroke: #4fc3f7; stroke-width: 2; stroke-dasharray: 4 2; }
   #stage-rules, #stage-lineage, #stage-census, #stage-budget, #stage-family, #stage-compare, #stage-region, #stage-flow, #stage-life, #stage-book { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
   #rulesbar, #lineagebar, #censusbar, #budgetbar, #familybar, #comparebar, #regionbar, #flowbar, #lifebar, #bookbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   #rulesbar label, #lineagebar label { display: inline-flex; align-items: center; gap: 4px; }
@@ -461,7 +471,7 @@
           <button id="zout" title="Zoom out">&minus;</button>
           <button id="fit" title="Fit the view to the pane (double-click does it too)">&#10530;</button>
         </div>
-        <main id="stage-picture" data-view="picture"><div id="picwrap"><img id="frame" alt="the current frame" draggable="false"><div id="gridov"></div></div><div id="chartstrip"></div><span id="empty">Create a world, or pick one.<br><button id="newbtn2" class="primary">New world…</button></span><div id="pickmark"></div><svg id="trackov"></svg><div id="trackcands"></div><div id="selbar"></div><div id="followbar"></div><div id="infopanel"></div></main>
+        <main id="stage-picture" data-view="picture"><div id="picwrap"><img id="frame" alt="the current frame" draggable="false"><div id="gridov"></div></div><div id="chartstrip"></div><span id="empty">Create a world, or pick one.<br><button id="newbtn2" class="primary">New world…</button></span><div id="pickmark"></div><svg id="trackov"></svg><div id="trackcands"></div><div id="selbar"></div><div id="followbar"></div><div id="displaybar"></div><div id="infopanel"></div></main>
         <div class="strip" id="rstrip">
           <button id="chartsbtn" class="on" title="Charts under the picture">&#9636;</button>
           <button id="gear" title="Update rate">&#9881;</button>
@@ -485,7 +495,7 @@
       </div></div>
   <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><span id="netcrumbs" title="Where you are in the network. Enter (or double-click a statement) goes into its rule; U goes up."></span><select id="netctx" title="Go to a network"></select><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button><button id="netdup" title="Duplicate the selected statements (Ctrl+D). Ctrl+C and Ctrl+V do the same from a copy; Ctrl+V in another world pastes them there.">Duplicate</button><span class="sep"></span><select id="netarrange" title="Arrange the selected nodes (presentation only: no revision)"><option value="">Arrange…</option><option value="left">Align left edges</option><option value="top">Align top edges</option><option value="cx">Align in a column</option><option value="cy">Align in a row</option><option value="dx">Distribute across</option><option value="dy">Distribute down</option><option value="tidy">Lay out the selection</option></select><button id="netcollapse" title="Show each rule as one box with its statements inside it, or every statement (the whole network only)">Rules as boxes</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div><div id="obspalette"><span>Add</span><button data-mode="fixed" title="A Tracker of the selected creature and every quick watch, captured now">Tracker from selection</button><button data-mode="live" title="Whoever matches a condition now">Live query</button><button data-mode="latched" title="Everyone seen matching during a window, kept afterwards">Latched query</button><button data-mode="descendants" title="A creature and the children born to its members">Descendants</button><button data-mode="representative" title="One creature first by a ranking (it may change; each handoff is kept)">Representative</button><span style="width:10px"></span><button id="obsundo" title="Undo the last tracker change">Undo</button><button id="obsredo">Redo</button></div></main></div>
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><button id="gtrack" title="Track this creature (and select it)">Track</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
-  <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
+  <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"><div id="lookscroll"><div id="lookcanvas"></div></div><div id="lookparm"></div></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label><label><input type="radio" name="rmode" value="trace"> trace</label></div><div id="rulesbody"></div></main></div>
   <div class="editor" id="ed-book"><main id="stage-book"><div id="bookbar"><span id="booknote"></span><button id="bookexport">Export notebook (JSON)</button></div><div id="bookbody"></div></main></div>
   <div class="editor" id="ed-life"><main id="stage-life"><div id="lifebar"><span id="lifenote"></span></div><div id="lifebody"></div></main></div>
@@ -2023,7 +2033,7 @@ function markSel() {
 }
 function select(id) {
   selected = id;
-  if (id) track.inspAgent = false;
+  if (id) { track.inspAgent = false; track.inspCell = false; }
   multi = new Set(id ? [id] : []);
   highlightCode(id);
   markSel();
@@ -3102,133 +3112,298 @@ const viewNames = (src) => [...src.matchAll(/^view\s+(\w+)\s+for\s+\w+/gm)].map(
 // A list that was asked for before a newer one is dropped when it arrives, so a slow poll cannot put
 // the selection back on an older world.
 let worldGen = 0;
-// ---- Look: the colour ramps of the current view as nodes. A layer's `color: SRC |> scale(KIND, range: LO..HI)
-// |> palette(NAME);` becomes layer -> ramp -> colour; changing the ramp rewrites that line of the view text
-// and subscribes again. The view text is presentation: nothing changes in the world. A view that is part of
-// the world's own source is shown read-only, with a button to edit a copy.
-const viewOverrides = {};          // view name -> text of its (edited) block
-let palettes = null, lookOwn = {}; // palettes from the server; the world's own views by name
-function viewBlock(src, name) {
-  const m = new RegExp(`(^|\\n)\\s*view\\s+${name}\\s+for\\s+\\w+\\s*\\{`).exec(src);
-  if (!m) return null;
-  const start = m.index + (m[1] ? m[1].length : 0), open = src.indexOf("{", start);
-  let depth = 0;
-  for (let i = open; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}" && --depth === 0) return { start, end: i + 1, text: src.slice(start, i + 1) }; }
-  return null;
+// ---- Look (`proposals/houdini-node-system.md` §11, H5): the current view as a network of its own pieces, typed by the view
+// checker: each layer's source, the head of each entry (a name it reads, or an expression), every `|>` stage, the entry, the
+// layer's body, the layer, and the composite of all layers. A node can be previewed on its own (`view.preview`: the view cut
+// at that node, a value that is not a colour yet through a neutral palette over the range this frame holds), and its display
+// flag makes the viewport show that node instead of the whole view. Edits go to the world's view document on the server
+// (`view.edit`): each is checked against the world before it is kept, so a refused one leaves the last valid view; the
+// document has its own revision and undo and is kept by the world's name, as `.em` text the CLI renderer reads too. A view
+// that is part of the world's own source is read-only here, with "Edit a copy". Nothing here changes the world.
+const look = { doc: null, rev: 0, saved: false, history: { undo: 0, redo: 0 }, graph: null, sel: null, previews: true, cache: new Map(), msg: null, file: null };
+let palettes = null;
+let lookDisplay = null;            // { world, view, node, name, text, shows, at }: the node the viewport shows instead of its view
+// The world's view document, from the server; a world this page has just created gets the example's views as its first one.
+async function loadWorldViews(seed) {
+  const w = $("world").value;
+  if (!w) return;
+  let r = await call("views.get", { world: w });
+  if (!r.saved && seed && example.views) { try { await call("views.set", { world: w, text: example.views }); r = await call("views.get", { world: w }); } catch (_) {} }
+  look.doc = r.saved ? r.text : null;
+  look.rev = r.revision;
+  look.saved = r.saved;
+  look.history = { undo: r.undo, redo: r.redo };
+  look.file = r.file;
+  if (!r.display && lookDisplay && lookDisplay.world === w) lookDisplay = null;
 }
 function viewsText() {
-  let t = example.views || "";
-  for (const [name, text] of Object.entries(viewOverrides)) {
-    const b = viewBlock(t, name);
-    t = b ? t.slice(0, b.start) + text + t.slice(b.end) : t + "\n" + text + "\n";
-  }
+  let t = look.doc != null ? look.doc : example.views || "";
+  if (lookDisplay && lookDisplay.world === $("world").value) t += "\n" + lookDisplay.text;
   return t;
 }
-const currentViewText = (name) => viewOverrides[name] || (viewBlock(example.views || "", name) || {}).text || null;
-// The layers of a view block and their colour entry, when it is the ramp form.
-function parseLayers(text) {
-  const out = [];
-  const re = /layer\s+(\w+)\s*=\s*([^{]+?)\s*\{/g;
-  let m;
-  while ((m = re.exec(text))) {
-    let depth = 1, i = re.lastIndex;
-    for (; i < text.length && depth; i++) { if (text[i] === "{") depth++; else if (text[i] === "}") depth--; }
-    const body = text.slice(re.lastIndex, i - 1);
-    const c = /(^|\n)(\s*)color:\s*([^;]+);/.exec(body);
-    const layer = { name: m[1], kind: m[2].replace(/\s+/g, " "), entry: c ? c[3].trim() : null, at: c ? re.lastIndex + c.index + c[1].length + c[2].length : -1, len: c ? c[0].length - c[1].length - c[2].length : 0, base: m.index };
-    if (c) {
-      const parts = layer.entry.split("|>").map((x) => x.trim());
-      const pal = /^palette\((\w+)\)$/.exec(parts[parts.length - 1] || "");
-      const sc = parts.length >= 3 ? /^scale\((\w+),\s*range:\s*(-?[\d_.e]+)\s*\.\.\s*(-?[\d_.e]+)\)$/.exec(parts[parts.length - 2]) : null;
-      if (pal && (parts.length === 2 || sc)) { layer.src = parts[0]; layer.palette = pal[1]; layer.scale = sc ? { kind: sc[1], lo: sc[2], hi: sc[3] } : null; }
-    }
-    out.push(layer);
-    re.lastIndex = i;
-  }
-  return out;
-}
-const lit = (v) => { v = v.trim(); return /^-?[\d_]+$/.test(v) ? `${v}.0` : v; };
+const viewNamesOfDoc = () => viewNames(look.doc != null ? look.doc : example.views || "");
+const TYPE_HUE = { cells: 210, agents: 150, number: 35, "whole number": 50, amount: 20, scaled: 280, colour: 330, identity: 190, direction: 100, glyph: 0, condition: 60, picture: 220, attributes: 300, "not computed yet": 0 };
+const typeColor = (t) => `hsl(${TYPE_HUE[t] ?? 0} 55% ${t === "not computed yet" ? 40 : 62}%)`;
 async function loadLook() {
-  const w = $("world").value, name = $("view").value;
-  const bar = $("looknote"), body = $("lookbody");
-  body.textContent = "";
-  if (!w || !name) { bar.textContent = "Create a world, or pick one."; return; }
+  const w = $("world").value, name = $("view").value, bar = $("looknote");
+  if (!w || !name) { bar.textContent = "Create a world, or pick one."; $("lookcanvas").textContent = ""; $("lookparm").textContent = ""; return; }
   if (!palettes) palettes = (await call("view.palettes")).palettes;
-  const src = (await call("world.source", { world: w })).source;
-  lookOwn = {};
-  for (const n of viewNames(src)) lookOwn[n] = true;
-  const own = !!lookOwn[name] && !viewOverrides[name];
-  const text = own ? (viewBlock(src, name) || {}).text : currentViewText(name);
+  try { look.graph = await call("view.graph", { world: w, view: name }); }
+  catch (e) { look.graph = null; bar.textContent = `View ${name}: ${e.message || e}`; $("lookcanvas").textContent = ""; return; }
+  look.rev = look.graph.stamp.views_revision;
+  if (look.sel && !look.graph.nodes.some((n) => n.id === look.sel)) look.sel = null;
+  renderLookBar();
+  drawLook();
+  renderLookParm();
+  if (look.previews) loadPreviews();
+}
+function renderLookBar() {
+  const g = look.graph, bar = $("looknote");
   bar.textContent = "";
   const lab = document.createElement("span");
-  lab.textContent = `View ${name}${own ? " · part of the world's source: read-only here" : ""}`;
+  lab.textContent = `View ${g.view}${g.owned === "source" ? " · part of the world's source: read-only here" : ` · views revision ${look.rev}${look.file ? ` · kept as ${look.file}` : ""}`}`;
   bar.append(lab);
-  if (own) {
-    const b = document.createElement("button");
-    b.textContent = "Edit a copy";
-    b.title = "Make an editable copy of this view next to it";
-    b.onclick = () => { const copy = `${name}_look`; viewOverrides[copy] = text.replace(new RegExp(`view\\s+${name}\\b`), `view ${copy}`); refreshViews().then(() => { $("view").value = copy; return subscribe(); }).then(loadLook).catch(oops); };
-    bar.append(b);
+  const btn = (t, title, f, dis) => { const b = document.createElement("button"); b.textContent = t; b.title = title; b.disabled = !!dis; b.onclick = f; bar.append(b); return b; };
+  if (g.owned === "source") btn("Edit a copy", "Make an editable copy of this view in the world's views", () => lookCopy().catch(oops));
+  else {
+    btn("Undo", "Undo the last change of the views", () => lookStep("views.undo"), !look.history.undo);
+    btn("Redo", "Redo it", () => lookStep("views.redo"), !look.history.redo);
   }
-  if (!text) { body.textContent = "This view's text is not available."; return; }
-  for (const layer of parseLayers(text)) body.append(lookRow(name, text, layer, own));
+  const pv = btn(look.previews ? "Previews on" : "Previews off", "A small picture of what each node gives (drawn by the server from the current frame)", () => { look.previews = !look.previews; loadLook().catch(oops); });
+  pv.classList.toggle("on", look.previews);
+  if (lookDisplay && lookDisplay.world === $("world").value && lookDisplay.view === g.view) btn("Show the whole view", "Take the display flag off: the viewport shows the view again", () => setDisplay(null));
 }
-function palStops(n) { const p = palettes.find((x) => x.name === n); return p ? p.colours : []; }
+// Columns: the sources, then each entry's chain (head, stages), the entries, the layers, the composite on the right.
+function lookLayout(g) {
+  const pos = new Map(), W = 196, H = look.previews ? 138 : 76;
+  let maxStages = 0;
+  for (const n of g.nodes) { const m = /^layer:[^/]+\/[^/]+\/(\d+)$/.exec(n.id); if (m) maxStages = Math.max(maxStages, +m[1]); }
+  const entryCol = maxStages + 2, layerCol = entryCol + 1, compCol = layerCol + 1;
+  let row = 0;
+  const layers = g.nodes.filter((n) => n.kind === "layer");
+  const top = [];
+  for (const L of layers) {
+    const name = L.layer, mine = g.nodes.filter((n) => n.layer === name), first = row;
+    const entries = [...new Set(mine.filter((n) => n.kind === "entry").map((n) => n.id))];
+    if (mine.some((n) => n.kind === "body")) entries.push(`layer:${name}/body`);
+    for (const e of entries) {
+      for (const n of mine.filter((x) => x.id.startsWith(e + "/"))) { const k = +n.id.split("/").pop(); pos.set(n.id, { c: 1 + k, r: row }); }
+      pos.set(e, { c: e.endsWith("/body") ? 1 : entryCol, r: row });
+      row++;
+    }
+    if (!entries.length) row++;
+    pos.set(`layer:${name}/source`, { c: 0, r: first });
+    pos.set(L.id, { c: layerCol, r: (first + row - 1) / 2 });
+    top.push(first);
+    row += 0.35;
+  }
+  pos.set("composite", { c: compCol, r: Math.max(0, (row - 1.35) / 2) });
+  const out = new Map();
+  for (const [id, p] of pos) out.set(id, { x: 16 + p.c * (W + 40), y: 16 + p.r * (H + 18), w: W, h: H });
+  return out;
+}
+function drawLook() {
+  const g = look.graph, cv = $("lookcanvas");
+  cv.textContent = "";
+  const lay = lookLayout(g), NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+  svg.id = "lookwires";
+  cv.append(svg);
+  let mx = 0, my = 0;
+  for (const n of g.nodes) {
+    const p = lay.get(n.id);
+    if (!p) continue;
+    const el = document.createElement("div"), t = document.createElement("div"), b = document.createElement("div"), ty = document.createElement("span"), fl = document.createElement("span");
+    el.className = `lbox k-${n.kind}${look.sel === n.id ? " sel" : ""}${n.problems.length ? " bad" : ""}`;
+    el.dataset.id = n.id;
+    Object.assign(el.style, { left: `${p.x}px`, top: `${p.y}px`, width: `${p.w}px`, height: `${p.h}px` });
+    t.className = "t"; t.textContent = n.title;
+    ty.className = "ty"; ty.textContent = n.out; ty.style.background = typeColor(n.out); ty.title = `gives ${n.out}`;
+    fl.className = `dflag${g.display === n.id || (!g.display && n.id === "composite") ? " on" : ""}`;
+    fl.textContent = "◉";
+    fl.title = n.kind === "body" ? "A body is shown with its layer: flag the layer" : "Display flag: the viewport shows this node instead of the whole view";
+    fl.onclick = (e) => { e.stopPropagation(); if (n.kind !== "body") setDisplay(n.id === "composite" || g.display === n.id ? null : n.id); };
+    t.append(ty, fl);
+    b.className = "b"; b.textContent = n.text;
+    el.append(t, b);
+    if (look.previews && n.kind !== "body") { const im = document.createElement("img"); im.className = "pv"; im.alt = ""; im.dataset.id = n.id; const c = look.cache.get(pvKey(n.id)); if (c) { im.src = c.src; im.title = c.shows; } el.append(im); }
+    if (n.problems.length) el.title = n.problems.join("\n");
+    el.onclick = () => { look.sel = n.id; for (const x of cv.querySelectorAll(".lbox")) x.classList.toggle("sel", x.dataset.id === n.id); renderLookParm(); };
+    cv.append(el);
+    mx = Math.max(mx, p.x + p.w + 30); my = Math.max(my, p.y + p.h + 30);
+  }
+  cv.style.width = `${mx}px`; cv.style.height = `${my}px`;
+  svg.setAttribute("width", mx); svg.setAttribute("height", my);
+  for (const w of g.wires) {
+    const a = lay.get(w.from), c = lay.get(w.to);
+    if (!a || !c) continue;
+    const x0 = a.x + a.w, y0 = a.y + 22, x1 = c.x, y1 = c.y + 22, d = Math.max(30, Math.abs(x1 - x0) / 2);
+    const path = document.createElementNS(NS, "path"), tip = document.createElementNS(NS, "title");
+    path.setAttribute("d", `M${x0},${y0} C${x0 + d},${y0} ${x1 - d},${y1} ${x1},${y1}`);
+    path.setAttribute("class", "lw");
+    path.setAttribute("stroke", typeColor(w.type));
+    tip.textContent = w.type;
+    path.append(tip);
+    svg.append(path);
+  }
+}
+const pvKey = (id) => `${look.graph.stamp.run}|${look.graph.stamp.tick}|${look.rev}|${look.graph.view}|${id}`;
+let pvSeq = 0;
+// The previews, one at a time (each is a small picture the server draws from its current frame).
+async function loadPreviews() {
+  const g = look.graph, mine = ++pvSeq, w = $("world").value;
+  if (!g) return;
+  for (const n of g.nodes) {
+    if (n.kind === "body" || mine !== pvSeq || !look.previews) continue;
+    const key = pvKey(n.id), img = $("lookcanvas").querySelector(`img.pv[data-id="${CSS.escape(n.id)}"]`);
+    if (!img) continue;
+    let c = look.cache.get(key);
+    if (!c) {
+      try { const r = await call("view.preview", { world: w, view: g.view, node: n.id, px: 128 }); c = { src: `data:image/png;base64,${r.png}`, shows: `${r.shows} · tick ${r.stamp.tick}` }; }
+      catch (e) { c = { src: "", shows: String(e.message || e) }; }
+      look.cache.set(key, c);
+      if (look.cache.size > 400) look.cache.delete(look.cache.keys().next().value);
+    }
+    if (mine !== pvSeq) return;
+    if (c.src) img.src = c.src; else img.classList.add("none");
+    img.title = c.shows;
+  }
+}
+// Previews follow a running world: the graph's stamp is read again and the pictures redrawn every few seconds.
+async function refreshLookPreviews() {
+  if (!look.graph || !look.previews) return;
+  try { const g = await call("view.graph", { world: $("world").value, view: look.graph.view }); if (g.stamp.tick !== look.graph.stamp.tick) { look.graph.stamp = g.stamp; loadPreviews(); } } catch (_) {}
+}
+async function setDisplay(node) {
+  const w = $("world").value, g = look.graph;
+  try {
+    if (!node) { await call("view.display", { world: w, view: g.view, node: null }); lookDisplay = null; }
+    else { const r = await call("view.display", { world: w, view: g.view, node }); lookDisplay = { world: w, view: g.view, node, name: r.view, text: r.text, shows: r.shows, at: r.measured_at }; }
+    await subscribe();
+    await loadLook();
+    renderDisplayBar();
+  } catch (e) { oops(e); }
+}
+// In the viewport: what it shows while a display flag is on, and the way back to the whole view.
+function renderDisplayBar() {
+  const bar = $("displaybar");
+  if (!bar) return;
+  const on = lookDisplay && lookDisplay.world === $("world").value && lookDisplay.view === $("view").value;
+  bar.style.display = on ? "flex" : "none";
+  bar.textContent = "";
+  if (!on) return;
+  const t = document.createElement("span"), b = document.createElement("button");
+  t.textContent = `Look display: ${lookDisplay.node} · ${lookDisplay.shows} (measured at tick ${lookDisplay.at.tick})`;
+  b.textContent = "Whole view";
+  b.onclick = () => { if (look.graph && look.graph.view === lookDisplay.view) setDisplay(null); else { call("view.display", { world: lookDisplay.world, view: lookDisplay.view, node: null }).catch(() => {}); lookDisplay = null; subscribe().then(renderDisplayBar).catch(oops); } };
+  bar.append(t, b);
+}
+async function lookEdit(op) {
+  const w = $("world").value, g = look.graph;
+  look.msg = null;
+  try {
+    await call("view.edit", { world: w, view: g.view, base: look.rev, op });
+    await loadWorldViews(false);
+    if (lookDisplay && lookDisplay.view === g.view) { const r = await call("view.display", { world: w, view: g.view, node: lookDisplay.node }).catch(() => null); if (r) Object.assign(lookDisplay, { text: r.text, shows: r.shows, at: r.measured_at }); else lookDisplay = null; }
+    await subscribe();
+    look.msg = { cls: "ok", text: `Applied: views revision ${look.rev}. The world is unchanged.` };
+  } catch (e) {
+    look.msg = { cls: "bad", text: `${e.message || e}` };
+    await loadWorldViews(false).catch(() => {});
+  }
+  await loadLook();
+}
+async function lookStep(method) {
+  try { await call(method, { world: $("world").value }); await loadWorldViews(false); await subscribe(); look.msg = null; await loadLook(); } catch (e) { oops(e); }
+}
+async function lookCopy() {
+  const g = look.graph, w = $("world").value, names = new Set([...viewNames((await call("world.source", { world: w })).source), ...viewNamesOfDoc()]);
+  let name = `${g.view}_look`, k = 2;
+  while (names.has(name)) name = `${g.view}_look${k++}`;
+  await call("view.copy", { world: w, view: g.view, name });
+  await loadWorldViews(false);
+  await refreshViews();
+  $("view").value = name;
+  await subscribe();
+  await loadLook();
+}
+// The selected node's controls: a scale's kind and range, a palette (with its colours), any piece as text, a layer's blend,
+// opacity and order, a stage put in or taken out, a layer added. Read-only for a view of the world's source.
+const STAGES = ["scale(linear, range: 0.0..1.0)", "scale(log, range: 1.0..100.0)", "palette(viridis)", "palette(grays)", "units()", "float()"];
+function renderLookParm() {
+  const box = $("lookparm"), g = look.graph;
+  box.textContent = "";
+  if (!g) return;
+  const n = g.nodes.find((x) => x.id === look.sel), ro = g.owned !== "views";
+  const h = document.createElement("h4"), sm = document.createElement("small");
+  if (!n) { h.textContent = "Select a node"; sm.textContent = "Each node is a piece of the view's text; its socket says what it gives. The flag ◉ shows a node in the viewport."; box.append(h, sm); return lookMsg(box); }
+  h.textContent = n.title;
+  sm.textContent = `${n.kind} · gives ${n.out} · ${n.id}`;
+  box.append(h, sm);
+  for (const pb of n.problems) { const d = document.createElement("div"); d.className = "msg bad"; d.textContent = pb; box.append(d); }
+  const row = (label, el) => { const r = document.createElement("label"); r.className = "lrowp"; const s = document.createElement("span"); s.textContent = label; r.append(s, el); box.append(r); return el; };
+  const input = (v) => { const i = document.createElement("input"); i.value = v; i.spellcheck = false; i.disabled = ro; i.onkeydown = (e) => e.stopPropagation(); return i; };
+  const button = (t, f) => { const b = document.createElement("button"); b.textContent = t; b.disabled = ro; b.onclick = f; return b; };
+  const [layer, entry, k] = n.id.replace(/^layer:/, "").split("/");
+  const idx = k === undefined ? null : +k;
+  const pr = Object.fromEntries(n.params || []);
+  if (n.kind === "stage" && n.title === "scale") {
+    const kind = document.createElement("select"); for (const x of ["linear", "log"]) kind.append(new Option(x, x)); kind.value = pr.kind || "linear"; kind.disabled = ro;
+    const m = /^(-?[\d_.e]+)\.\.(-?[\d_.e]+)$/.exec(pr.range || ""), lo = input(m ? m[1] : "0.0"), hi = input(m ? m[2] : "1.0");
+    const apply = () => lookEdit({ op: "set_stage", layer, entry, index: idx, text: `scale(${kind.value}, range: ${lit(lo.value)}..${lit(hi.value)})` });
+    row("scale", kind).onchange = apply; row("from", lo).onchange = apply; row("to", hi).onchange = apply;
+  } else if (n.kind === "stage" && n.title === "palette") {
+    const sel = document.createElement("select"); for (const x of palettes) sel.append(new Option(`${x.name} (${x.kind})`, x.name)); sel.value = pr.kind; sel.disabled = ro;
+    const bar = document.createElement("div"); bar.className = "rampbar"; bar.style.background = barStyle(pr.kind);
+    row("palette", sel).onchange = () => lookEdit({ op: "set_stage", layer, entry, index: idx, text: `palette(${sel.value})` });
+    box.append(bar);
+  } else if (n.kind === "stage" || n.kind === "read" || n.kind === "expression") {
+    row(n.kind === "stage" ? "call" : "reads", input(n.text)).onchange = (e) => lookEdit({ op: "set_stage", layer, entry, index: idx, text: e.target.value });
+  } else if (n.kind === "entry") {
+    row(n.title, input(n.text)).onchange = (e) => lookEdit({ op: "set_entry", layer, key: entry, text: e.target.value });
+    box.append(button("Remove this entry", () => lookEdit({ op: "set_entry", layer, key: entry, text: null })));
+  } else if (n.kind === "source") {
+    row("source", input(n.text)).onchange = (e) => lookEdit({ op: "set_source", layer, text: e.target.value });
+  } else if (n.kind === "body") {
+    const ta = document.createElement("textarea"); ta.value = n.text; ta.rows = 6; ta.disabled = ro; ta.spellcheck = false; ta.onkeydown = (e) => e.stopPropagation();
+    box.append(ta, button("Apply body", () => lookEdit({ op: "set_body", layer, text: ta.value })));
+  } else if (n.kind === "layer") {
+    const blend = document.createElement("select"); for (const x of ["over", "add", "multiply", "subtract", "screen"]) blend.append(new Option(x, x)); blend.value = pr.blend || "over"; blend.disabled = ro;
+    row("blend", blend).onchange = () => lookEdit({ op: "set_entry", layer, key: "blend", text: blend.value === "over" ? null : blend.value });
+    row("opacity", input(pr.opacity || "1.0")).onchange = (e) => lookEdit({ op: "set_entry", layer, key: "opacity", text: lit(e.target.value) });
+    const bar = document.createElement("div"); bar.className = "edit";
+    bar.append(button("Up (drawn later)", () => lookEdit({ op: "move_layer", layer, up: true })), button("Down", () => lookEdit({ op: "move_layer", layer, up: false })), button("Remove layer", () => { if (confirm(`Remove layer ${layer} from the view?`)) lookEdit({ op: "remove_layer", layer }); }));
+    box.append(bar);
+    const add = document.createElement("select"); add.disabled = ro; add.append(new Option("Add an entry…", "")); for (const [k2, v] of [["color", "1.0 |> palette(grays)"], ["size", "2.0"], ["glyph", "dot()"], ["opacity", "1.0"]]) if (!g.nodes.some((x) => x.id === `layer:${layer}/${k2}`)) add.append(new Option(`${k2}: ${v}`, JSON.stringify([k2, v])));
+    add.onchange = () => { if (add.value) { const [k2, v] = JSON.parse(add.value); lookEdit({ op: "set_entry", layer, key: k2, text: v }); } };
+    box.append(add);
+  } else if (n.kind === "composite") {
+    const nm = input("extra"), src = document.createElement("select"); src.disabled = ro;
+    const subs = (graphData && graphData.nodes.find((x) => /\.fields\./.test(x.id) && /holds/.test(x.text))) ? [...(/holds\s*\[([^\]]*)\]/.exec(graphData.nodes.find((x) => /\.fields\./.test(x.id) && /holds/.test(x.text)).text.replace(/\s+/g, " ")) || [, ""])[1].matchAll(/(\w+)\s*:/g)].map((x) => x[1]) : [];
+    const field = graphData && (graphData.nodes.find((x) => /\.fields\./.test(x.id) && /holds/.test(x.text)) || {}).title;
+    for (const sname of subs) src.append(new Option(`field(${field}.${sname})`, JSON.stringify([`field(${field}.${sname})`, "value |> scale(log, range: 0.5..100.0) |> palette(viridis)"])));
+    src.append(new Option("agents(where: true)", JSON.stringify(["agents(where: true)", "lineage_id |> palette(categorical)"])));
+    row("name", nm); row("source", src);
+    box.append(button("Add layer on top", () => { const [source, color] = JSON.parse(src.value); lookEdit({ op: "add_layer", name: nm.value.trim(), source, color }); }));
+  }
+  if (["read", "expression", "stage"].includes(n.kind)) {
+    const add = document.createElement("select"); add.disabled = ro; add.append(new Option("Put a stage after this…", "")); for (const x of STAGES) add.append(new Option(`|> ${x}`, x));
+    add.onchange = () => { if (add.value) lookEdit({ op: "insert_stage", layer, entry, after: idx, text: add.value }); };
+    box.append(add);
+    if (n.kind === "stage") box.append(button("Take this stage out", () => lookEdit({ op: "remove_stage", layer, entry, index: idx })));
+  }
+  if (ro) { const d = document.createElement("div"); d.className = "msg"; d.textContent = "This view is part of the world's source: edit a copy to change it."; box.append(d); }
+  lookMsg(box);
+}
+function lookMsg(box) { if (look.msg) { const d = document.createElement("div"); d.className = `msg ${look.msg.cls}`; d.textContent = look.msg.text; box.append(d); } }
+function palStops(n) { const p = palettes && palettes.find((x) => x.name === n); return p ? p.colours : []; }
 function barStyle(n) {
-  const p = palettes.find((x) => x.name === n);
+  const p = palettes && palettes.find((x) => x.name === n);
   if (!p) return "";
   const css = p.colours.map((c) => `rgb(${c[0]},${c[1]},${c[2]})`);
   if (p.kind === "categorical") return `linear-gradient(to right, ${css.map((c, i) => `${c} ${i * 10}% ${(i + 1) * 10}%`).join(", ")})`;
   return `linear-gradient(to right, ${css.join(", ")})`;
 }
-function lookRow(viewName, text, layer, ro) {
-  const row = document.createElement("div"), mk = (cls, title, body) => { const n = document.createElement("div"); n.className = `lnode ${cls}`; const t = document.createElement("div"), b = document.createElement("div"); t.className = "t"; t.textContent = title; b.className = "b"; if (typeof body === "string") b.textContent = body; else b.append(...body); n.append(t, b); return n; };
-  const wire = () => { const w = document.createElement("div"); w.className = "lwire"; return w; };
-  row.className = "lrow";
-  const lay = mk("layer", `layer ${layer.name}`, layer.kind);
-  if (layer.palette === undefined) {
-    row.append(lay, wire(), mk("custom", "colour (code)", layer.entry || "no colour entry: the layer's body sets it"));
-    return row;
-  }
-  const state = { ...layer.scale ? layer.scale : { kind: null, lo: "0.0", hi: "1.0" }, scaled: !!layer.scale, palette: layer.palette };
-  const err = document.createElement("div");
-  err.className = "err";
-  const bar = document.createElement("div"), pal = document.createElement("select"), kind = document.createElement("select"), lo = document.createElement("input"), hi = document.createElement("input"), rng = document.createElement("div");
-  bar.className = "rampbar";
-  bar.style.background = barStyle(state.palette);
-  for (const p of palettes) pal.append(new Option(p.name, p.name));
-  pal.value = state.palette;
-  for (const k of ["linear", "log"]) kind.append(new Option(k, k));
-  kind.value = state.kind || "linear";
-  lo.value = state.lo; hi.value = state.hi;
-  lo.size = hi.size = 7;
-  rng.className = "range";
-  rng.append(lo, hi);
-  const lab = (t) => { const l = document.createElement("span"); l.textContent = t; l.style.color = "var(--muted)"; return l; };
-  const items = [bar, lab("palette"), pal];
-  if (state.scaled) items.push(lab("scale"), kind, lab("range"), rng);
-  else { const note = document.createElement("div"); note.style.cssText = "grid-column:1/3;color:var(--muted);font:11px system-ui"; note.textContent = "No scale: the source is already between 0 and 1."; items.push(note); }
-  items.push(err);
-  for (const el of [pal, kind, lo, hi]) el.disabled = ro;
-  const apply = async () => {
-    // The view is one document: read its current text and find this layer in it again, so an edit of
-    // another layer made in between is kept.
-    const doc = currentViewText(viewName), cur = doc && parseLayers(doc).find((l) => l.name === layer.name);
-    if (!cur || cur.palette === undefined) { err.textContent = "This layer's colour entry has changed: reopen the tab."; return; }
-    const scale = state.scaled ? ` |> scale(${kind.value}, range: ${lit(lo.value)}..${lit(hi.value)})` : "";
-    const entry = `${cur.src}${scale} |> palette(${pal.value})`;
-    const next = doc.slice(0, cur.at) + `color: ${entry};` + doc.slice(cur.at + cur.len);
-    bar.style.background = barStyle(pal.value);
-    const before = viewOverrides[viewName];
-    viewOverrides[viewName] = next;
-    err.textContent = "";
-    try { await subscribe(); }
-    catch (e) { err.textContent = String(e.message || e); if (before === undefined) delete viewOverrides[viewName]; else viewOverrides[viewName] = before; await subscribe().catch(() => {}); }
-  };
-  pal.onchange = kind.onchange = lo.onchange = hi.onchange = apply;
-  row.append(lay, wire(), mk("ramp", "ramp", items), wire(), mk("out", "colour", state.scaled ? `${kind.value}\n${lo.value} .. ${hi.value}` : "0 .. 1"));
-  return row;
-}
+const lit = (v) => { v = String(v).trim(); return /^-?[\d_]+$/.test(v) ? `${v}.0` : v; };
 
 // ---- Details: a table of the creatures (what the runner holds for each), sortable; a click inspects one.
 // ---- Inspector (`proposals/houdini-node-system.md` §10): what the selected box is, what the world holds in it, and what the
@@ -3236,7 +3411,8 @@ function lookRow(viewName, text, layer, ro) {
 // reading of the running world at one tick; MEASURED is what the runner counted over an interval, from when it began counting.
 // Nothing here is estimated from the picture of a wire, and a reading the backend cannot give says so.
 let inspHeld = null;   // { world, id, data, tick, revision }: values kept on screen while the world moves on
-const mu = (x) => (x == null ? "–" : (x / 1e6).toLocaleString(undefined, { maximumFractionDigits: 3 }));
+// µ to units: 1u is 1000µ (`language.md` §2: `0.5u` is `500mu`).
+const mu = (x) => (x == null ? "–" : (x / 1000).toLocaleString(undefined, { maximumFractionDigits: 3 }));
 async function inspectRead(n) {
   const w = $("world").value, g = graphData, out = { world: w, id: n.id, revision: g.revision, tick: null, observed: null, measured: null, stamps: {} };
   const st = await call("stats.query", { world: w });
@@ -3329,6 +3505,7 @@ function renderInspect(d, held) {
     const r = m.row;
     ms.append(inspTable([["cells looked at", String(r.cells)], ["cells it ran in", `${r.passed} (${r.cells ? Math.round(100 * r.passed / r.cells) : 0}%)`], ["requests", String(r.requests)], ["asked for (units)", mu(r.requested_mu)], ["delivered (units)", mu(r.delivered_mu)], ["cut to what the origin held", String(r.cut_by_origin)], ["cut to the room the destination had", String(r.cut_by_dest)], ["reaction ran in cells", String(r.ran)], ["reaction extent (units)", mu(r.extent)]]));
     const sm = document.createElement("small"); sm.textContent = `over ${m.ticks} ticks by the ${m.stamp.backend} runner; a count, not an estimate from the wire`; ms.append(sm);
+    if (/transfer/.test(r.call || n.kind)) ms.append(traceButton(n, r));
   } else if (m && m.kind === "reaction") {
     ms.append(inspTable(m.r.measured.map((x) => [x.by, String(x.extent), `${x.cells_reacting ?? "–"} cells`]), ["by", "extent (µ of reaction)", "where"]));
   } else if (m && m.kind === "source") {
@@ -3343,6 +3520,7 @@ async function loadInspect() {
   if (inspHeld && inspHeld.world === w) { if (inspHeld.data.agent) renderAgentInspect(inspHeld.data, true); else renderInspect(inspHeld.data, true); inspNote(); return; }
   const ag = inspAgentTarget();
   if (ag) return loadAgentInspect(ag);
+  if (track.inspCell && track.cell && track.cell.world === w) return loadCellInspect(track.cell);
   const id = parmTarget() && parmTarget().id, n = id && graphData && (graphData.nodes.find((x) => x.id === id) || (graphData.nested || []).map((x) => ({ ...x, isNested: true })).find((x) => x.id === id));
   if (!n) { note.textContent = `${w}`; $("inspbody").textContent = "Select a box in the Network."; return; }
   const d = await inspectRead(n);
@@ -3354,6 +3532,102 @@ async function loadInspect() {
   inspLast = d;
 }
 let inspLast = null;
+// ---- A selected cell (a click on the picture where no creature is): what it holds at one tick (OBSERVED), the statements
+// that touch its field (DECLARED, each one a click away in the Network), and a bounded recording of what moved through it
+// (MEASURED: `trace.start` with this cell, over the ticks after the start; nothing before it can be recovered).
+function selectCell(p, h) {
+  if (!h.map || !h.map.grid_w) return;
+  const k = h.map.w / h.map.grid_w, ix = Math.floor(p.px / k), iy = Math.floor(p.py / k);
+  if (ix < 0 || iy < 0 || ix >= h.map.grid_w || iy >= h.map.grid_h) return;
+  track.cell = { world: $("world").value, ix, iy, index: iy * h.map.grid_w + ix, grid_w: h.map.grid_w, grid_h: h.map.grid_h, world_w: h.map.world_w, world_h: h.map.world_h };
+  track.inspCell = true;
+  track.note = `cell (${ix}, ${iy}) selected: the Inspector shows it`;
+  drawTrack();
+  renderSelBar();
+  if (visible.inspect && !inspHeld) loadInspect().catch(oops);
+}
+const cellTrace = new Map();   // `${world}|${index}` -> { from, until }: a recording this page started for that cell
+async function loadCellInspect(c) {
+  const w = c.world, sx = c.world_w / c.grid_w, sy = c.world_h / c.grid_h, body = $("inspbody"), note = $("inspnote");
+  const r = await call("region.query", { world: w, x: [c.ix * sx, (c.ix + 1) * sx], y: [c.iy * sy, (c.iy + 1) * sy] });
+  if (w !== $("world").value || inspHeld || !track.inspCell) return;
+  if (!graphData) await loadGraph().catch(() => {});
+  body.textContent = "";
+  const title = document.createElement("div");
+  title.innerHTML = "<b></b> <small></small>";
+  const field = graphData && graphData.nodes.find((x) => /\.fields\./.test(x.id) && /holds/.test(x.text));
+  title.firstChild.textContent = `Cell (${c.ix}, ${c.iy})`;
+  title.lastChild.textContent = `of ${field ? field.title : "the field"} · index ${c.index}`;
+  body.append(title);
+  const ob = inspSection("observed", "Observed", r.observation ? `tick ${r.observation.tick}, revision ${r.observation.revision}, ${r.observation.backend}` : "");
+  if (r.cells && r.cells.unavailable) ob.append(document.createTextNode(`Not available: ${r.cells.unavailable}`));
+  else if (r.cells) ob.append(inspTable(Object.entries(r.cells.amounts_mu || {}).map(([k, v]) => [k, mu(v)]), ["substance", "amount (units)"]));
+  const here = (r.creatures || []).filter((x) => x.count > 0);
+  if (here.length) { const sm = document.createElement("small"); sm.textContent = `creatures in the cell: ${here.map((x) => `${x.lineage} ${x.count}`).join(", ")}`; ob.append(sm); }
+  body.append(ob);
+  const decl = inspSection("declared", "Declared", graphData ? `rules of the source, revision ${graphData.revision}` : "");
+  const ids = new Set();
+  if (field && graphData) for (const x of graphData.wires) { if (x.from === field.id) ids.add(x.to); if (x.to === field.id) ids.add(x.from); }
+  const stm = [...ids].map((id) => graphData.nodes.find((n) => n.id === id) || (graphData.nested || []).find((n) => n.id === id)).filter((n) => n && (n.group || n.container));
+  if (stm.length) {
+    decl.append(document.createTextNode("Statements that read or write this field (each runs in every cell):"));
+    decl.append(inspTable(stm.map((n) => { const a = document.createElement("a"); a.className = "go"; a.textContent = n.id.split(".").slice(2).join("."); a.title = "Show it in the Network"; a.onclick = () => revealStatement(n.id); return [a, n.step || (n.when ? `when ${n.when}` : ""), n.kind]; }), ["statement", "runs in", "kind"]));
+  } else decl.append(document.createTextNode("No statement of the source touches this field."));
+  body.append(decl);
+  const ms = inspSection("measured", "Measured", "");
+  const key = `${w}|${c.index}`, open = cellTrace.get(key);
+  const btn = document.createElement("button");
+  btn.textContent = open ? "Record again for 10 ticks" : "Record what moves through this cell for 10 ticks";
+  btn.title = "A bounded recording of the transfer requests with this cell at either end (trace.start): the ticks after now only";
+  btn.onclick = async () => {
+    try { const t = await call("trace.start", { world: w, cells: [c.index], ticks: 10, cap: 5000, owner: "inspector" }); cellTrace.set(key, { from: t.from_tick, until: t.until_tick }); loadCellInspect(c).catch(oops); }
+    catch (e) { const m = document.createElement("div"); m.className = "msg bad"; m.textContent = String(e.message || e); ms.append(m); }
+  };
+  ms.append(btn);
+  if (open) {
+    const t = await call("trace.query", { world: w, limit: 400 }).catch((e) => ({ error: String(e.message || e) }));
+    if (t.error) ms.append(document.createTextNode(` ${t.error}`));
+    else {
+      const sm = document.createElement("small");
+      sm.textContent = `ticks ${t.from_tick + 1} to ${t.until_tick}${t.open ? ` (open: at tick ${t.tick_now})` : ""} · ${t.kept} requests kept${t.dropped ? `, ${t.dropped} dropped` : ""} · ${t.complete ? "complete" : "not complete yet"}`;
+      ms.append(sm, inspTable(t.records.slice(0, 60).map((x) => [String(x.tick), x.by.split(".").slice(2).join(".") || x.by, `${x.from} → ${x.to}`, x.substance, mu(x.requested_mu), mu(x.delivered_mu)]), ["tick", "by", "from → to", "substance", "asked", "arrived"]));
+    }
+  }
+  body.append(ms);
+  note.textContent = `${w} · cell (${c.ix}, ${c.iy}) · read at tick ${r.observation ? r.observation.tick : "?"}`;
+  note.className = "";
+}
+// A bounded recording of one statement's requests (`trace.start` with its path), from the Inspector: the ticks after now
+// only. A statement inside a `when` is recorded with the others of its top-level statement (they share the runner's path).
+const stmtTrace = new Map();   // `${world}|${id}` -> true once this page started one
+function traceButton(n, row) {
+  const box = document.createElement("div"), b = document.createElement("button"), w = $("world").value, key = `${w}|${n.id}`;
+  b.textContent = "Record its requests for 10 ticks";
+  b.title = "A bounded recording of this statement's transfer requests over the next 10 ticks (trace.start); nothing before it can be recovered";
+  b.onclick = async () => {
+    try { await call("trace.start", { world: w, rules: [row.path], ticks: 10, cap: 5000, owner: "inspector" }); stmtTrace.set(key, true); loadInspect().catch(oops); }
+    catch (e) { const m = document.createElement("div"); m.className = "msg bad"; m.textContent = String(e.message || e); box.append(m); }
+  };
+  box.append(b);
+  if (stmtTrace.has(key)) {
+    call("trace.query", { world: w, limit: 200 }).then((t) => {
+      const sm = document.createElement("small");
+      sm.textContent = `recorded ticks ${t.from_tick + 1} to ${t.until_tick}${t.open ? ` (open: at tick ${t.tick_now})` : ""} · ${t.kept} requests${t.dropped ? `, ${t.dropped} dropped` : ""} · ${t.complete ? "complete" : "not complete yet"}${n.isNested ? " · with the other statements of its when (one path in the runner)" : ""}`;
+      const arrived = t.records.reduce((a, x) => a + x.delivered_mu, 0), asked = t.records.reduce((a, x) => a + x.requested_mu, 0);
+      box.append(sm, inspTable([["requests", String(t.kept)], ["asked (units)", mu(asked)], ["arrived (units)", mu(arrived)]]));
+    }).catch(() => {});
+  }
+  return box;
+}
+// A statement shown where it is: its rule's network (or the whole one), selected and framed.
+function revealStatement(id) {
+  const n = graphData.nodes.find((x) => x.id === id) || (graphData.nested || []).find((x) => x.id === id);
+  if (!n) return;
+  activate("network");
+  const c = n.contract && n.contract.context;
+  if (c && c !== ctx) goContext(c, id); else select(id);
+  setTimeout(() => frameIds([id]), 50);
+}
 async function inspNote() {
   const note = $("inspnote"), h = inspHeld;
   if (!h) return;
@@ -3933,7 +4207,7 @@ async function refreshViews() {
   const w = $("world").value;
   if (!w) return;
   const { source } = await call("world.source", { world: w });
-  const own = viewNames(source), extra = [...new Set([...viewNames(example.views), ...Object.keys(viewOverrides)])].filter((v) => !own.includes(v));
+  const own = viewNames(source), extra = [...new Set(viewNamesOfDoc())].filter((v) => !own.includes(v));
   const prev = $("view").value;
   $("view").innerHTML = [...own.map((v) => `<option>${v}</option>`), ...extra.map((v) => `<option>${v}</option>`)].join("");
   $("view").value = [...own, ...extra].includes(prev) ? prev : (extra[0] || own[0] || "");
@@ -3941,8 +4215,11 @@ async function refreshViews() {
 
 async function subscribe() {
   oops();
-  const world = $("world").value, view = $("view").value;
-  if (!world || !view) return;
+  const world = $("world").value, chosen = $("view").value;
+  if (!world || !chosen) return;
+  // With a display flag on in the Look network, the viewport shows that node (a view of its own) instead of the view.
+  const view = lookDisplay && lookDisplay.world === world && lookDisplay.view === chosen ? lookDisplay.name : chosen;
+  renderDisplayBar();
   if (sub) { await call("view.unsubscribe", { subscription: sub }).catch(() => {}); sub = null; }
   const charts = $("charts").checked ? ["default"] : [];
   const r = await call("view.subscribe", { world, view, views: viewsText(), charts, every: +$("every").value || 1, max_fps: +$("fps").value || 8, pick: true, watch: watchIds() });
@@ -4008,10 +4285,12 @@ async function create() {
   if (x.resizable && size !== "256") source = source.replace("Grid(w: 256, h: 256)", `Grid(w: ${size}, h: ${size})`).replace(/count: 2_000;/g, "count: 300;");
   const { world } = await call("world.create", { source, lineages, seed: +$("seed").value || 1, backend: x.backend || $("backend").value, mutation: x.mutation !== false });
   await refreshWorlds(world);
+  await loadWorldViews(true).catch(() => {});
   await refreshViews();
   await subscribe();
   await stats();
   if (isShown("graph")) { await loadGraph(); if (cams.graph.fit) fitCam(cams.graph); applyCam(cams.graph); }
+  if (isShown("look")) await loadLook().catch(oops);
 }
 
 function connect() {
@@ -4032,7 +4311,7 @@ function connect() {
     await loadExamples();
     const worlds = await refreshWorlds();
     if (codeonly) await loadCode();
-    else if (worlds.length) { await refreshViews(); await subscribe(); await stats(); if (codeOpen()) await loadCode(); }
+    else if (worlds.length) { await loadWorldViews(false).catch(() => {}); await refreshViews(); await subscribe(); await stats(); if (codeOpen()) await loadCode(); }
     clearInterval(poll);
     poll = setInterval(() => {
       stats().catch(() => {});
@@ -4043,6 +4322,7 @@ function connect() {
         // "All agents" pages one observation until Refresh; the other scopes are read again every two seconds.
         if (isShown("details") && (details.polls = (details.polls || 0) + 1) % 2 === 0 && details.scope !== "all") loadDetails().catch(() => {});
         if (isShown("inspect") && !inspHeld && ++genomeTick % 3 === 0) loadInspect().catch(() => {});
+        if (isShown("look") && w && w.running && ++genomeTick % 3 === 0) refreshLookPreviews();
         if (isShown("rules") && w && w.revision !== rulesRev) loadRules().catch(() => {});
         if (isShown("lineage") && ++genomeTick % 2 === 0) loadLineage().catch(() => {});
         if (isShown("census") && ++genomeTick % 4 === 0) loadCensus(true).catch(() => {});
@@ -4066,7 +4346,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => { selection = null; selected = null; inspHeld = null; renderParm(); track.frame = null; track.trails.clear(); track.last.clear(); track.follow = null; track.status.clear(); track.rec.clear(); drawTrack(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); if (visible.flow) loadFlow(); if (visible.life) loadLife(); if (visible.book) loadBook(); if (visible.inspect) loadInspect(); }).catch(oops) };
+$("world").onchange = () => { selection = null; selected = null; inspHeld = null; renderParm(); track.frame = null; track.trails.clear(); track.last.clear(); track.follow = null; track.status.clear(); track.rec.clear(); drawTrack(); return loadWorldViews(false).catch(() => {}).then(refreshViews).then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); if (visible.flow) loadFlow(); if (visible.life) loadLife(); if (visible.book) loadBook(); if (visible.inspect) loadInspect(); }).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().then(() => { if (visible.look) return loadLook(); }).catch(oops);
 // Space plays and pauses the active world.
 let runningNow = {};
@@ -4122,6 +4402,8 @@ function setAgent(id, quiet) {
   const w = $("world").value;
   track.sel = id ? { world: w, run: track.run, id: String(id) } : null;
   track.inspAgent = !!id;
+  track.cell = null;
+  track.inspCell = false;
   if (!id) track.trails.clear();
   sendWatch();
   if (id && Number.isSafeInteger(Number(id))) setScience({ entity: Number(id) });
@@ -4167,6 +4449,11 @@ function drawTrack() {
   svg.setAttribute("width", r.width); svg.setAttribute("height", r.height);
   const NS = "http://www.w3.org/2000/svg", mk = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); svg.append(e); return e; };
   const halfW = h.map.w / 2, halfH = h.map.h / 2;
+  // The selected cell: a square on its edges.
+  if (track.cell && track.cell.world === h.world && h.map.grid_w) {
+    const k = h.map.w / h.map.grid_w, a = toScreen({ px: track.cell.ix * k, py: track.cell.iy * k }), b = toScreen({ px: (track.cell.ix + 1) * k, py: (track.cell.iy + 1) * k });
+    mk("rect", { x: a.x, y: a.y, width: Math.max(3, b.x - a.x), height: Math.max(3, b.y - a.y), class: "cellsel" });
+  }
   // Recorded trails: the server's samples at their ticks, split where a sample is missing, at a death, and where a step
   // between two samples is more than half the world (it may have crossed the wrapping edge: the way is not known).
   const kx = h.map.w / h.map.world_w, ky = h.map.h / h.map.world_h;
@@ -4229,7 +4516,7 @@ async function trackClick(e) {
   const p = pointToWorld(e.clientX, e.clientY), h = track.frame;
   closeCands();
   if (!p || !h || !sub) return;
-  if (!h.pickable) { track.note = "this view draws no creatures to pick: use i for the cell"; renderSelBar(); return; }
+  if (!h.pickable) { selectCell(p, h); return; }
   const gen = ++track.gen, world = $("world").value;
   const tol = 8 / cams.picture.s;   // 8 CSS pixels at this zoom, in picture pixels
   let r;
@@ -4240,7 +4527,7 @@ async function trackClick(e) {
   }
   if (gen !== track.gen || world !== $("world").value) return;   // a later click or another world: this answer is stale
   const c = r.candidates;
-  if (!c.length) { if (!track.clickTool) setAgent(null); return; }
+  if (!c.length) { if (!track.clickTool) { setAgent(null); selectCell(p, h); } return; }
   const inside = c.filter((x) => x.distance_px <= x.radius_px);
   const one = c.length === 1 ? c[0] : inside.length === 1 && c.filter((x) => x.distance_px <= inside[0].radius_px * 1.5).length === 1 ? inside[0] : null;
   if (one) return chooseAgent(one.id);

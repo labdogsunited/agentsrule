@@ -218,3 +218,85 @@ fn the_code_box_checks_while_typing_and_knows_the_names() {
     assert_eq!(find("transfer")["kind"], "function");
     assert_eq!(find("below")["kind"], "direction");
 }
+
+const VIEWS: &str = include_str!("../../../examples/views/dish.em");
+
+/// H5, the Look network: the world's view document is checked on every change (a refused change keeps the last valid one),
+/// has its own revision and undo, a view is a typed network, a node can be drawn alone, the display flag gives the view
+/// the viewport shows, a source-owned view is edited through a copy, and the document outlives the server by name. None of
+/// it moves the world's revision.
+#[test]
+fn the_look_network_edits_checked_views() {
+    let dir = scratch("views");
+    let mut engine = Engine::new().with_state_dir(dir.clone());
+    let w = dish(&mut engine);
+    engine.call("run.step", &json!({"world": w, "ticks": 5})).unwrap();
+    assert!(engine.call("views.set", &json!({"world": w, "text": "view Bad for Dish { layer x = field(cells.nosuch) { color: value |> palette(greens); } }"})).is_err());
+    assert_eq!(engine.call("views.get", &json!({"world": w})).unwrap()["saved"], false, "a refused document is not kept");
+    assert_eq!(engine.call("views.set", &json!({"world": w, "text": VIEWS})).unwrap()["revision"], 1);
+    let g = engine.call("view.graph", &json!({"world": w, "view": "Energy"})).unwrap();
+    assert_eq!(g["owned"], "views");
+    let out = |g: &Value, id: &str| g["nodes"].as_array().unwrap().iter().find(|n| n["id"] == id).unwrap()["out"].as_str().unwrap().to_string();
+    assert_eq!(out(&g, "layer:ground/color/1"), "scaled");
+    // An edit: one views revision; a refused one keeps the last valid view.
+    engine.call("view.edit", &json!({"world": w, "view": "Energy", "base": 1, "op": {"op": "set_stage", "layer": "ground", "entry": "color", "index": 2, "text": "palette(viridis)"}})).unwrap();
+    let bad = engine.call("view.edit", &json!({"world": w, "view": "Energy", "base": 2, "op": {"op": "set_stage", "layer": "ground", "entry": "color", "index": 2, "text": "palette(nosuch)"}})).unwrap_err();
+    assert!(bad.message.contains("last valid"), "{}", bad.message);
+    let stale = engine.call("view.edit", &json!({"world": w, "view": "Energy", "base": 1, "op": {"op": "remove_layer", "layer": "life"}})).unwrap_err();
+    assert!(stale.message.starts_with("stale"));
+    let text = engine.call("view.graph", &json!({"world": w, "view": "Energy"})).unwrap()["text"].as_str().unwrap().to_string();
+    assert!(text.contains("palette(viridis)") && !text.contains("nosuch"));
+    // Undo and redo of the views.
+    engine.call("views.undo", &json!({"world": w})).unwrap();
+    assert!(engine.call("view.graph", &json!({"world": w, "view": "Energy"})).unwrap()["text"].as_str().unwrap().contains("palette(cividis)"));
+    engine.call("views.redo", &json!({"world": w})).unwrap();
+    // A node drawn alone: a PNG, saying what it shows; a number measured over this frame.
+    let pv = engine.call("view.preview", &json!({"world": w, "view": "Energy", "node": "layer:life/color/0", "px": 64})).unwrap();
+    assert!(pv["png"].as_str().unwrap().starts_with("iVBORw0KGgo"), "a PNG");
+    assert!(pv["shows"].as_str().unwrap().contains("range this frame holds"), "{pv}");
+    assert!(engine.call("view.preview", &json!({"world": w, "view": "Energy", "node": "layer:nope"})).is_err());
+    // The display flag: the view the viewport shows instead, which checks.
+    let d = engine.call("view.display", &json!({"world": w, "view": "Energy", "node": "layer:ground/color/1"})).unwrap();
+    let doc = format!("{}\n{}", engine.call("views.get", &json!({"world": w})).unwrap()["text"].as_str().unwrap(), d["text"].as_str().unwrap());
+    assert!(engine.call("views.set", &json!({"world": w, "text": doc})).is_ok(), "the displayed view is a valid view");
+    assert_eq!(engine.call("view.graph", &json!({"world": w, "view": "Energy"})).unwrap()["display"], "layer:ground/color/1");
+    assert_eq!(engine.run(&w).unwrap().revision(), 0, "views are never a revision of the world");
+    // A view that is part of the world's source is edited through a copy.
+    let life = engine.call("world.create", &json!({"source": LIFE, "lineages": [], "seed": 1})).unwrap()["world"].as_str().unwrap().to_string();
+    let lv = emerge_lang::parse(LIFE).unwrap().items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::View(v) => Some(v.name.clone()), _ => None }).unwrap();
+    let e = engine.call("view.edit", &json!({"world": life, "view": lv, "op": {"op": "move_layer", "layer": "x", "up": true}})).unwrap_err();
+    assert!(e.message.contains("edit a copy"), "{}", e.message);
+    engine.call("view.copy", &json!({"world": life, "view": lv, "name": "Mine"})).unwrap();
+    assert_eq!(engine.call("view.graph", &json!({"world": life, "view": "Mine"})).unwrap()["owned"], "views");
+    // The document comes back with the world's name after a restart.
+    drop(engine);
+    let mut again = Engine::new().with_state_dir(dir.clone());
+    let made = again.call("world.create", &json!({"source": small(DISH), "lineages": ["Builder"], "seed": 1, "mutation": false})).unwrap();
+    assert_eq!(made["views_restored"], "Dish");
+    let w2 = made["world"].as_str().unwrap();
+    assert!(again.call("view.graph", &json!({"world": w2, "view": "Energy"})).unwrap()["text"].as_str().unwrap().contains("palette(viridis)"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// H5, a selected cell: a recording of what moves through chosen cells keeps only requests with one of them at an end, and
+/// its amounts are read for that one cell.
+#[test]
+fn a_recording_of_one_cell_keeps_only_that_cell() {
+    let mut engine = Engine::new();
+    let w = dish(&mut engine);
+    engine.call("run.step", &json!({"world": w, "ticks": 3})).unwrap();
+    let cell = 64 * 10 + 7;
+    engine.call("trace.start", &json!({"world": w, "cells": [cell], "ticks": 4, "cap": 5000, "owner": "inspector"})).unwrap();
+    engine.call("run.step", &json!({"world": w, "ticks": 5})).unwrap();
+    let t = engine.call("trace.query", &json!({"world": w, "limit": 5000})).unwrap();
+    let name = format!("cell {cell}");
+    let recs = t["records"].as_array().unwrap();
+    assert!(!recs.is_empty(), "the inflow rules reach every cell");
+    assert!(recs.iter().all(|r| r["from"] == name.as_str() || r["to"] == name.as_str()), "{t}");
+    assert_eq!(t["complete"], true);
+    assert!(engine.call("trace.start", &json!({"world": w, "cells": [], "ticks": 4})).is_err(), "at least one cell");
+    // The cell's amounts, read on their own.
+    let side = 512.0 / 64.0;
+    let r = engine.call("region.query", &json!({"world": w, "x": [7.0 * side, 8.0 * side], "y": [10.0 * side, 11.0 * side]})).unwrap();
+    assert_eq!(r["cells"]["count"], 1);
+}
