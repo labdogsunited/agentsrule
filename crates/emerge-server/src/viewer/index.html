@@ -139,6 +139,13 @@
   .plabel { position: absolute; font: 9px system-ui, sans-serif; color: var(--muted); pointer-events: none; top: 0; line-height: 12px; }
   .plabel.in { left: 8px; }
   .plabel.out { right: 8px; text-align: right; }
+  #netcrumbs { display: inline-flex; align-items: center; gap: 4px; margin: 0 6px; font-size: 12px; }
+  #netcrumbs button { padding: 1px 8px; }
+  #netcrumbs b { font-weight: 600; }
+  #netctx { max-width: 150px; }
+  .box.ghost { opacity: 0.6; border-style: dashed; }
+  .nwhen { position: absolute; border: 1px dashed #8b93a1; border-radius: 8px; background: rgba(139,147,161,0.06); pointer-events: none; }
+  .nwhen span { position: absolute; left: 8px; top: -9px; padding: 0 6px; background: var(--bg, #15181d); font: 10px ui-monospace, monospace; color: var(--muted); max-width: 90%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .box.okdrop { border-color: #6fcf97; box-shadow: 0 0 0 1px #6fcf97; }
   .box.nodrop { border-color: #d96666; box-shadow: 0 0 0 1px #d96666; }
   #wirehint { position: absolute; z-index: 20; max-width: 320px; padding: 4px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font-size: 11px; pointer-events: none; display: none; }
@@ -406,7 +413,7 @@
     
 
       </div></div>
-  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
+  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><span id="netcrumbs" title="Where you are in the network. Enter (or double-click a statement) goes into its rule; U goes up."></span><select id="netctx" title="Go to a network"></select><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label><label><input type="radio" name="rmode" value="trace"> trace</label></div><div id="rulesbody"></div></main></div>
@@ -955,21 +962,37 @@ $("codetext").addEventListener("keydown", (e) => {
 // page's lifetime only.
 let graphData = null, graphRev = null, selected = null;
 const placed = new Map();
+// The network you are in (`proposals/houdini-node-system.md` §4): `world` is the whole picture; `rule:NAME` is one rule's
+// statements, with ghosts of the stores and sources they touch. Each has its own camera and its own saved positions.
+let ctx = "world";
+const ctxCams = new Map();
+let ghostIds = new Set();
+const posKey = (id) => (ctx === "world" ? id : `${ctx}|${id}`);
 const STEPS = ["Field signals", "Transfers", "World reactions"];
 const BOX = { w: 200, h: 60, gap: 28 };
 const hue = (name) => { let h = 0; for (const c of name || "") h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
 const wireColor = (name) => (name ? `hsl(${hue(name)} 65% 62%)` : "#8b93a1");
 
 function layoutGraph(g) {
+  if (ctx !== "world" && !(g.contexts || []).some((c) => c.key === ctx)) ctx = "world";
+  for (const k of [...placed.keys()]) if (!k.includes("/")) placed.delete(k);
   const col = (n) => (n.kind === "reaction" || (n.kind === "store" && /\.sources\./.test(n.id)) ? 0 : n.kind === "store" ? 2 : 1);
-  const drawn = g.nodes.filter((n) => ["store", "reaction", "transfer", "react", "diffuse", "signal", "code"].includes(n.kind));
+  let drawn = g.nodes.filter((n) => ["store", "reaction", "transfer", "react", "diffuse", "signal", "code"].includes(n.kind));
+  ghostIds = new Set();
+  if (ctx !== "world") {
+    const mine = drawn.filter((n) => n.contract && n.contract.context === ctx), ids = new Set(mine.map((n) => n.id)), near = new Set();
+    for (const w of g.wires) { if (ids.has(w.from) && !ids.has(w.to)) near.add(w.to); if (ids.has(w.to) && !ids.has(w.from)) near.add(w.from); }
+    const ghosts = drawn.filter((n) => near.has(n.id) && !ids.has(n.id));
+    ghosts.forEach((n) => ghostIds.add(n.id));
+    drawn = [...mine, ...ghosts];
+  }
   const rank = (n) => (n.group ? STEPS.indexOf(n.step) + 1 || 9 : 0);
   const cols = [[], [], []];
   for (const n of drawn) cols[col(n)].push(n);
   cols[1].sort((a, b) => rank(a) - rank(b) || a.line - b.line);
   cols.forEach((list, c) => list.forEach((n, i) => {
-    const key = `${g.world}/${n.id}`;
-    const saved = g.positions && g.positions[n.id];
+    const key = ctx === "world" ? `${g.world}/${n.id}` : `${g.world}/${ctx}/${n.id}`;
+    const saved = g.positions && g.positions[posKey(n.id)];
     if (!placed.has(key)) placed.set(key, saved ? { x: saved[0], y: saved[1] } : { x: 40 + c * 330, y: 40 + i * (BOX.h + BOX.gap) });
     placed.set(n.id, placed.get(key));
   }));
@@ -984,7 +1007,9 @@ function drawGraph() {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.id = "wires";
   root.appendChild(svg);
-  for (const [c, name] of [[0, "Sources and reactions"], [1, "Rule statements, in tick order"], [2, "Stores"]]) {
+  const ruleName = ctx.replace(/^rule:/, "");
+  const heads = ctx === "world" ? ["Sources and reactions", "Rule statements, in tick order", "Stores"] : ["Read from (in the world)", `Statements of ${ruleName}`, "Put into (in the world)"];
+  for (const [c, name] of heads.map((h, i) => [i, h])) {
     const h = document.createElement("div");
     h.className = "col-head";
     h.style.left = `${40 + c * 330}px`;
@@ -995,7 +1020,8 @@ function drawGraph() {
   let maxX = 0, maxY = 0;
   for (const n of drawn) {
     const p = placed.get(n.id), el = document.createElement("div");
-    el.className = `box k-${n.kind}${/@code_/.test(n.id) ? " codebox" : ""}`;
+    el.className = `box k-${n.kind}${/@code_/.test(n.id) ? " codebox" : ""}${ghostIds.has(n.id) ? " ghost" : ""}`;
+    if (ghostIds.has(n.id)) el.title = "Part of the world, not of this rule: double-click to go there";
     el.dataset.id = n.id;
     el.style.left = `${p.x}px`;
     el.style.top = `${p.y}px`;
@@ -1031,6 +1057,37 @@ function drawGraph() {
     maxX = Math.max(maxX, p.x + BOX.w + 40);
     maxY = Math.max(maxY, p.y + BOX.h + 40);
   }
+  if (ctx !== "world") {
+    // Statements inside a `when` or `else`: each group in a dashed frame that says when it runs. They are boxes of the
+    // rule's network like the others; editing one waits for H4, and its panel says so.
+    const nest = (g.nested || []).filter((x) => x.contract && x.contract.context === ctx), byWhen = new Map();
+    for (const x of nest) { if (!byWhen.has(x.when)) byWhen.set(x.when, []); byWhen.get(x.when).push(x); }
+    const members = drawn.filter((n) => !ghostIds.has(n.id)).length;
+    let y = 40 + Math.max(members, 1) * (BOX.h + BOX.gap) + 24;
+    for (const [when, list] of byWhen) {
+      const x0 = 40 + 330;
+      list.forEach((x, i) => {
+        const key = `${g.world}/${ctx}/${x.id}`, saved = g.positions && g.positions[posKey(x.id)];
+        if (!placed.has(key)) placed.set(key, saved ? { x: saved[0], y: saved[1] } : { x: x0, y: y + 14 + i * (BOX.h + BOX.gap) });
+        placed.set(x.id, placed.get(key));
+        const p = placed.get(x.id), el = document.createElement("div"), t = document.createElement("div"), b = document.createElement("div");
+        el.className = `box k-${x.kind} nested`; el.dataset.id = x.id; el.style.left = `${p.x}px`; el.style.top = `${p.y}px`;
+        el.title = "Inside a `when`: editing it waits for the next stage";
+        t.className = "t"; t.textContent = x.title; b.className = "b"; b.textContent = x.text.replace(/\s+/g, " ");
+        el.append(t, b);
+        root.appendChild(el);
+        maxX = Math.max(maxX, p.x + BOX.w + 40); maxY = Math.max(maxY, p.y + BOX.h + 40);
+      });
+      const ps = list.map((x) => placed.get(x.id)), fr = document.createElement("div");
+      fr.className = "nwhen";
+      fr.style.cssText = `left:${Math.min(...ps.map((p) => p.x)) - 12}px;top:${Math.min(...ps.map((p) => p.y)) - 18}px;width:${BOX.w + 24}px;height:${Math.max(...ps.map((p) => p.y)) - Math.min(...ps.map((p) => p.y)) + BOX.h + 30}px`;
+      const lb = document.createElement("span");
+      lb.textContent = `when ${when}`;
+      fr.append(lb);
+      root.prepend(fr);
+      y += list.length * (BOX.h + BOX.gap) + 40;
+    }
+  }
   for (const [id, f] of Object.entries(g.frames || {})) { root.prepend(frameEl(id, f)); maxX = Math.max(maxX, f.x + f.w + 40); maxY = Math.max(maxY, f.y + f.h + 40); }
   for (const [id, n] of Object.entries(g.notes || {})) { root.appendChild(noteEl(id, n)); maxX = Math.max(maxX, n.x + 220); maxY = Math.max(maxY, n.y + 120); }
   root.style.width = `${maxX}px`;
@@ -1042,6 +1099,7 @@ function drawGraph() {
   drawWires();
   markSel();
   applyNetFind();
+  renderCrumbs();
   if (!$("picked").contains(document.activeElement)) renderParm();
   if (isShown("graph")) applyCam(cam);
   const other = g.nodes.filter((n) => !["store", "reaction", "transfer", "react", "diffuse", "signal", "code", "rule"].includes(n.kind));
@@ -1080,6 +1138,52 @@ window.addEventListener("keydown", (e) => {
   else if ((e.key === "Delete" || e.key === "Backspace") && pickedItem) { e.preventDefault(); removeItem(pickedItem); }
   else if (e.key === "Escape" && multi.size > 1) { select(selected); }
 }, true);
+// ---- Contexts (`proposals/houdini-node-system.md` §4): breadcrumbs, a menu, Enter and U, one camera for each.
+function ctxLabel(key) { const g = graphData, c = g && (g.contexts || []).find((x) => x.key === key); return c ? (key === "world" ? c.label : c.label.split(" / ").pop()) : key; }
+function renderCrumbs() {
+  const g = graphData, box = $("netcrumbs"), sel = $("netctx");
+  if (!box || !sel) return;
+  box.textContent = "";
+  if (!g) return;
+  const root = document.createElement("button");
+  root.textContent = ctxLabel("world");
+  root.title = "Back to the whole network (U)";
+  root.disabled = ctx === "world";
+  root.onclick = () => goContext("world");
+  box.append(root);
+  if (ctx !== "world") { const sep = document.createElement("span"), cur = document.createElement("b"); sep.textContent = "›"; cur.textContent = ctxLabel(ctx); box.append(sep, cur); }
+  sel.textContent = "";
+  for (const c of g.contexts || []) { const o = document.createElement("option"); o.value = c.key; o.textContent = c.key === "world" ? `${c.label} (all)` : c.label.split(" / ").slice(1).join(" / "); sel.append(o); }
+  sel.value = ctx;
+}
+function goContext(key, pick) {
+  if (!graphData || key === ctx) return;
+  const c = cams.graph;
+  ctxCams.set(ctx, { x: c.x, y: c.y, s: c.s, fit: c.fit });
+  ctx = key;
+  multi = new Set();
+  selected = null;
+  drawGraph();
+  const saved = ctxCams.get(key), cam = cams.graph;
+  if (saved && !saved.fit) Object.assign(cam, saved); else { cam.fit = true; fitCam(cam); }
+  applyCam(cam);
+  select(pick && placed.has(pick) ? pick : null);
+}
+function enterBox(id) {
+  const n = graphData && graphData.nodes.find((x) => x.id === id);
+  if (!n) return false;
+  if (ghostIds.has(id)) { goContext("world", id); return true; }
+  const c = n.contract && n.contract.context;
+  if (ctx === "world" && c && c.startsWith("rule:")) { goContext(c, id); return true; }
+  return false;
+}
+$("netctx").onchange = () => goContext($("netctx").value);
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || typing() || !isShown("graph") || mode !== "graph") return;
+  if (e.key.toLowerCase() === "u" && ctx !== "world") { e.preventDefault(); e.stopImmediatePropagation(); goContext("world", selected); }
+  else if (e.key === "Enter" && selected && enterBox(selected)) e.preventDefault();
+}, true);
+stages.graph.addEventListener("dblclick", (e) => { const b = e.target.closest(".box"); if (b && !e.target.closest(".nframe,.nnote")) enterBox(b.dataset.id); });
 let findIds = null;
 function applyNetFind() {
   const q = ($("netfind").value || "").trim().toLowerCase(), g = graphData;
@@ -1098,7 +1202,7 @@ $("netfind").addEventListener("keydown", (e) => {
 function savePositions(ids) {
   if (!graphData) return;
   const positions = {};
-  for (const id of ids) { const p = placed.get(id); if (p) positions[id] = [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10]; }
+  for (const id of ids) { const p = placed.get(id); if (p) positions[posKey(id)] = [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10]; }
   call("world.layout_set", { world: $("world").value, positions }).catch(() => {});
 }
 function saveMeta() {
@@ -1329,7 +1433,7 @@ window.addEventListener("keydown", (e) => {
 function savePosition(id) {
   const p = placed.get(id);
   if (!p || !graphData) return;
-  call("world.layout_set", { world: $("world").value, positions: { [id]: [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10] } }).catch(() => {});
+  call("world.layout_set", { world: $("world").value, positions: { [posKey(id)]: [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10] } }).catch(() => {});
 }
 for (const b of document.querySelectorAll("#palette button[data-kind]")) b.onclick = () => graphOp({ op: "add_rule", kind: b.dataset.kind });
 
@@ -1427,7 +1531,7 @@ let pinned = null;                 // { world, id, name }
 const inflight = new Set();        // worlds with a source edit in flight from this page
 let lastFrame = { tick: null, revision: null };
 const dkey = (w, id) => `${w}\0${id}`;
-const parmNode = (t) => (t && graphData && $("world").value === t.world ? graphData.nodes.find((x) => x.id === t.id) : null);
+const parmNode = (t) => (t && graphData && $("world").value === t.world ? graphData.nodes.find((x) => x.id === t.id) || (graphData.nested || []).map((x) => ({ ...x, isNested: true })).find((x) => x.id === t.id) : null);
 const normText = (t) => t.replace(/\s+/g, " ").trim();
 function viewportNote(rev) {
   return lastFrame.revision != null && lastFrame.revision < rev ? ` · the viewport still shows revision ${lastFrame.revision}` : "";
@@ -1444,7 +1548,7 @@ function paramsGrid(n, locked) {
     inp.value = pd ? pd.value : value;
     if (pd) { inp.classList.add("dirty"); inp.dataset.base = pd.base; if (pd.msg) { inp.classList.add("bad"); inp.title = pd.msg; } }
     inp.spellcheck = false;
-    if (locked) { inp.disabled = true; inp.title = "This statement has an unapplied draft: apply or revert it first"; }
+    if (locked) { inp.disabled = true; inp.title = n.isNested ? "Inside a `when`: editing waits for the next stage" : "This statement has an unapplied draft: apply or revert it first"; }
     inp.oninput = () => { if (inp.dataset.base === undefined) inp.dataset.base = graphData.revision; inp.classList.add("dirty"); inp.classList.remove("bad"); paramDrafts.set(pk, { value: inp.value, base: +inp.dataset.base, msg: null }); };
     inp.onkeydown = (e) => { if (e.key === "Escape") { inp.value = value; inp.classList.remove("dirty", "bad"); delete inp.dataset.base; paramDrafts.delete(pk); inp.blur(); } };
     // One request when the field is committed (Enter or leaving it); Escape restores the applied value and sends nothing.
@@ -1548,6 +1652,20 @@ function renderParm() {
   const small = document.createElement("small");
   small.textContent = `${n.id}${n.step ? ` · runs in ${n.step}` : ""} · line ${n.line} · world ${t.world}`;
   picked.append(small);
+  if (n.isNested) {
+    // A statement inside a `when`: shown, not edited (the server rebuilds only top-level statements so far).
+    small.textContent = `${n.id} · inside a \`when\` · world ${t.world}`;
+    const why = document.createElement("div");
+    why.className = "msg";
+    const reasons = Object.values((n.contract && n.contract.why_not) || {});
+    why.textContent = `Runs only where: ${n.when}. ${reasons[0] || "Editing a statement inside a `when` is not available yet."}`;
+    picked.append(why);
+    if (n.params && n.params.length) picked.append(paramsGrid(n, true));
+    const pre = document.createElement("pre");
+    pre.textContent = n.text;
+    picked.append(pre);
+    return;
+  }
   if (!n.group) {
     if (n.params && n.params.length) picked.append(paramsGrid(n, false));
     picked.append(document.createTextNode(n.text));
