@@ -339,6 +339,9 @@ pub fn run_gpu_cmd(args: &[String]) {
     if std::env::var_os("EMERGE_GPU_ACCOUNTS").is_some() {
         r.enable_accounts(names.len());
     }
+    if std::env::var_os("EMERGE_GPU_LAWSTATS").is_some() {
+        r.enable_law_stats(&world);
+    }
     println!("run on {}: {} {} seed {seed}, {ticks} ticks, mutation {}, contract mode", gpu.name, pos[0], pos[1], if mutation { "on" } else { "off" });
     match &flux_name {
         Some(n) => println!("tick,population,births,deaths,{n}_synthesis_mu,producers,producer_count,ms_per_tick"),

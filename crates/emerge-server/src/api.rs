@@ -316,7 +316,6 @@ impl Engine {
                 // and for a transfer the asked-for and delivered µ, for a reaction the cells where it ran and its
                 // extent. The statements are the runner's laws in the order it built them.
                 let e = self.entry(p)?;
-                if !matches!(e.run.device.split(':').next(), Some("cpu")) { return Err(fault(-32005, "per-rule counters are kept by the CPU runner only".to_string())); }
                 let file = emerge_lang::parse(&e.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
                 let prepared = emerge_lang::prepare(&file).map_err(|d| fault(-32005, format!("{}: {}: {}", d.code, d.path, d.message)))?;
                 let name = prepared.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) => Some(w.name.clone()), _ => None }).ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
@@ -324,11 +323,12 @@ impl Engine {
                 let named = law_statements(&prepared, &name).map_err(|m| fault(-32005, m))?;
                 let w = &e.run.live.world;
                 if named.len() != w.laws.len() { return Err(fault(-32005, format!("the runner has {} laws but the source has {} effect statements: the counters cannot be tied to statements", w.laws.len(), named.len()))); }
-                let ticks = e.run.tick().saturating_sub(w.law_since);
-                let rows: Vec<Value> = named.into_iter().zip(&w.law_stats).map(|(mut n, st)| { let o = n.as_object_mut().unwrap();
+                let (stats, law_since) = e.run.law_stats().map_err(|m| fault(-32005, m))?;
+                let ticks = e.run.tick().saturating_sub(law_since);
+                let rows: Vec<Value> = named.into_iter().zip(&stats).map(|(mut n, st)| { let o = n.as_object_mut().unwrap();
                     for (k, v) in [("cells", st.cells), ("passed", st.passed), ("requests", st.requests), ("requested_mu", st.requested), ("delivered_mu", st.delivered), ("cut_by_origin", st.cut_by_origin), ("cut_by_dest", st.cut_by_dest), ("ran", st.ran), ("extent", st.extent)] { o.insert(k.into(), json!(v)); }
                     n }).collect();
-                Ok(json!({"world": name, "revision": e.run.revision(), "tick": e.run.tick(), "since_tick": w.law_since, "ticks": ticks, "rows": rows,
+                Ok(json!({"world": name, "revision": e.run.revision(), "tick": e.run.tick(), "since_tick": law_since, "ticks": ticks, "rows": rows,
                     "meaning": {"cells": "cells looked at (every cell, every tick)", "passed": "cells a `when` let through (all of them when there is none)", "requests": "transfer requests made", "requested_mu": "µ asked for", "delivered_mu": "µ that arrived", "cut_by_origin": "requests cut to what the origin held", "cut_by_dest": "requests cut to the room the destination had", "ran": "cells where a reaction had a positive extent", "extent": "total reaction extent in µ of reaction"},
                     "scope": "world rules only; creatures' own reaction genes are in stats.query"}))
             }
@@ -776,21 +776,23 @@ impl Engine {
                 let side = |v: &[(usize, u32)]| v.iter().map(|(s, c)| json!({"substance": chem.substances[*s].name, "coeff": c})).collect::<Vec<_>>();
                 let elements = |v: &[(usize, u32)], extent: u64| -> serde_json::Map<String, Value> { (0..chem.elements.len()).filter_map(|el| { let x: u64 = v.iter().map(|(s, c)| u64::from(*c) * extent * u64::from(chem.substances[*s].comp[el])).sum(); (x > 0).then(|| (chem.elements[el].clone(), json!(x))) }).collect() };
                 let amounts = |v: &[(usize, u32)], extent: u64| -> serde_json::Map<String, Value> { v.iter().map(|(s, c)| (chem.substances[*s].name.clone(), json!(u64::from(*c) * extent))).collect() };
-                let ticks_world = e.run.tick().saturating_sub(w.law_since);
+                let (law_stats, law_since) = e.run.law_stats().map_err(|m| fault(-32005, m))?;
+                let entity_extent = e.run.entity_extent();
+                let ticks_world = e.run.tick().saturating_sub(law_since);
                 let reactions: Vec<Value> = chem.reactions.iter().enumerate().map(|(r, rx)| {
-                    let mut sources = vec![json!({"by": "creatures' reaction genes", "extent": w.entity_extent[r], "since_tick": 0, "inputs_mu": amounts(&rx.inputs, w.entity_extent[r]), "outputs_mu": amounts(&rx.outputs, w.entity_extent[r]),
-                        "elements_in_mu": elements(&rx.inputs, w.entity_extent[r]), "elements_out_mu": elements(&rx.outputs, w.entity_extent[r])})];
+                    let mut sources = vec![json!({"by": "creatures' reaction genes", "extent": entity_extent[r], "since_tick": 0, "inputs_mu": amounts(&rx.inputs, entity_extent[r]), "outputs_mu": amounts(&rx.outputs, entity_extent[r]),
+                        "elements_in_mu": elements(&rx.inputs, entity_extent[r]), "elements_out_mu": elements(&rx.outputs, entity_extent[r])})];
                     for (li, law) in w.laws.iter().enumerate() {
                         if let emerge_ref::world::Law::React { reaction, .. } = law.parts().0 { if *reaction == r {
-                            let st = w.law_stats.get(li).cloned().unwrap_or_default();
-                            sources.push(json!({"by": paths.get(li).map(|x| x["path"].clone()).unwrap_or(Value::Null), "extent": st.extent, "cells_reacting": st.ran, "since_tick": w.law_since, "inputs_mu": amounts(&rx.inputs, st.extent), "outputs_mu": amounts(&rx.outputs, st.extent),
+                            let st = law_stats.get(li).cloned().unwrap_or_default();
+                            sources.push(json!({"by": paths.get(li).map(|x| x["path"].clone()).unwrap_or(Value::Null), "extent": st.extent, "cells_reacting": st.ran, "since_tick": law_since, "inputs_mu": amounts(&rx.inputs, st.extent), "outputs_mu": amounts(&rx.outputs, st.extent),
                                 "elements_in_mu": elements(&rx.inputs, st.extent), "elements_out_mu": elements(&rx.outputs, st.extent)}));
                         } }
                     }
                     let blocked = w.blocked.as_ref().and_then(|b| b.get(r)).map(|b| json!({"full": b.full, "limited": b.limited, "cap_zero": b.cap_zero, "no_input": b.no_input, "no_room": b.no_room}));
                     json!({"name": rx.name, "inputs": side(&rx.inputs), "outputs": side(&rx.outputs), "catalyst": rx.catalyst.map(|k| chem.substances[k.s].name.clone()), "measured": sources, "blocked": blocked})
                 }).collect();
-                Ok(json!({"world": name, "revision": e.run.revision(), "tick": e.run.tick(), "world_rules_since": w.law_since, "world_rules_ticks": ticks_world,
+                Ok(json!({"world": name, "revision": e.run.revision(), "tick": e.run.tick(), "world_rules_since": law_since, "world_rules_ticks": ticks_world,
                     "elements": chem.elements, "substances": chem.substances.iter().map(|s| json!({"name": s.name, "comp": s.comp})).collect::<Vec<_>>(), "reactions": reactions,
                     "blocked_counting": w.blocked.is_some(),
                     "units": "extent in µ of reaction; amounts in µ; elements in µ of element (composition × amount)",

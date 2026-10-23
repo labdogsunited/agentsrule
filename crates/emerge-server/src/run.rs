@@ -47,6 +47,8 @@ pub struct Run {
     sampled: (u64, u64),
     /// Where the resource budget window began (`accounts.start`).
     acct: Option<AcctStart>,
+    /// The tick the GPU's per-statement counters began (they restart when a swap changes the number of statements).
+    law_since: u64,
     /// A bounded recording of transfer requests (`trace.start`).
     trace: Option<Trace>,
 }
@@ -143,13 +145,14 @@ impl Run {
             let gpu: &'static Gpu = Box::leak(Box::new(Gpu::new()));
             let mut r = Resident::new(gpu, &mut live.world);
             r.enable_events(GPU_EVENT_LOG);
+            r.enable_law_stats(&live.world);
             (Backend::Gpu(Box::new(r)), format!("gpu: {}", gpu.name))
         } else {
             (Backend::Cpu, "cpu: emerge-ref".to_string())
         };
         journal.header(&spec, &device);
         let every = if spec.gpu { 10 } else { 1 };
-        let mut run = Run { spec, live, backend, journal, device, last_swap: None, audit: None, made: None, history: emerge_view::frame::History::new(every), sampled: (0, 0), acct: None, trace: None };
+        let mut run = Run { spec, live, backend, journal, device, last_swap: None, audit: None, made: None, history: emerge_view::frame::History::new(every), sampled: (0, 0), acct: None, law_since: 0, trace: None };
         run.sampled = (run.births(), run.deaths());
         run.sample();
         Ok(run)
@@ -241,6 +244,12 @@ impl Run {
         match result {
             Ok((pause, compile)) => {
                 self.last_swap = Some((pause, compile));
+                if let Backend::Gpu(r) = &mut self.backend {
+                    if r.law_stats().is_some_and(|v| v.len() != self.live.world.laws.len()) {
+                        r.enable_law_stats(&self.live.world);
+                        self.law_since = u64::from(r.tick);
+                    }
+                }
                 let hash = fnv(&self.live.source);
                 self.journal.swap(tick, base, patch, reason, Ok(hash));
                 Ok(json!({"revision": self.live.revision, "tick": tick, "pause_ms": pause * 1e3, "compile_ms": compile * 1e3, "source_hash": format!("{hash:016x}")}))
@@ -529,6 +538,23 @@ impl Run {
                 let (ent, _, _) = r.entity_table();
                 ent.chunks(emerge_gpu::pack::ENT).next().map(|e| u64::from(e[0]) | (u64::from(e[1]) << 32))
             }
+        }
+    }
+
+    /// Entity-reaction extent by reaction since the world began.
+    pub fn entity_extent(&self) -> Vec<u64> {
+        match &self.backend {
+            Backend::Cpu => self.live.world.entity_extent.clone(),
+            Backend::Gpu(r) => r.extent(),
+        }
+    }
+
+    /// What each world statement did (`LawStat`, in the CPU's order of laws) and the tick the counts began:
+    /// kept by the CPU runner, and counted on the device for a GPU run.
+    pub fn law_stats(&self) -> Result<(Vec<emerge_ref::world::LawStat>, u64), String> {
+        match &self.backend {
+            Backend::Cpu => Ok((self.live.world.law_stats.clone(), self.live.world.law_since)),
+            Backend::Gpu(r) => r.law_stats().map(|v| (v, self.law_since)).ok_or_else(|| "the GPU run has no statement counters".to_string()),
         }
     }
 

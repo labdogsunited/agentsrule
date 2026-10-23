@@ -100,13 +100,21 @@ fn react_entities(@builtin(global_invocation_id) id: vec3<u32>) {
 
 // One world reaction rule (params[P_LAWIDX]) over every cell where its condition, if any, holds.
 @compute @workgroup_size(64)
-fn react_cells(@builtin(global_invocation_id) id: vec3<u32>) {
-    let c = id.x;
+fn react_cells(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+    lsw_clear(lid.x);
+    workgroupBarrier();
+    react_one(id.x);
+    workgroupBarrier();
+    lsw_flush(lid.x, params[P_NLAWSK] + params[P_LAWIDX]);
+}
+
+fn react_one(c: u32) {
     let ns = params[P_NS];
     if (c * ns >= arrayLength(&camt)) { return; }
     let l = params[P_LAWIDX];
     let cond = rlaws[l * RLAW + 2u];
     if (cond != 0u && !cond_holds(cond - 1u, c)) { return; }
+    lsw_add(LS_PASSED, 1u);
     let r = rlaws[l * RLAW] * RX;
     var rate = u64(rlaws[l * RLAW + 1u]);
     let cat = reactions[r + 18u];
@@ -121,6 +129,10 @@ fn react_cells(@builtin(global_invocation_id) id: vec3<u32>) {
     for (var k = 0u; k < n_out; k++) {
         let s = reactions[r + 10u + 2u * k];
         extent = min(extent, (ccap[c * ns + s] - camt[c * ns + s]) / reactions[r + 11u + 2u * k]);
+    }
+    if (extent > 0u) {
+        lsw_add(LS_RAN, 1u);
+        lsw_add(LS_EXTENT, extent);
     }
     for (var k = 0u; k < n_in; k++) { camt[c * ns + reactions[r + 2u + 2u * k]] -= extent * reactions[r + 3u + 2u * k]; }
     for (var k = 0u; k < n_out; k++) { camt[c * ns + reactions[r + 10u + 2u * k]] += extent * reactions[r + 11u + 2u * k]; }

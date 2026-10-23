@@ -43,7 +43,46 @@ pub fn accounts() -> String {
     for (i, name) in emerge_ref::world::ACCOUNT_COLUMNS.iter().enumerate() {
         s.push_str(&format!("const AC_{} = {}u;\n", name.to_uppercase(), i));
     }
-    s.push_str(r#"fn acct_add(lineage: u32, col: u32, x: u32) {
+    s.push_str(&format!("const P_LSTAT = {}u;\nconst P_NLAWSK = {}u;\nconst LS_PASSED = 0u;\nconst LS_REQUESTS = 1u;\nconst LS_REQUESTED = 2u;\nconst LS_DELIVERED = 3u;\nconst LS_CUT_O = 4u;\nconst LS_CUT_D = 5u;\nconst LS_RAN = 6u;\nconst LS_EXTENT = 7u;\nconst NLS = {}u;\n", P_LSTAT, P_NLAWS, NLS));
+    s.push_str(r#"fn ls_add(law: u32, col: u32, x: u32) {
+    let base = params[P_LSTAT];
+    if (base == 0u || x == 0u) { return; }
+    let i = base - 1u + (law * NLS + col) * 2u;
+    let old = atomicAdd(&flows[i], x);
+    if (old + x < old) { atomicAdd(&flows[i + 1u], 1u); }
+}
+// A workgroup works on one statement, so it sums its counters in shared memory first (thousands of
+// threads adding to the same words would wait for one another) and adds them to `flows` once.
+var<workgroup> lsw_lo: array<atomic<u32>, 8>;
+var<workgroup> lsw_hi: array<atomic<u32>, 8>;
+fn lsw_clear(t: u32) {
+    if (t < NLS) { atomicStore(&lsw_lo[t], 0u); atomicStore(&lsw_hi[t], 0u); }
+}
+fn lsw_add(col: u32, x: u32) {
+    if (params[P_LSTAT] == 0u || x == 0u) { return; }
+    let old = atomicAdd(&lsw_lo[col], x);
+    if (old + x < old) { atomicAdd(&lsw_hi[col], 1u); }
+}
+fn lsw_flush(t: u32, law: u32) {
+    let base = params[P_LSTAT];
+    if (base == 0u || t >= NLS) { return; }
+    let lo = atomicLoad(&lsw_lo[t]);
+    let hi = atomicLoad(&lsw_hi[t]);
+    if (lo != 0u || hi != 0u) {
+        let i = base - 1u + (law * NLS + t) * 2u;
+        let old = atomicAdd(&flows[i], lo);
+        atomicAdd(&flows[i + 1u], hi + select(0u, 1u, old + lo < old));
+    }
+}
+// One request of a world statement: what it asked, what the first stage left, what arrived.
+fn ls_req(asked: u32, g1: u32, g2: u32) {
+    lsw_add(LS_REQUESTS, 1u);
+    lsw_add(LS_REQUESTED, asked);
+    lsw_add(LS_DELIVERED, g2);
+    lsw_add(LS_CUT_O, select(0u, 1u, g1 < asked));
+    lsw_add(LS_CUT_D, select(0u, 1u, g2 < g1));
+}
+fn acct_add(lineage: u32, col: u32, x: u32) {
     let base = params[P_ACC];
     if (base == 0u || x == 0u) { return; }
     let i = base - 1u + (lineage * NCOL + col) * 2u;

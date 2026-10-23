@@ -104,6 +104,8 @@ pub struct Resident<'a> {
     audit: Option<Audit>,
     events: Option<EventLog>,
     acct_lineages: usize,
+    /// The per-statement counters: where each of the world's laws (in the CPU's order) is on the device, and the tick they began.
+    lstat: Option<(Vec<usize>, u32)>,
     comp: Vec<Vec<u32>>,
     /// The most active genes a genome may hold (the largest capacity of any lineage, or of the first population).
     max_genes: usize,
@@ -329,7 +331,7 @@ impl<'a> Resident<'a> {
             stats: zeros(2 * (p.reactions.len() / RX + 1)),
             // Small integers copied into `params` by the recorded commands: the stage and every reaction-law index.
             consts: gpu.storage_with(&(0..p.params[P_NRLAWS].max(64)).collect::<Vec<_>>()),
-            flows: zeros(3 * ns * 2 + ACC_LINEAGES * NCOL * 2),
+            flows: zeros(3 * ns * 2 + ACC_LINEAGES * NCOL * 2 + LSTAT_LAWS * NLS * 2),
             sb_in: zeros(SB_MAX + 1),
             sb_out: zeros(SB_MAX + 1),
             sb_blocks: zeros(SB_MAX / 256 + 2),
@@ -361,7 +363,7 @@ impl<'a> Resident<'a> {
         let mut_m = module(gpu, &mut_src, 9, &["mutate_children"]);
         let gc_src = format!("{}\n{}\n{}\n{}", shader::constants(), include_str!("gc.wgsl"), crate::scan::kernels("gm", "params[P_N]", "{name}_in[i]"), crate::scan::kernels("gv", "params[P_N]", "{name}_in[i]"));
         let gc_m = module(gpu, &gc_src, 12, &["gc_sizes", "gc_copy", "gm_local", "gm_scan_blocks", "gm_add", "gv_local", "gv_scan_blocks", "gv_add"]);
-        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent0: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), fees: emerge_ref::swap::fees_of(&world.menus), parity: false, set_m, move_m, plan_m, world_grid, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, events: None, acct_lineages: 0, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
+        Resident { gpu, n, ns, nc, cap, nbt, tick: world.tick as u32, next_id: world.next_id, births: world.births, deaths: world.deaths, extent0: world.entity_extent.clone(), profile: std::env::var_os("EMERGE_GPU_PROFILE").map(|_| [0.0; 5]), params: p.params.clone(), sort_cache: Default::default(), fees: emerge_ref::swap::fees_of(&world.menus), parity: false, set_m, move_m, plan_m, world_grid, tr_m, rs_m, prep_m, mut_m, gc_m, pool_words, collections: 0, gc_pending: false, audit: None, events: None, acct_lineages: 0, lstat: None, comp: world.chem.substances.iter().map(|s| s.comp.clone()).collect(), max_genes, live_after_gc: 0, b }
     }
 
     fn write_param(&mut self, index: usize, value: u32) {
@@ -771,6 +773,33 @@ impl<'a> Resident<'a> {
             for c in 0..NCOL { let i = (g * NCOL + c) * 2; row[c] = u64::from(w[i]) | (u64::from(w[i + 1]) << 32); }
             row
         }).collect())
+    }
+
+    /// Starts counting what each world statement does (`emerge_ref::world::LawStat`, in the CPU's order of
+    /// `world.laws`) from the next tick. The counters change nothing in the run; `cells` is worked out from the
+    /// grid and the ticks, the rest are counted on the device.
+    pub fn enable_law_stats(&mut self, world: &World) {
+        let reacts = |l: &emerge_ref::world::Law| matches!(l.parts().0, emerge_ref::world::Law::React { .. });
+        let moves = world.laws.iter().filter(|l| !reacts(l)).count();
+        assert!(world.laws.len() <= LSTAT_LAWS, "the GPU counts at most {LSTAT_LAWS} world statements");
+        let (mut m, mut r) = (0, 0);
+        let map = world.laws.iter().map(|l| if reacts(l) { r += 1; moves + r - 1 } else { m += 1; m - 1 }).collect();
+        self.gpu.clear_range(&self.b.flows, (self.lstat_word() * 4) as u64, (LSTAT_LAWS * NLS * 2 * 4) as u64);
+        self.write_param(P_LSTAT, (self.lstat_word() + 1) as u32);
+        self.lstat = Some((map, self.tick));
+    }
+
+    fn lstat_word(&self) -> usize {
+        3 * self.ns * 2 + ACC_LINEAGES * NCOL * 2
+    }
+
+    /// The per-statement counters, one per law of the CPU's list; `None` if they were never enabled.
+    pub fn law_stats(&self) -> Option<Vec<emerge_ref::world::LawStat>> {
+        let (map, since) = self.lstat.as_ref()?;
+        let w: Vec<u32> = self.gpu.read_at(&self.b.flows, self.lstat_word(), LSTAT_LAWS * NLS * 2);
+        let at = |g: usize, c: usize| u64::from(w[(g * NLS + c) * 2]) | (u64::from(w[(g * NLS + c) * 2 + 1]) << 32);
+        let cells = u64::from(self.tick - since) * self.nc as u64;
+        Some(map.iter().map(|&g| emerge_ref::world::LawStat { cells, passed: at(g, 0), requests: at(g, 1), requested: at(g, 2), delivered: at(g, 3), cut_by_origin: at(g, 4), cut_by_dest: at(g, 5), ran: at(g, 6), extent: at(g, 7) }).collect())
     }
 
     /// Starts keeping birth and death events (`capacity` records of 24 bytes); only events from now on

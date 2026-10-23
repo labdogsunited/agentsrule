@@ -96,6 +96,11 @@ pub const P_NALIVE: usize = 46;
 pub const P_TRACK: usize = 58;
 /// Where the account counters start in `flows`, plus 1; 0 when no accounts are kept.
 pub const P_ACC: usize = 59;
+/// Where the per-statement counters start in `flows`, plus 1; 0 when they are off.
+pub const P_LSTAT: usize = 61;
+/// Statements the counters have room for, and their columns (passed, requests, requested, delivered, cut by origin, cut by room, ran, extent).
+pub const LSTAT_LAWS: usize = 128;
+pub const NLS: usize = 8;
 pub const RX: usize = 24;
 pub const LAW: usize = 28;
 /// Words per world reaction rule: the reaction, the rate, and its condition (`LAW_COND`).

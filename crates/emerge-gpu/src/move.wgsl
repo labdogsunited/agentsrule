@@ -710,14 +710,16 @@ fn flag_world(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 @compute @workgroup_size(64)
-fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>) {
     atomicStore(&wf_lo[lid.x], 0u);
     atomicStore(&wf_hi[lid.x], 0u);
+    lsw_clear(lid.x);
     workgroupBarrier();
     let b = bundle_of(id);
     if (b.ok) {
         let lb = b.law * LAW;
         let ns = params[P_NS];
+        if (b.si == 0u && law_on(lb, b.c)) { lsw_add(LS_PASSED, 1u); }
         if (laws[lb] == 0u) {
             let amt = select(0u, laws[lb + 3u], law_on(lb, b.c));
             if (amt != 0u) {
@@ -728,6 +730,7 @@ fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_inv
                 let ovf = laws[lb + 4u];
                 var overflowed = 0u;
                 if (ovf != NONE && sinkacc[ovf * ns + s] == 1u) { overflowed = g1 - delivered; }
+                ls_req(amt, g1, delivered);
                 atomicAdd(&camt[b.c * ns + s], delivered);
                 wflow_add(0u, s, delivered + overflowed);
                 wflow_add(1u, s, overflowed);
@@ -736,6 +739,7 @@ fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_inv
             let sh = shift_of(lb, b.c);
             if (sh.a != 0u) {
                 let g2 = slot_g2(shift_slot(lb, b.c), sh.a);
+                ls_req(sh.a, slot_g1(shift_slot(lb, b.c), sh.a), g2);
                 if (g2 != 0u) {
                     atomicAdd(&camt[sh.nb * ns + sh.s], g2);
                     atomicSub(&camt[b.c * ns + sh.s], g2);
@@ -749,6 +753,7 @@ fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_inv
                     let nb = nbr[b.c * 4u + ni];
                     if (nb == NONE) { continue; }
                     let g2 = slot_g2(diff_slot(lb, b.c, b.si, ni), d.a);
+                    ls_req(d.a, slot_g1(diff_slot(lb, b.c, b.si, ni), d.a), g2);
                     out += g2;
                     if (g2 != 0u) { atomicAdd(&camt[nb * ns + d.s], g2); }
                 }
@@ -758,6 +763,7 @@ fn commit_world(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_inv
     }
     workgroupBarrier();
     wflow_flush(lid.x);
+    lsw_flush(lid.x, wid.y);
 }
 
 // ---- movement (2.4), one thread per entity ----

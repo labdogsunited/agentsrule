@@ -732,3 +732,20 @@ fn the_gpu_budget_closes_and_equals_the_cpus_in_contract_mode() {
     }
     assert!(engine.call("accounts.start", &json!({"world": gpu, "flux": "body"})).is_err(), "a split by who makes a substance is CPU only");
 }
+
+/// Per-statement counters and the flow map on the GPU (counted on the device) equal the CPU's in contract mode.
+#[test]
+fn rule_activity_and_the_flow_map_on_the_gpu_equal_the_cpus() {
+    let mut engine = Engine::new();
+    let mk = |backend: &str| json!({"source": small(DISH), "lineages": ["Drifter", "Builder"], "seed": 3, "mutation": true, "backend": backend, "contract": true});
+    let cpu = engine.call("world.create", &mk("cpu")).unwrap()["world"].as_str().unwrap().to_string();
+    let gpu = engine.call("world.create", &mk("gpu")).unwrap()["world"].as_str().unwrap().to_string();
+    for w in [&cpu, &gpu] { engine.call("run.step", &json!({"world": w, "ticks": 90})).unwrap(); }
+    let strip = |mut v: Value| { v.as_object_mut().unwrap().remove("observation"); v.as_object_mut().unwrap().remove("world"); v };
+    let (a, b) = (strip(engine.call("rules.activity", &json!({"world": cpu})).unwrap()), strip(engine.call("rules.activity", &json!({"world": gpu})).unwrap()));
+    assert!(a["rows"].as_array().unwrap().iter().any(|r| r["delivered_mu"].as_u64().unwrap() > 0), "the fixture moves something");
+    assert_eq!(a["rows"], b["rows"]);
+    assert_eq!((&a["since_tick"], &a["ticks"]), (&b["since_tick"], &b["ticks"]));
+    let (a, b) = (strip(engine.call("reactions.flow", &json!({"world": cpu})).unwrap()), strip(engine.call("reactions.flow", &json!({"world": gpu})).unwrap()));
+    assert_eq!(a["reactions"], b["reactions"]);
+}
