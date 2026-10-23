@@ -331,7 +331,7 @@ fn walk(st: &Stmt, on: &str, formulas: &Formulas, deps: &mut Deps, when: &str, c
                 }
             }
         }
-        Stmt::For { body, .. } => {
+        Stmt::For { body, .. } | Stmt::Each { body, .. } => {
             deps.complete = false;
             for s in body {
                 walk(&s.node, on, formulas, deps, when, container, rule, nested, path);

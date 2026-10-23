@@ -152,7 +152,7 @@ fn splice(body: &mut Block, label: &str, with: &[Node<Stmt>]) -> bool {
             Stmt::When { then, otherwise, .. } => {
                 splice(then, label, with) || otherwise.as_mut().is_some_and(|o| splice(o, label, with))
             }
-            Stmt::For { body, .. } => splice(body, label, with),
+            Stmt::For { body, .. } | Stmt::Each { body, .. } => splice(body, label, with),
             _ => false,
         };
         if done {
@@ -353,7 +353,7 @@ fn find_statement<'a>(body: &'a mut Block, label: &str) -> Option<&'a mut Call> 
                     return Some(c);
                 }
             }
-            Stmt::For { body, .. } => {
+            Stmt::For { body, .. } | Stmt::Each { body, .. } => {
                 if let Some(c) = find_statement(body, label) {
                     return Some(c);
                 }

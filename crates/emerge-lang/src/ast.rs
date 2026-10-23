@@ -225,6 +225,8 @@ pub enum Stmt {
     Let { name: String, value: Expr },
     When { cond: Expr, then: Block, otherwise: Option<Block> },
     For { var: String, field: String, body: Block },
+    /// `for s in [carbon, nitrate] { ... }` in a world rule: the body written once for each name, worked out by `unroll`.
+    Each { var: String, items: Vec<String>, body: Block },
     Assign { target: Path, value: Expr },
     Call { call: Call, label: Option<String> },
     /// Lineage genesis: `count: 2_000;`

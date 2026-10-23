@@ -437,6 +437,7 @@ fn stmt(out: &mut Out, i: usize, s: &Stmt) {
                 out.block(i, vec![t(format!("{} else", close.trim_start()))], o, stmt);
             }
         }
+        Stmt::Each { var, items, body } => out.block(i, vec![t(format!("for {var} in [{}]", items.join(", ")))], body, stmt),
         Stmt::For { var, field, body } => out.block(i, vec![t(format!("for {var} in {field}"))], body, stmt),
         Stmt::Assign { target, value } => {
             let mut line = vec![t(format!("{} = ", path(target)))];

@@ -470,6 +470,19 @@ impl Parser {
             let otherwise = if self.eat_word("else") { Some(self.block()?) } else { None };
             return Ok(Stmt::When { cond, then, otherwise });
         }
+        if self.is_word("for") && self.is_word_at(2, "in") && self.is_punct_at(3, "[") {
+            self.bump();
+            let var = self.ident()?;
+            self.expect_word("in")?;
+            self.expect("[")?;
+            let mut items = vec![self.ident()?];
+            while self.eat_punct(",") {
+                if self.is_punct("]") { break; }
+                items.push(self.ident()?);
+            }
+            self.expect("]")?;
+            return Ok(Stmt::Each { var, items, body: self.block()? });
+        }
         if self.is_word("for") && self.is_word_at(2, "in") {
             self.bump();
             let var = self.ident()?;

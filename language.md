@@ -371,7 +371,7 @@ genesis {
 }
 ```
 
-`for ... in field` is the only loop in the language and is allowed only in genesis.
+`for cell in field` goes through the cells of a field and is allowed only in genesis. The other loop, `for name in [a, b]`, writes a rule's statements once for each name (§7.5).
 
 A state field starts in its first state everywhere. Two genesis statements set cells of one:
 
@@ -463,6 +463,7 @@ Senses do not read state fields, so a gene cannot (`any quantity` does not inclu
 | `transfer(...)`, `diffuse_conserved(...)` | transfer rules, genesis (`transfer` only) |
 | `react(...)` | reaction rules |
 | `self.value = expr;` | signal rules |
+| `for name in [a, b] { ... }` | every rule (§7.5) |
 | `for cell in field { ... }` | world genesis |
 
 Every effect statement (a `transfer`, `diffuse_conserved` or `react` call) has a label in canonical form (`react(rot, rate: 50bp) @slow_rot;`), so patches can address it by name. `emerge fmt` adds one if it is missing (§10.1).
@@ -494,6 +495,23 @@ Consequences that are easy to miss:
 - **Division checks the inventory after reactions,** and a child gets its share of every substance (`split`), rounded down; the remainder stays with the parent.
 
 ---
+
+### 7.5 Loops over names
+
+```
+rule rain on cells {
+    for s in [carbon, nitrate] {
+        transfer(s, from: rock, to: self, amount: 5mu, overflow: void) @rain;
+    }
+}
+```
+
+`for NAME in [a, b, ...] { ... }` in a rule writes its body once for each name, before checking. In each copy, every use of `NAME` as a name (a substance, a direction such as `to: d`, a field in `self.s`, a name in a condition) is replaced by the item; nothing else changes. So the loop above is exactly the two `transfer` statements written out, and the checker, the schedule, `emerge order`, the CPU and the GPU see only those. Loops nest (`for d in [above, below] { for s in [carbon, nitrate] { ... } }` gives four copies, outer name first) and may stand inside a `when`.
+
+- **Labels.** A `@label` inside a loop gets `_` and the item added to it, outer name first (`@rain` becomes `@rain_carbon` and `@rain_nitrate`), so labels stay unique. `emerge expand` prints the unrolled text with those labels; `emerge fmt` keeps the loop.
+- **Patches.** A patch addresses the loop's statement by the label as written (`set rules.rain@rain.amount = 9mu;` changes every copy). A copy's own label is not in the source, so naming it is refused (`E0114`).
+- **Errors.** The variable cannot be a keyword or built-in name (`E0110`) or the name of something in the world (`E0111`). A list repeats a name (`E0120`). A name the world does not have is reported by the checker, with that name in the message. The list holds at least one name (`E0001` otherwise).
+- **Not in this loop.** It goes through names fixed in the source, never through cells or creatures: a rule over creatures is a different feature (`proposals/rule-conditions.md`, decision 4).
 
 ## 8. Lineages and genomes
 
@@ -991,6 +1009,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E0115` | an unknown setting or block |
 | `E0116` | a required declaration or argument is missing |
 | `E0119` | constants that wait on each other in a circle |
+| `E0120` | a rule's loop repeats a name in its list (`E0110` and `E0111` also apply to its variable, §7.5) |
 | `E0117`, `E0118` | `extends`: a base in another world or that extends too (`E0117`); a repeated signal or label, a `dormant` mismatch, or `after` outside an extending lineage (`E0118`) |
 | `E0903`, `E0904` | patch files: an item that is not a patch; an operation not supported on files yet |
 | `E0203`–`E0205` | values: out of their type's range (`E0203`: `second_law.min_drop` below 1 or not a whole number; `E0204`: a fraction above `10_000bp`, an amount that does not fit `f32` exactly, §3.5 of the spec), or of the wrong kind (`E0205`) |

@@ -35,6 +35,11 @@ const RESERVED: &[&str] = &[
     "neighbour", "clock",
 ];
 
+/// Whether a word is a keyword or built-in name that no constant or loop variable can take.
+pub fn is_reserved(word: &str) -> bool {
+    RESERVED.contains(&word)
+}
+
 /// The file with every constant replaced by its value and constant arithmetic folded.
 pub fn resolve(file: &File) -> Result<File, Problem> {
     let mut out = file.clone();
@@ -189,7 +194,7 @@ fn shadow_block(owner: &str, consts: &HashMap<String, Lit>, b: &Block) -> Result
     for s in b {
         let name = match &s.node {
             Stmt::Let { name, .. } => Some(name),
-            Stmt::For { var, .. } => Some(var),
+            Stmt::For { var, .. } | Stmt::Each { var, .. } => Some(var),
             _ => None,
         };
         if let Some(n) = name.filter(|n| consts.contains_key(*n)) {
@@ -202,7 +207,7 @@ fn shadow_block(owner: &str, consts: &HashMap<String, Lit>, b: &Block) -> Result
                     shadow_block(owner, consts, o)?;
                 }
             }
-            Stmt::For { body, .. } => shadow_block(owner, consts, body)?,
+            Stmt::For { body, .. } | Stmt::Each { body, .. } => shadow_block(owner, consts, body)?,
             _ => {}
         }
     }
@@ -259,7 +264,7 @@ fn block(b: &mut Block, consts: &HashMap<String, Lit>) {
                     block(o, consts);
                 }
             }
-            Stmt::For { body, .. } => block(body, consts),
+            Stmt::For { body, .. } | Stmt::Each { body, .. } => block(body, consts),
             Stmt::Call { call: c, .. } => call(c, consts),
         }
     }

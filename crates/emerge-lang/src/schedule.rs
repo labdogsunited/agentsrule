@@ -347,7 +347,7 @@ fn leaves<'a>(body: &'a [Node<Stmt>], out: &mut Vec<Leaf<'a>>) {
                     leaves(o, out);
                 }
             }
-            Stmt::For { body, .. } => leaves(body, out),
+            Stmt::For { body, .. } | Stmt::Each { body, .. } => leaves(body, out),
             Stmt::Let { .. } | Stmt::Setting { .. } => {}
         }
     }

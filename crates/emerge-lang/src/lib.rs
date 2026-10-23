@@ -14,6 +14,7 @@ pub mod graph;
 pub mod lexer;
 pub mod order;
 pub mod schedule;
+pub mod unroll;
 pub mod parser;
 pub mod patch;
 pub mod resolve;
@@ -24,9 +25,9 @@ pub use expand::expand;
 pub use resolve::resolve;
 
 /// What `check` and the runner's `build` work on: lineages expanded (`expand`), then
-/// constants resolved (`resolve`).
+/// the loops of rules unrolled (`unroll`), then constants resolved (`resolve`).
 pub fn prepare(file: &File) -> Result<File, check::Problem> {
-    resolve(&expand(file)?)
+    resolve(&unroll::unroll(&expand(file)?)?)
 }
 
 /// A diagnostic with its code (`language.md` §14) and position.
