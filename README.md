@@ -47,6 +47,7 @@ Run the tests in release mode: `cargo test --release --workspace --no-fail-fast`
 | `proposals/*.md` | one document per design (node editor, live viewer, rule conditions, checked schedule IR, catalyst experiment, …) with its pass rules and results |
 | [`proposals/world-presets.md`](proposals/world-presets.md) | proposed world presets, their visual character, controls, capability requirements, and validation plan |
 | [`proposals/science-panels.md`](proposals/science-panels.md) | proposed rule, lineage, genome, resource, and experiment panels with observation requirements |
+| [`proposals/agent-tracking.md`](proposals/agent-tracking.md) | agent selection and tracking: linked Details highlights, camera follow, trails, Tracker nodes, and recording contracts |
 | [`proposals/genome-editor.md`](proposals/genome-editor.md) | genome editor design: seed authoring, signal wiring, modules, captures, and test runs |
 | `crates/emerge-lang` | parser, checker, formatter, patches, the checked schedule, the graph model |
 | `crates/emerge-ref` | the CPU reference runner |
