@@ -385,7 +385,7 @@
 </style>
 </head>
 <body>
-<header><h1>Emerge</h1><span id="status">connecting…</span><label class="hbar" for="world">World</label><select id="world" title="The running world that Play, Step and the editors act on"></select><button id="newbtn" title="Start a new world from an example">New world…</button><label class="hbar" for="desktop">Desktop</label><select id="desktop" title="A saved arrangement of the panes"></select><button id="savedesk" title="Save the present arrangement under a name">Save as…</button><button id="helpbtn" title="Open Emerge language and VEX help documentation" onclick="window.open('/help', '_blank')">Help</button><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
+<header><h1>Emerge</h1><span id="status">connecting…</span><label class="hbar" for="world">World</label><select id="world" title="The running world that Play, Step and the editors act on"></select><button id="newbtn" title="Start a new world from an example">New world…</button><label class="hbar" for="desktop">Desktop</label><select id="desktop" title="A saved arrangement of the panes"></select><button id="savedesk" title="Save the present arrangement under a name">Save as…</button><button id="helpbtn" title="Open the documentation: using the viewer, the language, the reference (F1 opens the page for the pane you are in)">Docs</button><span id="where"></span><span class="server"><button id="restart" title="Start the server again. Worlds in memory are lost.">Restart server</button><button id="stop" title="Stop the server. Worlds in memory are lost.">Stop server</button></span></header>
 <div id="newworld"><h3>New world</h3>    <label for="example">Start from</label>
     <select id="example"></select>
     <div class="checks" id="lins"></div>
@@ -2591,6 +2591,16 @@ function toggleInfo() {
 stage.addEventListener("pointermove", hoverInfo);
 stage.addEventListener("pointerleave", () => { if (info.on && !info.pin) { info.hover = null; $("infopanel").style.display = "none"; placeMark(); } });
 $("infobtn").onclick = toggleInfo;
+// Documentation (`/help`): the page for the pane you are in. F1 or the Docs button; a pane with no page of its own opens the overview.
+const DOC_OF = { viewport: "using-overview", params: "using-network", network: "using-network", inspect: "using-network", genome: "using-overview", look: "using-overview", details: "using-overview", source: "using-overview",
+  rules: "using-science", lineage: "using-science", census: "using-science", budget: "using-science", family: "using-science", compare: "using-science", region: "using-science", flow: "using-science", life: "using-science", book: "using-science" };
+function openDocs(page) {
+  const fl = typeof findLeaf === "function" ? findLeaf(focusLeaf) : null;
+  const p = page || (fl && DOC_OF[fl.active]) || "using-overview";
+  window.open(`/help#guide/${p}`, "_blank");
+}
+$("helpbtn").onclick = () => openDocs();
+window.addEventListener("keydown", (e) => { if (e.key === "F1") { e.preventDefault(); openDocs(); } });
 window.addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
   if (e.key === "i" || e.key === "I") { e.preventDefault(); toggleInfo(); }

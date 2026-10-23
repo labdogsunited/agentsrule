@@ -83,7 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Hash router support for Single-Page Application browsing on index.html
   if (window.EMERGE_DOCS_STORE) {
     function loadPageFromHash() {
-      const hash = window.location.hash.replace('#', '') || 'guide/overview';
+      const hash = window.location.hash.replace('#', '') || 'guide/using-overview';
       const pageData = window.EMERGE_DOCS_STORE[hash];
       if (pageData) {
         const mainEl = document.getElementById('main-content-pane');
@@ -98,6 +98,18 @@ document.addEventListener('DOMContentLoaded', () => {
               link.classList.remove('active');
             }
           });
+          // The right-hand list follows the page: its own headings.
+          const toc = document.querySelector('.houdini-toc .toc-list');
+          if (toc) {
+            toc.textContent = '';
+            mainEl.querySelectorAll('h2').forEach((h, i) => {
+              if (!h.id) h.id = 'sec-' + (h.textContent || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + i;
+              const li = document.createElement('li'), a = document.createElement('a');
+              li.className = 'toc-item'; a.className = 'toc-link'; a.textContent = h.textContent;
+              a.href = '#' + hash; a.addEventListener('click', (e) => { e.preventDefault(); h.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+              li.appendChild(a); toc.appendChild(li);
+            });
+          }
           window.scrollTo(0, 0);
         }
       }

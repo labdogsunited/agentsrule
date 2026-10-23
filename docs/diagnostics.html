@@ -23,7 +23,7 @@
   </div>
 
   <nav class="header-links">
-    <a href="index.html#guide/overview" class="header-link">Guide</a>
+    <a href="index.html#guide/using-overview" class="header-link">Guide</a>
     <a href="index.html#functions/transfer" class="header-link">Functions</a>
     <a href="index.html#attributes" class="header-link">Attributes</a>
     <a href="index.html#guide/vex-comparison" class="header-link">Houdini VEX</a>
@@ -33,6 +33,17 @@
   <div class="houdini-layout">
     <aside class="houdini-sidebar">
 <div class="sidebar-header">DOCUMENTATION</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>🖥️ Using Emerge</span><span class="count">6</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-overview" href="#guide/using-overview">Using the viewer</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-network" href="#guide/using-network">The network editor</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-science" href="#guide/using-science">Science panels</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-worlds" href="#guide/using-worlds">Worlds, presets and backends</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-cli" href="#guide/using-cli">Command line</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-api" href="#guide/using-api">The engine API and MCP</a></li>
+  </ul>
+</div>
 <div class="nav-section">
   <div class="nav-section-title"><span>📖 Language Guide</span><span class="count">11</span></div>
   <ul class="nav-list">
@@ -53,7 +64,7 @@
   <div class="nav-section-title"><a href="#attributes" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🏷️ Attributes Reference</a><span class="count">18</span></div>
 </div>
 <div class="nav-section">
-  <div class="nav-section-title"><a href="#diagnostics" class="nav-link active" style="padding:0;border:0;color:inherit;font:inherit;">⚠️ Diagnostics & Codes</a><span class="count">60</span></div>
+  <div class="nav-section-title"><a href="#diagnostics" class="nav-link active" style="padding:0;border:0;color:inherit;font:inherit;">⚠️ Diagnostics & Codes</a><span class="count">68</span></div>
 </div>
 <div class="nav-section">
   <div class="nav-section-title"><a href="#guide/vex-comparison" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🔄 Houdini VEX Rosetta</a></div>
@@ -246,6 +257,20 @@
 </tr>
 
 <tr>
+  <td class="arg-name"><code>E0005</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Syntax</span></td>
+  <td>Only the first argument of a call may be unnamed: `f(x, y: 1)`, not `f(x: 1, y)`.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0006</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Syntax</span></td>
+  <td>A seed genome needs at least one module.</td>
+</tr>
+
+<tr>
   <td class="arg-name"><code>E0007</code></td>
   <td><span class="badge badge-phase">error</span></td>
   <td><span class="badge badge-context">Syntax</span></td>
@@ -278,6 +303,27 @@
   <td><span class="badge badge-phase">error</span></td>
   <td><span class="badge badge-context">Lexical</span></td>
   <td>Float literal expected where integer was provided (e.g. `0` instead of `0.0`).</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0105</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Lexical</span></td>
+  <td>A range needs a number after `..` (`1u..`).</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0106</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Lexical</span></td>
+  <td>A rate is a whole, non-negative number of basis points (`50bp`).</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0107</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Lexical</span></td>
+  <td>A rate or an integer is too large to represent.</td>
 </tr>
 
 <tr>
@@ -361,21 +407,21 @@
   <td class="arg-name"><code>E0120</code></td>
   <td><span class="badge badge-phase">error</span></td>
   <td><span class="badge badge-context">Rule loops</span></td>
-  <td>A rule's <code>for name in [a, b]</code> repeats a name in its list.</td>
+  <td>A rule&#x27;s `for name in [a, b]` repeats a name in its list. A loop variable that is a keyword or a name of the world is `E0110` or `E0111`.</td>
 </tr>
 
 <tr>
   <td class="arg-name"><code>E0201</code></td>
   <td><span class="badge badge-phase">error</span></td>
   <td><span class="badge badge-context">Types</span></td>
-  <td>Substance mismatch in amount arithmetic (e.g. `self.carbon + self.light`).</td>
+  <td>Reserved: the current checker does not raise it. Substance mismatch in amount arithmetic (e.g. `self.carbon + self.light`).</td>
 </tr>
 
 <tr>
   <td class="arg-name"><code>E0202</code></td>
   <td><span class="badge badge-phase">error</span></td>
   <td><span class="badge badge-context">Types</span></td>
-  <td>Wrong substance amount passed where another substance was expected.</td>
+  <td>Reserved: the current checker does not raise it. Wrong substance amount passed where another substance was expected.</td>
 </tr>
 
 <tr>
@@ -410,7 +456,7 @@
   <td class="arg-name"><code>E0302</code></td>
   <td><span class="badge badge-phase">error</span></td>
   <td><span class="badge badge-context">Contexts</span></td>
-  <td>Assignment to a conserved substance amount (`self.carbon = 5u`). Matter is conserved.</td>
+  <td>Reserved: the current checker does not raise it. Assignment to a conserved substance amount (`self.carbon = 5u`). Matter is conserved.</td>
 </tr>
 
 <tr>
@@ -452,7 +498,7 @@
   <td class="arg-name"><code>E0403</code></td>
   <td><span class="badge badge-phase">error</span></td>
   <td><span class="badge badge-context">Chemistry</span></td>
-  <td>Substance declared without specifying an elemental formula or thermodynamic potential.</td>
+  <td>Reserved: the current checker does not raise it. Substance declared without specifying an elemental formula or thermodynamic potential.</td>
 </tr>
 
 <tr>
@@ -460,6 +506,13 @@
   <td><span class="badge badge-phase">error</span></td>
   <td><span class="badge badge-context">Chemistry</span></td>
   <td>Reaction formula not in canonical declaration order. Run `emerge fmt` to fix.</td>
+</tr>
+
+<tr>
+  <td class="arg-name"><code>E0405</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Chemistry</span></td>
+  <td>A substance&#x27;s formula names something that is not a declared element.</td>
 </tr>
 
 <tr>
@@ -536,7 +589,7 @@
   <td class="arg-name"><code>E0705</code></td>
   <td><span class="badge badge-phase">error</span></td>
   <td><span class="badge badge-context">Routes</span></td>
-  <td>`remains` sink does not accept all world substances.</td>
+  <td>Reserved: the current checker does not raise it. `remains` sink does not accept all world substances.</td>
 </tr>
 
 <tr>
@@ -575,6 +628,13 @@
 </tr>
 
 <tr>
+  <td class="arg-name"><code>E0804</code></td>
+  <td><span class="badge badge-phase">error</span></td>
+  <td><span class="badge badge-context">Limits</span></td>
+  <td>The reaction space has more reactions than `max_reaction_space`; lower `max_inputs`, `max_outputs` or `max_coeff`, or raise the limit.</td>
+</tr>
+
+<tr>
   <td class="arg-name"><code>E0901</code></td>
   <td><span class="badge badge-phase">error</span></td>
   <td><span class="badge badge-context">Patches</span></td>
@@ -585,7 +645,7 @@
   <td class="arg-name"><code>E0902</code></td>
   <td><span class="badge badge-phase">error</span></td>
   <td><span class="badge badge-context">Patches</span></td>
-  <td>Redundant full path prefix inside relative `patch World { ... }` block.</td>
+  <td>Reserved: the current checker does not raise it. Redundant full path prefix inside relative `patch World { ... }` block.</td>
 </tr>
 
 <tr>

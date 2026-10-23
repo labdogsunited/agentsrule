@@ -11,6 +11,9 @@ import json
 import html
 import re
 from doc_data import FUNCTIONS, GUIDE_TOPICS, ATTRIBUTES, DIAGNOSTICS
+from doc_app import APP_GUIDE_TOPICS
+
+ALL_GUIDES = APP_GUIDE_TOPICS + GUIDE_TOPICS
 
 DOCS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "docs"))
 
@@ -893,7 +896,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Hash router support for Single-Page Application browsing on index.html
   if (window.EMERGE_DOCS_STORE) {
     function loadPageFromHash() {
-      const hash = window.location.hash.replace('#', '') || 'guide/overview';
+      const hash = window.location.hash.replace('#', '') || 'guide/using-overview';
       const pageData = window.EMERGE_DOCS_STORE[hash];
       if (pageData) {
         const mainEl = document.getElementById('main-content-pane');
@@ -908,6 +911,18 @@ document.addEventListener('DOMContentLoaded', () => {
               link.classList.remove('active');
             }
           });
+          // The right-hand list follows the page: its own headings.
+          const toc = document.querySelector('.houdini-toc .toc-list');
+          if (toc) {
+            toc.textContent = '';
+            mainEl.querySelectorAll('h2').forEach((h, i) => {
+              if (!h.id) h.id = 'sec-' + (h.textContent || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + i;
+              const li = document.createElement('li'), a = document.createElement('a');
+              li.className = 'toc-item'; a.className = 'toc-link'; a.textContent = h.textContent;
+              a.href = '#' + hash; a.addEventListener('click', (e) => { e.preventDefault(); h.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+              li.appendChild(a); toc.appendChild(li);
+            });
+          }
           window.scrollTo(0, 0);
         }
       }
@@ -967,6 +982,15 @@ def render_sidebar(current_id="", base_url=""):
     
     # 1. Guides Section
     html_out.append('<div class="sidebar-header">DOCUMENTATION</div>')
+    html_out.append('<div class="nav-section">')
+    html_out.append('  <div class="nav-section-title"><span>🖥️ Using Emerge</span><span class="count">%d</span></div>' % len(APP_GUIDE_TOPICS))
+    html_out.append('  <ul class="nav-list">')
+    for g in APP_GUIDE_TOPICS:
+        active_cls = " active" if current_id == ("guide/" + g["id"]) else ""
+        href = f"{base_url}guide/{g['id']}.html" if base_url else f"#guide/{g['id']}"
+        html_out.append(f'    <li class="nav-item"><a class="nav-link{active_cls}" data-id="guide/{g["id"]}" href="{href}">{g["title"]}</a></li>')
+    html_out.append('  </ul>')
+    html_out.append('</div>')
     html_out.append('<div class="nav-section">')
     html_out.append('  <div class="nav-section-title"><span>📖 Language Guide</span><span class="count">%d</span></div>' % len(GUIDE_TOPICS))
     html_out.append('  <ul class="nav-list">')
@@ -1030,7 +1054,7 @@ def render_header(base_url=""):
   </div>
 
   <nav class="header-links">
-    <a href="{base_url}index.html#guide/overview" class="header-link">Guide</a>
+    <a href="{base_url}index.html#guide/using-overview" class="header-link">Guide</a>
     <a href="{base_url}index.html#functions/transfer" class="header-link">Functions</a>
     <a href="{base_url}index.html#attributes" class="header-link">Attributes</a>
     <a href="{base_url}index.html#guide/vex-comparison" class="header-link">Houdini VEX</a>
@@ -1315,7 +1339,7 @@ def render_guide_content(g, base_url=""):
 <nav class="breadcrumbs">
   <a href="{base_url}index.html">Help</a>
   <span class="sep">></span>
-  <a href="{base_url}index.html#guide/overview">Emerge Language Guide</a>
+  <a href="{base_url}index.html#guide/{'using-overview' if g.get('section') else 'overview'}">{g.get('section', 'Emerge Language Guide')}</a>
   <span class="sep">></span>
   <span style="color:#fff;">{g["title"]}</span>
 </nav>
@@ -1431,7 +1455,7 @@ def build_search_index():
             "url": f"index.html#functions/{f['id']}",
             "keywords": f"{f['name']} {f['context']} {f['phase']} {f['return_type']}"
         })
-    for g in GUIDE_TOPICS:
+    for g in ALL_GUIDES:
         index.append({
             "title": g["title"],
             "desc": g["summary"],
@@ -1541,7 +1565,7 @@ def main():
         }
 
     print("Generating guide pages...")
-    for g in GUIDE_TOPICS:
+    for g in ALL_GUIDES:
         g_html = render_guide_content(g, base_url="../")
         generate_static_page(
             title=f"{g['title']} — Emerge Guide",
@@ -1605,16 +1629,16 @@ def main():
 
     print("Generating master index.html...")
     # Default landing is guide/overview
-    initial_content = docs_store["guide/overview"]["html"]
+    initial_content = docs_store["guide/using-overview"]["html"]
     header = render_header(base_url="")
-    sidebar = render_sidebar(current_id="guide/overview", base_url="")
+    sidebar = render_sidebar(current_id="guide/using-overview", base_url="")
     
     index_html = f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Emerge Language & VEX Reference — Documentation</title>
+  <title>Emerge — Documentation</title>
   <link rel="stylesheet" href="style.css">
   <script>
     window.EMERGE_SEARCH_INDEX = {json.dumps(search_index)};

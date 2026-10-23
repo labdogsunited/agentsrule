@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Using the viewer — Emerge Guide — Emerge Documentation</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  
+<header class="houdini-header">
+  <a href="../index.html" class="brand">
+    <div class="logo-box">E</div>
+    <span class="title">EMERGE</span>
+    <span class="version">v0.7.9</span>
+  </a>
+
+  <div class="search-container">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="search-input" class="search-input" placeholder="Search functions, attributes, types, contexts... (Press '/' to focus)" autocomplete="off">
+    <span class="search-shortcut">/</span>
+    <div id="search-dropdown" class="search-results-dropdown"></div>
+  </div>
+
+  <nav class="header-links">
+    <a href="../index.html#guide/using-overview" class="header-link">Guide</a>
+    <a href="../index.html#functions/transfer" class="header-link">Functions</a>
+    <a href="../index.html#attributes" class="header-link">Attributes</a>
+    <a href="../index.html#guide/vex-comparison" class="header-link">Houdini VEX</a>
+  </nav>
+</header>
+
+  <div class="houdini-layout">
+    <aside class="houdini-sidebar">
+<div class="sidebar-header">DOCUMENTATION</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>🖥️ Using Emerge</span><span class="count">6</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link active" data-id="guide/using-overview" href="../guide/using-overview.html">Using the viewer</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-network" href="../guide/using-network.html">The network editor</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-science" href="../guide/using-science.html">Science panels</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-worlds" href="../guide/using-worlds.html">Worlds, presets and backends</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-cli" href="../guide/using-cli.html">Command line</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-api" href="../guide/using-api.html">The engine API and MCP</a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>📖 Language Guide</span><span class="count">11</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="guide/overview" href="../guide/overview.html">Language Overview & Design Goals</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/lexical" href="../guide/lexical.html">Lexical Structure & Formatting</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/types" href="../guide/types.html">Value & Reference Types</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/contexts" href="../guide/contexts.html">Contexts & Execution Scopes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/tick-pipeline" href="../guide/tick-pipeline.html">The Tick Pipeline & Clock</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/world-declarations" href="../guide/world-declarations.html">World Declarations & Chemistry</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/genomes" href="../guide/genomes.html">Genomes, Lineages & Evolution</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/vex-layers" href="../guide/vex-layers.html">VEX-Style Layer Bodies & Attributes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/grammar" href="../guide/grammar.html">Grammar Specification</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/diagnostics" href="../guide/diagnostics.html">Compiler Diagnostics & Error Codes</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/vex-comparison" href="../guide/vex-comparison.html">Houdini VEX vs Emerge Comparison</a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="../attributes.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🏷️ Attributes Reference</a><span class="count">18</span></div>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="../diagnostics.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">⚠️ Diagnostics & Codes</a><span class="count">68</span></div>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><a href="../vex-comparison.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🔄 Houdini VEX Rosetta</a></div>
+</div>
+<div class="sidebar-header" style="margin-top:8px;">FUNCTIONS BY CATEGORY</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Substance Flow</span><span class="count">6</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/transfer" href="../functions/transfer.html"><span>transfer</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/react" href="../functions/react.html"><span>react</span><span class="tag">Transform</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/diffuse_conserved" href="../functions/diffuse_conserved.html"><span>diffuse_conserved</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/take" href="../functions/take.html"><span>take</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/give" href="../functions/give.html"><span>give</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/move_to" href="../functions/move_to.html"><span>move_to</span><span class="tag">Move</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Math & Numeric</span><span class="count">13</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/fit" href="../functions/fit.html"><span>fit</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/fit_log" href="../functions/fit_log.html"><span>fit_log</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/clamp" href="../functions/clamp.html"><span>clamp</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/lerp" href="../functions/lerp.html"><span>lerp</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/min" href="../functions/min.html"><span>min</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/max" href="../functions/max.html"><span>max</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/abs" href="../functions/abs.html"><span>abs</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/sqrt" href="../functions/sqrt.html"><span>sqrt</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/sin" href="../functions/sin.html"><span>sin</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/tanh" href="../functions/tanh.html"><span>tanh</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/log" href="../functions/log.html"><span>log</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/uniform" href="../functions/uniform.html"><span>uniform</span><span class="tag">Restructure / Genesis</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/jitter" href="../functions/jitter.html"><span>jitter</span><span class="tag">Mutate</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Type Conversions</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/units" href="../functions/units.html"><span>units</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/amount" href="../functions/amount.html"><span>amount</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/float" href="../functions/float.html"><span>float</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Spatial & Grid</span><span class="count">5</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/cap" href="../functions/cap.html"><span>cap</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/argmin" href="../functions/argmin.html"><span>argmin</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/argmax" href="../functions/argmax.html"><span>argmax</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/blur" href="../functions/blur.html"><span>blur</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/fade" href="../functions/fade.html"><span>fade</span><span class="tag">Set</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Reductions</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/sum" href="../functions/sum.html"><span>sum</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/mean" href="../functions/mean.html"><span>mean</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/count" href="../functions/count.html"><span>count</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Cellular Automata</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/life_like" href="../functions/life_like.html"><span>life_like</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/pattern" href="../functions/pattern.html"><span>pattern</span><span class="tag">Genesis</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/scatter" href="../functions/scatter.html"><span>scatter</span><span class="tag">Genesis</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Logic & Control</span><span class="count">3</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/select" href="../functions/select.html"><span>select</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/when" href="../functions/when.html"><span>when</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/if" href="../functions/if.html"><span>if</span><span class="tag">Draw</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Agent Senses</span><span class="count">12</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/inventory" href="../functions/inventory.html"><span>inventory</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/gradient" href="../functions/gradient.html"><span>gradient</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/probe" href="../functions/probe.html"><span>probe</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/crowd" href="../functions/crowd.html"><span>crowd</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/neighbour" href="../functions/neighbour.html"><span>neighbour</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/clock" href="../functions/clock.html"><span>clock</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/delta" href="../functions/delta.html"><span>delta</span><span class="tag">Set</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/has_gene" href="../functions/has_gene.html"><span>has_gene</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/genes" href="../functions/genes.html"><span>genes</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/active_genes" href="../functions/active_genes.html"><span>active_genes</span><span class="tag">All</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/made" href="../functions/made.html"><span>made</span><span class="tag">Draw / Query</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/lineage" href="../functions/lineage.html"><span>lineage</span><span class="tag">All</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Agent Actions</span><span class="count">9</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/move" href="../functions/move.html"><span>move</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/turn" href="../functions/turn.html"><span>turn</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/take_action" href="../functions/take_action.html"><span>take (action)</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/drop" href="../functions/drop.html"><span>drop</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/give_action" href="../functions/give_action.html"><span>give (action)</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/steal" href="../functions/steal.html"><span>steal</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/guard" href="../functions/guard.html"><span>guard</span><span class="tag">Move</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/divide" href="../functions/divide.html"><span>divide</span><span class="tag">Restructure</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/emit" href="../functions/emit.html"><span>emit</span><span class="tag">Set</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Visualization</span><span class="count">9</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/ramp" href="../functions/ramp.html"><span>ramp</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/palette" href="../functions/palette.html"><span>palette</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/scale" href="../functions/scale.html"><span>scale</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/arrow" href="../functions/arrow.html"><span>arrow</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/dot" href="../functions/dot.html"><span>dot</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/field_view" href="../functions/field_view.html"><span>field</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/agents_view" href="../functions/agents_view.html"><span>agents</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/line" href="../functions/line.html"><span>line</span><span class="tag">Draw</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/ledger" href="../functions/ledger.html"><span>ledger</span><span class="tag">Draw</span></a></li>
+  </ul>
+</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>Exploration</span><span class="count">5</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="functions/linspace" href="../functions/linspace.html"><span>linspace</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/logspace" href="../functions/logspace.html"><span>logspace</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/enumerate" href="../functions/enumerate.html"><span>enumerate</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/top" href="../functions/top.html"><span>top</span><span class="tag">Explore</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-id="functions/atlas" href="../functions/atlas.html"><span>atlas</span><span class="tag">Explore</span></a></li>
+  </ul>
+</div>
+</aside>
+    <main class="houdini-main">
+      
+<nav class="breadcrumbs">
+  <a href="../index.html">Help</a>
+  <span class="sep">></span>
+  <a href="../index.html#guide/using-overview">Using Emerge</a>
+  <span class="sep">></span>
+  <span style="color:#fff;">Using the viewer</span>
+</nav>
+
+<div class="guide-content">
+  <header class="doc-header"><h1 class="doc-title">Using the viewer</h1></header>
+<p>The viewer is a page in your browser, served by the engine on your own machine. A world is a <code>.em</code> file; the viewer starts one from an example, runs it, shows it, and lets you change it while it runs.</p>
+<h2>Start it</h2>
+<div class="synopsis-box"><pre class="synopsis-content"><code>agentsrule web</code></pre></div>
+<p>This builds what it needs, starts the server on the first free port from 7878, prints the address, and opens your browser. The address carries a key: open the address the server printed, not just the port. <strong>Restart server</strong> starts it again (worlds in memory are lost); <strong>Stop server</strong> stops it. <code>agentsrule web --port N --no-open --journal-dir DIR</code> changes the port, keeps the browser closed, and keeps a journal of every world so it can be replayed.</p>
+<h2>The header</h2>
+<table class="houdini-table"><thead><tr><th>Control</th><th>What it does</th></tr></thead><tbody><tr><td><strong>World</strong></td><td><ul class="cell-list"><li>the running world every pane acts on</li><li>several can exist at once</li></ul></td></tr><tr><td><strong>New world…</strong></td><td>pick an example (the reference dish, a preset, Game of Life), the lineages that start in it, the seed, the size, and the backend (CPU or GPU)</td></tr><tr><td><strong>Desktop</strong></td><td><ul class="cell-list"><li>a saved arrangement of the panes</li><li><strong>Save as…</strong> keeps the present one under a name</li></ul></td></tr><tr><td><strong>Docs</strong></td><td>opens this documentation (also <strong>F1</strong>, which opens the page for the pane you are in)</td></tr></tbody></table>
+<h2>Desktops and panes</h2>
+<p>The window is split into panes, and each pane holds tabs. Drag a tab to move it, drag a divider to resize, and use the pane's menu to split it or make it fill the window. Four desktops come with the viewer:</p>
+<table class="houdini-table"><thead><tr><th>Desktop</th><th>For</th></tr></thead><tbody><tr><td><strong>Simulate</strong></td><td>watching and running a world</td></tr><tr><td><strong>Rules</strong></td><td>editing a world's rules as a network, with the source and the inspector beside it</td></tr><tr><td><strong>Genome</strong></td><td>one creature's genes and signals</td></tr><tr><td><strong>Science</strong></td><td>the panels that answer questions about a run</td></tr></tbody></table>
+<h2>The panes (editors)</h2>
+<table class="houdini-table"><thead><tr><th>Editor</th><th>What it shows</th></tr></thead><tbody><tr><td><strong>Viewport</strong></td><td>the live picture of the world: wheel zooms, drag pans, <strong>i</strong> picks what is under the pointer (cell contents, nearby creatures, open a creature's genome), <strong>g</strong> shows the cell grid</td></tr><tr><td><strong>Parameters</strong></td><td>the box selected in the Network: its parameters, its text, and one edit for several selected boxes</td></tr><tr><td><strong>Network</strong></td><td>the world's rules as boxes and wires (see *The network editor*)</td></tr><tr><td><strong>Genome</strong></td><td>one living creature's genes in module frames, with the signals between them as wires</td></tr><tr><td><strong>Look</strong></td><td><ul class="cell-list"><li>how the picture is drawn: a view (layers, palettes, scales, charts) written as text</li><li>the viewport redraws as you edit it, and a view that is part of the world's source is read-only here</li></ul></td></tr><tr><td><strong>Details</strong></td><td><ul class="cell-list"><li>a table of living creatures</li><li>click a row to open its genome</li></ul></td></tr><tr><td><strong>Inspector</strong></td><td>what the selected box *is*, what the world holds in it, and what the runner counted for it, kept apart (see *The network editor*)</td></tr><tr><td><strong>Source</strong></td><td><ul class="cell-list"><li>the complete source of the running world</li><li>edit a copy, open a file, make a new world from it</li></ul></td></tr><tr><td><strong>Rule Lens</strong></td><td><ul class="cell-list"><li>the checked schedule: the steps of one tick and the rules and statements in each</li><li>also a read/write matrix, per-statement activity and a trace</li></ul></td></tr><tr><td><strong>Lineage History</strong></td><td><ul class="cell-list"><li>population by lineage over time</li><li>drag on the chart to brush a span of ticks</li></ul></td></tr><tr><td><strong>Genome Census</strong></td><td>every living creature's active genes by lineage, and a comparison of two creatures</td></tr><tr><td><strong>Resource Budget</strong></td><td>where the upkeep substance came from and went, by lineage, closed to the integer µ</td></tr><tr><td><strong>Ancestry</strong></td><td>one creature's ancestors and descendants</td></tr><tr><td><strong>Compare Runs</strong></td><td>two worlds side by side, on the ticks both sampled</td></tr><tr><td><strong>Region</strong></td><td>creatures and amounts inside a rectangle of the world, read in one call</td></tr><tr><td><strong>Flow Map</strong></td><td>the reactions of the world: declared, measured, and which outcomes blocked them</td></tr><tr><td><strong>Life Histories</strong></td><td>ages and carried stock of the living, and one birth cohort</td></tr><tr><td><strong>Notebook</strong></td><td>bookmarks that carry copies of their evidence, and a timeline of edits</td></tr></tbody></table>
+<h2>Keys</h2>
+<table class="houdini-table"><thead><tr><th>Key</th><th>Where</th><th>Does</th></tr></thead><tbody><tr><td>Space</td><td>anywhere</td><td>run or pause the world</td></tr><tr><td>i</td><td>Viewport</td><td>the info picker</td></tr><tr><td>g</td><td>Viewport / Network</td><td>the cell grid / frame the selection</td></tr><tr><td>H</td><td>Network</td><td>frame everything</td></tr><tr><td>Enter, U</td><td>Network</td><td>go into a statement's rule / go up</td></tr><tr><td>Tab</td><td>Network</td><td><ul class="cell-list"><li>add a box at the pointer</li><li>while pulling a wire, create a connected statement</li></ul></td></tr><tr><td>Ctrl+Z, Ctrl+Shift+Z</td><td>Network</td><td>undo, redo an edit</td></tr><tr><td>Ctrl+D, Ctrl+C, Ctrl+V</td><td>Network</td><td>duplicate, copy, paste statements</td></tr><tr><td>Shift-click, Shift-drag</td><td>Network</td><td>select several</td></tr><tr><td>F1</td><td>anywhere</td><td>the documentation page for this pane</td></tr></tbody></table>
+<h2>What is read and what is changed</h2>
+<p>Almost everything in the viewer only <strong>reads</strong>: it asks the engine questions and draws the answers, and the world runs exactly as it would without the question. What changes the world is an edit (in the Network, in Source, or a patch through the API): it is checked, then swapped into the running world as one numbered <strong>revision</strong>, and the world keeps running. A refused edit changes nothing and says why. Positions, notes, boxes, cameras and selections are only presentation: they never make a revision.</p>
+</div>
+
+    </main>
+    
+<nav class="houdini-toc">
+  <div class="toc-title">ON THIS PAGE</div>
+  <ul class="toc-list">
+    <li class="toc-item"><a class="toc-link" href="#top">Overview</a></li>
+  </ul>
+</nav>
+
+  </div>
+  <script src="../help.js"></script>
+</body>
+</html>

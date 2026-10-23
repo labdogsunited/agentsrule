@@ -23,7 +23,7 @@
   </div>
 
   <nav class="header-links">
-    <a href="../index.html#guide/overview" class="header-link">Guide</a>
+    <a href="../index.html#guide/using-overview" class="header-link">Guide</a>
     <a href="../index.html#functions/transfer" class="header-link">Functions</a>
     <a href="../index.html#attributes" class="header-link">Attributes</a>
     <a href="../index.html#guide/vex-comparison" class="header-link">Houdini VEX</a>
@@ -33,6 +33,17 @@
   <div class="houdini-layout">
     <aside class="houdini-sidebar">
 <div class="sidebar-header">DOCUMENTATION</div>
+<div class="nav-section">
+  <div class="nav-section-title"><span>🖥️ Using Emerge</span><span class="count">6</span></div>
+  <ul class="nav-list">
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-overview" href="../guide/using-overview.html">Using the viewer</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-network" href="../guide/using-network.html">The network editor</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-science" href="../guide/using-science.html">Science panels</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-worlds" href="../guide/using-worlds.html">Worlds, presets and backends</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-cli" href="../guide/using-cli.html">Command line</a></li>
+    <li class="nav-item"><a class="nav-link" data-id="guide/using-api" href="../guide/using-api.html">The engine API and MCP</a></li>
+  </ul>
+</div>
 <div class="nav-section">
   <div class="nav-section-title"><span>📖 Language Guide</span><span class="count">11</span></div>
   <ul class="nav-list">
@@ -53,7 +64,7 @@
   <div class="nav-section-title"><a href="../attributes.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🏷️ Attributes Reference</a><span class="count">18</span></div>
 </div>
 <div class="nav-section">
-  <div class="nav-section-title"><a href="../diagnostics.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">⚠️ Diagnostics & Codes</a><span class="count">60</span></div>
+  <div class="nav-section-title"><a href="../diagnostics.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">⚠️ Diagnostics & Codes</a><span class="count">68</span></div>
 </div>
 <div class="nav-section">
   <div class="nav-section-title"><a href="../vex-comparison.html" class="nav-link" style="padding:0;border:0;color:inherit;font:inherit;">🔄 Houdini VEX Rosetta</a></div>
@@ -223,7 +234,8 @@ block       := &#x27;{&#x27; stmt* &#x27;}&#x27;
 
 stmt        := &#x27;<span class="k">let</span>&#x27; IDENT &#x27;=&#x27; expr &#x27;;&#x27;
              | &#x27;<span class="k">when</span>&#x27; expr block (&#x27;<span class="k">else</span>&#x27; block)?
-             | &#x27;<span class="k">for</span>&#x27; IDENT &#x27;<span class="k">in</span>&#x27; IDENT block
+             | &#x27;<span class="k">for</span>&#x27; IDENT &#x27;<span class="k">in</span>&#x27; IDENT block                       <span class="c">// genesis: over the cells of a field</span>
+             | &#x27;<span class="k">for</span>&#x27; IDENT &#x27;<span class="k">in</span>&#x27; &#x27;[&#x27; IDENT (&#x27;,&#x27; IDENT)* &#x27;]&#x27; block  <span class="c">// rules: the body once for each name</span>
              | path &#x27;=&#x27; expr &#x27;;&#x27;
              | call LABEL? &#x27;;&#x27;
 

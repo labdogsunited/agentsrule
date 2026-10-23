@@ -452,7 +452,7 @@ rule conway on life {
 
 Senses do not read state fields, so a gene cannot (`any quantity` does not include them). Rules on state fields are not swappable.
 
-**What the runner evaluates (stage 1, `proposals/rule-conditions.md`).** `when`, `else` and `let` run in transfer and reaction rules on the CPU runner, around the effects that already run (`transfer` from a source to `self`, `react`, `diffuse_conserved`). The condition is evaluated in each cell on the start-of-tick snapshot, in exact integers: `self.<substance>`, `cap(<substance>)`, `tick`, amount and integer literals, `+`, `-`, `*` by an integer, comparisons, `and`, `or`, `not`; amounts compare with amounts and integers with integers (`E0205`). Since stage 2a (2026-10-21) a condition also reads the neighbouring cells: `above`, `below`, `left`, `right.<substance>`, and `sum`, `min`, `max`, `count` over `moore.<substance>` or `vonneumann.<substance>` (one kind of collection per reduction, none inside another; `count` takes a condition and gives an `int`). If the space does not wrap, a cell outside the grid is absent: `above.<s>` reads 0 there, and it is no member of a collection (`min`/`max` of no members is 0). Division, floats, `mean`, `argmin`/`argmax`, other-field reads and `for` are refused with `E1001` and are later stages. The GPU runtime runs the same conditions with the same results in contract mode (2026-10-21); it refuses only a condition that holds more than 16 values at once while it is evaluated, at creation and in a swap, with the reason.
+**What the runner evaluates (stage 1, `proposals/rule-conditions.md`).** `when`, `else` and `let` run in transfer and reaction rules on the CPU runner, around the effects that already run (`transfer` from a source to `self`, `react`, `diffuse_conserved`). The condition is evaluated in each cell on the start-of-tick snapshot, in exact integers: `self.<substance>`, `cap(<substance>)`, `tick`, amount and integer literals, `+`, `-`, `*` by an integer, comparisons, `and`, `or`, `not`; amounts compare with amounts and integers with integers (`E0205`). Since stage 2a (2026-10-21) a condition also reads the neighbouring cells: `above`, `below`, `left`, `right.<substance>`, and `sum`, `min`, `max`, `count` over `moore.<substance>` or `vonneumann.<substance>` (one kind of collection per reduction, none inside another; `count` takes a condition and gives an `int`). If the space does not wrap, a cell outside the grid is absent: `above.<s>` reads 0 there, and it is no member of a collection (`min`/`max` of no members is 0). Division, floats, `mean`, `argmin`/`argmax`, other-field reads and a `for` over cells or creatures are refused with `E1001` and are later stages (the loop over names of §7.5 is not one of them: it is unrolled before any runner sees the file). The GPU runtime runs the same conditions with the same results in contract mode (2026-10-21); it refuses only a condition that holds more than 16 values at once while it is evaluated, at creation and in a swap, with the reason.
 
 ### 7.3 Statements
 
@@ -1019,7 +1019,7 @@ Every diagnostic is JSON with a stable code, a location, a message and, where po
 | `E0501`, `E0502` | menus: a sense, action or regulation kind not on the world's menu; an argument that is not one of its parameters |
 | `E0601`, `E0602`, `E0605` | genomes: a parameter, input count or weight outside the menu's range; a reaction outside the reaction space's `include` list; a signal read but never written |
 | `E0701`–`E0707` | routes: payment route, `base` above `0mu`, a source emitting what it does not declare, a sink that does not accept, `remains` that does not accept everything, a field that cannot hold a substance, an endowment above a cap |
-| `E0801`–`E0803` | limits: a seed larger than its profile, a population above `max_entities`, positions outside the space |
+| `E0801`–`E0804` | limits: a seed larger than its profile, a population above `max_entities`, positions outside the space, a reaction space larger than `max_reaction_space` |
 | `E1001` | not supported by the runner yet |
 | `E1002`, `W1001` | a part of the world the runner cannot run: an error, or with `--partial` a warning naming what was left out |
 | `W1201` | a view or chart names a binding that is valid but not computed yet (`species_id`, `by: species`, `metrics.…`); the file stays valid, and the verdict does not count it |
@@ -1055,6 +1055,7 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | `react`, `diffuse_conserved` | yes | yes | yes |
 | `when`, `else`, `let` around those statements (§7; conditions on `self.<substance>`, `cap()`, `tick`, neighbour reads and `sum`/`min`/`max`/`count` over `moore`/`vonneumann`, in exact integers) | yes | yes | yes, equal to the CPU in contract mode; a condition more than 16 values deep is refused |
 | `transfer(s, from: self, to: above\|right\|below\|left, amount)` between cells (§7.2; no `overflow`) | yes | yes | yes, equal to the CPU in contract mode |
+| `for NAME in [a, b] { … }` over names (§7.5) | yes | yes | yes (written out before any runner sees the file, so the runners are unchanged) |
 | Other rule statements on the conserved field; transfers from anything but a source or `self` | parsed | `E1001` | — |
 | World genesis `for cell in … { transfer(…) }`; lineage genesis `count`, `position = uniform(…)`, `transfer` | yes | yes | yes (genesis runs on the CPU before packing) |
 | **Genomes and mutation** | | | |
@@ -1076,9 +1077,10 @@ Each construct is in one of four states: parsed and checked (`emerge check`); ru
 | Hot-swap (a patch at a revision, `world.hotswap` in `emerge-server`) | yes | yes, the Phase 0 subset (`proposals/engine-api.md`: rules, rates and amounts, upkeep costs, action fees, limits, `mind_steps`, mutation rates, raised caps); anything else is rejected and changes nothing | yes, the same subset |
 | `core.md` syntax (graph core, rules as data, living scopes) | not parsed | — | — |
 | **Runner output** | | | |
-| `--accounts`, `--blocked`, `--census`, `--contact`, `--changes`, `--inject`, `--clade`, `--features`, `--producers-log` | — | yes | no |
+| `--accounts`, `--blocked`, `--census`, `--contact`, `--changes`, `--inject`, `--clade`, `--features`, `--producers-log` | — | yes | no (the API's science questions below are the GPU's route to accounts) |
+| The API's science questions: `ancestry.query`, `life.query`, `accounts.*` by lineage, `rules.activity`, `reactions.flow`, `trace.*` | — | yes | yes, equal to the CPU in contract mode (ancestry and the trace from the start of the run; a trace holds at most 32 768 records). Accounts by clade or by who makes a substance, disposal routing and `flow.blocked_start` are CPU only |
 | Population, births, deaths, reaction extent per window; ledger audit (`EMERGE_GPU_AUDIT`) | — | yes (`--every`; conservation tests) | yes |
-| Engine API (JSON-RPC over WebSocket, `emerge-server serve`) and MCP (`emerge-server mcp`); run journal and replay | — | yes | yes, except `genome.explain` and `entities.query` |
+| Engine API (JSON-RPC over WebSocket, `emerge-server serve`) and MCP (`emerge-server mcp`); run journal and replay | — | yes | yes, including `genome.explain` and `entities.query` (decoded from the device's pools); `region.query` cell amounts are CPU only |
 | Exit test 9's columns: `--flux S`, `--producers F`, `--stop-when-sustained`, `--stop-when-hopeless` | — | yes | yes, same rows as `--contract gpu`; other columns (carriers, thieves, means) CPU only |
 
 The GPU runtime equals the CPU runner in contract mode (`emerge run --contract gpu`) word for word, on one driver at a time (`proposals/gpu-runtime.md`). It is a separate binary, not a mode of `emerge run`.

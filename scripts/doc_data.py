@@ -2114,7 +2114,8 @@ block       := '{' stmt* '}'
 
 stmt        := 'let' IDENT '=' expr ';'
              | 'when' expr block ('else' block)?
-             | 'for' IDENT 'in' IDENT block
+             | 'for' IDENT 'in' IDENT block                       // genesis: over the cells of a field
+             | 'for' IDENT 'in' '[' IDENT (',' IDENT)* ']' block  // rules: the body once for each name
              | path '=' expr ';'
              | call LABEL? ';'
 
@@ -2139,16 +2140,16 @@ layer       := 'layer' IDENT '=' call '{' entry* '}'
 
 | Code Range | Area | Description |
 | :--- | :--- | :--- |
-| **`E0001`–`E0007`** | Syntax | • Missing braces or delimiters<br>• Unexpected tokens<br>• Chained comparisons |
-| **`E0101`–`E0108`** | Lexical | • Invalid amount precision<br>• Unclosed string literals<br>• Invalid units |
-| **`E0110`–`E0119`** | Names & Constants | • Colliding names or duplicate definitions<br>• Reserved keyword usage<br>• Circular constants (`E0119`) |
-| **`E0201`–`E0205`** | Types | • Mismatched substances (`E0201`)<br>• Invalid casts or arithmetic<br>• Rate overflows (`E0204`) |
-| **`E0301`–`E0305`** | Contexts | • Effect in unauthorized context (`E0301`)<br>• Assignment to amount (`E0302`)<br>• Mixed rule kinds (`E0303`) |
-| **`E0401`–`E0406`** | Chemistry | • Unbalanced reaction (`E0401`)<br>• Reaction not downhill (`E0402`)<br>• Missing potential (`E0403`) |
+| **`E0001`–`E0007`** | Syntax | • Missing braces or delimiters<br>• Unexpected tokens<br>• Chained comparisons (`E0004`)<br>• An unnamed argument after a named one (`E0005`) |
+| **`E0101`–`E0108`** | Lexical | • Invalid amount precision<br>• Unclosed string literals<br>• Invalid units, rates and ranges (`E0105`–`E0107`) |
+| **`E0110`–`E0120`** | Names, Constants & Loops | • Colliding names or duplicate definitions<br>• Reserved keyword usage<br>• Circular constants (`E0119`)<br>• A name repeated in a rule loop's list (`E0120`) |
+| **`E0203`–`E0205`** | Types | • A value out of its type's range (`E0203`, `E0204`)<br>• A value of the wrong kind, such as an amount compared with an integer (`E0205`)<br>• `E0201` and `E0202` are reserved |
+| **`E0301`–`E0305`** | Contexts | • Effect in unauthorized context (`E0301`)<br>• Mixed rule kinds (`E0303`, `E0304`)<br>• `E0302` is reserved |
+| **`E0401`–`E0406`** | Chemistry | • Unbalanced reaction (`E0401`)<br>• Reaction not downhill (`E0402`)<br>• A formula naming an undeclared element (`E0405`)<br>• `E0403` is reserved |
 | **`E0501`–`E0502`** | Menus | • Unknown action or sense (`E0501`)<br>• Invalid parameter argument (`E0502`) |
 | **`E0601`–`E0605`** | Genomes | • Out-of-bounds weight (`E0601`)<br>• Unwritten signal read by mind (`E0605`) |
 | **`E0701`–`E0707`** | Routes & Caps | • Invalid upkeep payment route (`E0701`)<br>• Cap exceeded<br>• Unaccepted sink substance |
-| **`E0801`–`E0803`** | Capacity Limits | • Seed genome exceeds profile size (`E0801`)<br>• Population limit exceeded |
+| **`E0801`–`E0804`** | Capacity Limits | • Seed genome exceeds profile size (`E0801`)<br>• Population limit exceeded<br>• Reaction space over `max_reaction_space` (`E0804`) |
 | **`E0901`–`E0904`** | Patches | • Stale patch base revision<br>• Patch missing destination `move_to:` |
 | **`E1001`–`E1002`** | Runner Support | • Valid language feature not yet supported by current backend runner |
 | **`W1001`, `W1201`**| Warnings | • Partial execution omission (`W1001`)<br>• Uncomputed view metric (`W1201`) |
@@ -2308,11 +2309,16 @@ DIAGNOSTICS = [
     {"code": "E0002", "severity": "error", "area": "Syntax", "desc": "Unclosed delimiter or bracket pair."},
     {"code": "E0003", "severity": "error", "area": "Syntax", "desc": "Unexpected end of file while parsing block."},
     {"code": "E0004", "severity": "error", "area": "Syntax", "desc": "Chained comparison operators (e.g. `a < b < c`). Use `and` instead."},
+    {"code": "E0005", "severity": "error", "area": "Syntax", "desc": "Only the first argument of a call may be unnamed: `f(x, y: 1)`, not `f(x: 1, y)`."},
+    {"code": "E0006", "severity": "error", "area": "Syntax", "desc": "A seed genome needs at least one module."},
     {"code": "E0007", "severity": "error", "area": "Syntax", "desc": "Trailing comment at the end of a block violating formatter rules."},
     {"code": "E0101", "severity": "error", "area": "Lexical", "desc": "Amount is not a whole number of micro-units (`mu`). E.g. `0.0005u` is 0.5mu."},
     {"code": "E0102", "severity": "error", "area": "Lexical", "desc": "Malformed numeric integer or float literal."},
     {"code": "E0103", "severity": "error", "area": "Lexical", "desc": "Malformed rate literal. Rates must be integer basis points (`bp`)."},
     {"code": "E0104", "severity": "error", "area": "Lexical", "desc": "Float literal expected where integer was provided (e.g. `0` instead of `0.0`)."},
+    {"code": "E0105", "severity": "error", "area": "Lexical", "desc": "A range needs a number after `..` (`1u..`)."},
+    {"code": "E0106", "severity": "error", "area": "Lexical", "desc": "A rate is a whole, non-negative number of basis points (`50bp`)."},
+    {"code": "E0107", "severity": "error", "area": "Lexical", "desc": "A rate or an integer is too large to represent."},
     {"code": "E0108", "severity": "error", "area": "Lexical", "desc": "Unclosed string literal or string containing backslash escape sequences."},
     {"code": "E0110", "severity": "error", "area": "Names", "desc": "Declared name collides with a reserved hard keyword or contextual keyword."},
     {"code": "E0111", "severity": "error", "area": "Names", "desc": "Duplicate declared identifier name within the same world namespace."},
@@ -2324,20 +2330,22 @@ DIAGNOSTICS = [
     {"code": "E0117", "severity": "error", "area": "Lineages", "desc": "Invalid `extends` target: base must be in same world and cannot extend another."},
     {"code": "E0118", "severity": "error", "area": "Lineages", "desc": "Extension collision: duplicate signal name, repeated label, or `after` outside `extends`."},
     {"code": "E0119", "severity": "error", "area": "Constants", "desc": "Circular dependency loop detected between constants (`const A = B; const B = A;`)."},
-    {"code": "E0201", "severity": "error", "area": "Types", "desc": "Substance mismatch in amount arithmetic (e.g. `self.carbon + self.light`)."},
-    {"code": "E0202", "severity": "error", "area": "Types", "desc": "Wrong substance amount passed where another substance was expected."},
+    {"code": "E0120", "severity": "error", "area": "Rule loops", "desc": "A rule's `for name in [a, b]` repeats a name in its list. A loop variable that is a keyword or a name of the world is `E0110` or `E0111`."},
+    {"code": "E0201", "severity": "error", "area": "Types", "desc": "Reserved: the current checker does not raise it. Substance mismatch in amount arithmetic (e.g. `self.carbon + self.light`)."},
+    {"code": "E0202", "severity": "error", "area": "Types", "desc": "Reserved: the current checker does not raise it. Wrong substance amount passed where another substance was expected."},
     {"code": "E0203", "severity": "error", "area": "Values", "desc": "Value outside valid range (e.g. `second_law.min_drop` < 1 or negative amount)."},
     {"code": "E0204", "severity": "error", "area": "Values", "desc": "Rate exceeds maximum 10_000bp (100%) or amount exceeds exact f32 precision."},
     {"code": "E0205", "severity": "error", "area": "Types", "desc": "Expression evaluates to an invalid type or unexpected kind."},
     {"code": "E0301", "severity": "error", "area": "Contexts", "desc": "Physical effect, mutation, or read operation not permitted in this context."},
-    {"code": "E0302", "severity": "error", "area": "Contexts", "desc": "Assignment to a conserved substance amount (`self.carbon = 5u`). Matter is conserved."},
+    {"code": "E0302", "severity": "error", "area": "Contexts", "desc": "Reserved: the current checker does not raise it. Assignment to a conserved substance amount (`self.carbon = 5u`). Matter is conserved."},
     {"code": "E0303", "severity": "error", "area": "Contexts", "desc": "Mixed physical effect kinds in a rule. Rules must be purely transfers, reactions, or signals."},
     {"code": "E0304", "severity": "error", "area": "Contexts", "desc": "Rule contains no physical effect statements."},
     {"code": "E0305", "severity": "error", "area": "Contexts", "desc": "Signal field written by multiple rules without a declared `combine` policy."},
     {"code": "E0401", "severity": "error", "area": "Chemistry", "desc": "Chemical reaction is not stoichiometrically balanced across elemental compositions."},
     {"code": "E0402", "severity": "error", "area": "Chemistry", "desc": "Reaction is not strictly downhill: ΔG must decrease by at least `min_drop`."},
-    {"code": "E0403", "severity": "error", "area": "Chemistry", "desc": "Substance declared without specifying an elemental formula or thermodynamic potential."},
+    {"code": "E0403", "severity": "error", "area": "Chemistry", "desc": "Reserved: the current checker does not raise it. Substance declared without specifying an elemental formula or thermodynamic potential."},
     {"code": "E0404", "severity": "error", "area": "Chemistry", "desc": "Reaction formula not in canonical declaration order. Run `emerge fmt` to fix."},
+    {"code": "E0405", "severity": "error", "area": "Chemistry", "desc": "A substance's formula names something that is not a declared element."},
     {"code": "E0406", "severity": "error", "area": "Chemistry", "desc": "Generated reaction space exceeds maximum capacity limit."},
     {"code": "E0501", "severity": "error", "area": "Menus", "desc": "Unknown sense, action, or regulation kind not declared in world menus."},
     {"code": "E0502", "severity": "error", "area": "Menus", "desc": "Argument name is not a valid parameter of the target menu item."},
@@ -2348,14 +2356,15 @@ DIAGNOSTICS = [
     {"code": "E0702", "severity": "error", "area": "Routes", "desc": "Upkeep `base` fee must be strictly greater than 0mu."},
     {"code": "E0703", "severity": "error", "area": "Routes", "desc": "Source boundary emits a substance it did not declare in its emission list."},
     {"code": "E0704", "severity": "error", "area": "Routes", "desc": "Sink boundary rejects the substance directed to it."},
-    {"code": "E0705", "severity": "error", "area": "Routes", "desc": "`remains` sink does not accept all world substances."},
+    {"code": "E0705", "severity": "error", "area": "Routes", "desc": "Reserved: the current checker does not raise it. `remains` sink does not accept all world substances."},
     {"code": "E0706", "severity": "error", "area": "Routes", "desc": "Conserved field `holds` list does not declare capacity for this substance."},
     {"code": "E0707", "severity": "error", "area": "Routes", "desc": "Genesis initial endowment exceeds cell storage capacity cap."},
     {"code": "E0801", "severity": "error", "area": "Limits", "desc": "Seed genome size exceeds the limits configured in the lineage profile."},
     {"code": "E0802", "severity": "error", "area": "Limits", "desc": "Active population count exceeds the world `limits.max_entities` ceiling."},
     {"code": "E0803", "severity": "error", "area": "Limits", "desc": "Genesis entity placement coordinates lie outside space bounds."},
+    {"code": "E0804", "severity": "error", "area": "Limits", "desc": "The reaction space has more reactions than `max_reaction_space`; lower `max_inputs`, `max_outputs` or `max_coeff`, or raise the limit."},
     {"code": "E0901", "severity": "error", "area": "Patches", "desc": "Patch removes a substance or lowers a cap without specifying `move_to:` sink."},
-    {"code": "E0902", "severity": "error", "area": "Patches", "desc": "Redundant full path prefix inside relative `patch World { ... }` block."},
+    {"code": "E0902", "severity": "error", "area": "Patches", "desc": "Reserved: the current checker does not raise it. Redundant full path prefix inside relative `patch World { ... }` block."},
     {"code": "E0903", "severity": "error", "area": "Patches", "desc": "File provided to `--patch` contains non-patch declarations."},
     {"code": "E0904", "severity": "error", "area": "Patches", "desc": "Patch operation not currently supported on static file patches."},
     {"code": "E1001", "severity": "error", "area": "Runner", "desc": "Valid language construct not yet supported by current runner execution engine."},
