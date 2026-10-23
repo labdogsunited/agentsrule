@@ -243,8 +243,32 @@ fn decl_order(d: &WDecl) -> u8 {
         WDecl::Menu { kind, .. } if kind == "senses" => 14,
         WDecl::Menu { kind, .. } if kind == "actions" => 15,
         WDecl::Menu { .. } => 16,
-        WDecl::Rule { .. } => 17,
-        WDecl::Genesis(_) => 18,
+        WDecl::Operator { .. } => 17,
+        // An instance stays where it is among the rules: its rules are written out in its place, and rules of one kind
+        // run in the order they are declared.
+        WDecl::Rule { .. } | WDecl::Use { .. } => 18,
+        WDecl::Genesis(_) => 19,
+    }
+}
+
+/// A part of an operator's body, in the order written.
+enum OItem {
+    Param(OParam),
+    Rule(WDecl),
+}
+
+fn oitem(out: &mut Out, i: usize, it: &OItem) {
+    match it {
+        OItem::Param(p) => {
+            let mut pieces = vec![t(format!("param {}: {}", p.name, p.kind))];
+            if let Some(v) = &p.default {
+                pieces.push(t(" = "));
+                pieces.extend(value(v));
+            }
+            pieces.push(t(";"));
+            out.layout(i, pieces);
+        }
+        OItem::Rule(r) => wdecl(out, i, r),
     }
 }
 
@@ -318,6 +342,17 @@ fn wdecl(out: &mut Out, i: usize, d: &WDecl) {
             out.block(i, vec![t(name.clone())], entries, entry);
         }
         WDecl::Setting(e) => entry(out, i, e),
+        WDecl::Operator { name, version, params, rules } => {
+            // Parameters first, then the rules, as `emerge fmt` writes every block.
+            let items: Vec<Node<OItem>> = params.iter().map(|p| Node { trivia: p.trivia.clone(), pos: p.pos, node: OItem::Param(p.node.clone()) })
+                .chain(rules.iter().map(|r| Node { trivia: r.trivia.clone(), pos: r.pos, node: OItem::Rule(r.node.clone()) })).collect();
+            out.block(i, vec![t(format!("operator {name} version {version}"))], &items, oitem);
+        }
+        WDecl::Use { def, version, name, args } => {
+            let mut pieces = vec![t(format!("use {def} version {version} as "))];
+            pieces.extend(call(&Call { name: name.clone(), args: args.clone() }));
+            out.layout(i, line(pieces));
+        }
         WDecl::Const { name, value } => {
             let mut pieces = vec![t(format!("const {name} = "))];
             pieces.extend(expr(value));

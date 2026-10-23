@@ -361,10 +361,59 @@ impl Parser {
                 return Ok(WDecl::Rule { name, on, body: self.block()? });
             }
             "genesis" => return Ok(WDecl::Genesis(self.block()?)),
+            "operator" => {
+                // `operator NAME version N { param NAME: KIND (= VALUE)?; … rule … }` (`proposals/reusable-operators.md`).
+                let name = self.ident()?;
+                let version = self.version()?;
+                self.expect("{")?;
+                let (mut params, mut rules) = (Vec::new(), Vec::new());
+                while !self.is_punct("}") {
+                    if *self.tok() == Tok::Eof {
+                        return self.expected("`}`");
+                    }
+                    if self.is_word("param") {
+                        params.push(self.node(|p| {
+                            p.bump();
+                            let name = p.ident()?;
+                            p.expect(":")?;
+                            let kind = p.ident()?;
+                            let default = if p.eat_punct("=") { Some(p.value()?) } else { None };
+                            p.expect(";")?;
+                            Ok(OParam { name, kind, default })
+                        })?);
+                    } else if self.is_word("rule") {
+                        rules.push(self.node(Self::wdecl)?);
+                    } else {
+                        return self.expected("`param` or `rule` in an operator");
+                    }
+                }
+                if !self.toks[self.pos].comments.is_empty() {
+                    return self.err("E0007", "a comment at the end of a block is not supported yet; put it before a statement");
+                }
+                self.bump();
+                return Ok(WDecl::Operator { name, version, params, rules });
+            }
+            "use" => {
+                // `use NAME version N as INSTANCE(arg: value, …);`
+                let def = self.ident()?;
+                let version = self.version()?;
+                self.expect_word("as")?;
+                let call = self.call()?;
+                WDecl::Use { def, version, name: call.name, args: call.args }
+            }
             other => return self.err("E0003", format!("unknown declaration `{other}`")),
         };
         self.expect(";")?;
         Ok(decl)
+    }
+
+    /// `version N`: a whole number from 1.
+    fn version(&mut self) -> R<i64> {
+        self.expect_word("version")?;
+        match self.lit()? {
+            Lit::Int(i) if i >= 1 => Ok(i),
+            _ => self.expected("a version number from 1"),
+        }
     }
 
     fn comp(&mut self) -> R<Vec<Term>> {

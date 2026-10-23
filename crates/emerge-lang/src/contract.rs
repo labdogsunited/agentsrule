@@ -13,8 +13,8 @@ use std::collections::BTreeMap;
 /// A named place on a box where a wire attaches.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Port {
-    pub key: &'static str,
-    pub name: &'static str,
+    pub key: String,
+    pub name: String,
     /// `in` or `out`.
     pub dir: &'static str,
     /// `resource` (amounts move), `reference` (names a declaration), `value` (a computed value).
@@ -93,10 +93,10 @@ pub struct NodeContract {
 
 #[derive(Clone, Debug)]
 pub struct WireContract {
-    /// `resource flow` or `declaration reference`.
+    /// `resource flow`, `declaration reference` or `value dependency`.
     pub kind: &'static str,
-    pub from_port: &'static str,
-    pub to_port: &'static str,
+    pub from_port: String,
+    pub to_port: String,
     /// Drawn from the formula or the field, not from an argument of its own: no edit of the wire exists.
     pub derived: bool,
     /// What connecting this wire writes in the source, if anything.
@@ -129,8 +129,10 @@ pub struct Contract {
     /// value dependencies (what a condition or a signal statement reads and writes). Each with its contract.
     pub more_wires: Vec<(crate::graph::Wire, WireContract)>,
     pub nested: Vec<Nested>,
-    /// `world`, then `rule:<name>` for each rule, with a breadcrumb.
+    /// `world`, then `rule:<name>` for each rule and `use:<name>` for each instance, with a breadcrumb.
     pub contexts: Vec<(String, String)>,
+    /// The statements instances write out, for their networks.
+    pub generated: Vec<Generated>,
 }
 
 fn classify(text: &str) -> (&'static str, Option<&'static str>, Option<(f64, f64)>) {
@@ -331,14 +333,14 @@ impl Cx<'_> {
 /// A value-dependency wire: what a condition or a signal statement reads (`into` the box) or writes (out of it).
 fn dep_wire(from: String, to: String, substance: Option<String>, write: bool) -> (Wire, WireContract) {
     let why = if write { "a signal statement writes its field's value; change it in the statement's text" } else { "read on the start-of-tick snapshot by a condition or an expression; change it in the text" };
-    (Wire { from, to, substance }, WireContract { kind: "value dependency", from_port: if write { "writes" } else { "out" }, to_port: if write { "in" } else { "reads" }, derived: true, edit: None, why_not: Some(why.into()) })
+    (Wire { from, to, substance }, WireContract { kind: "value dependency", from_port: if write { "writes" } else { "out" }.into(), to_port: if write { "in" } else { "reads" }.into(), derived: true, edit: None, why_not: Some(why.into()) })
 }
 
 /// The wires of one statement: resource wires for a call (as `graph::graph` draws them for a top-level one), value
 /// dependencies for what a signal statement reads and writes, and for what its own condition reads, if it is a `when`.
 fn stmt_wires(st: &Stmt, id: &str, cx: &Cx, nested: bool, out: &mut Vec<(Wire, WireContract)>) {
     let flow = |from: String, to: String, substance: Option<String>, edit: Option<&str>, why: Option<&str>, ports: (&'static str, &'static str)| {
-        (Wire { from, to, substance }, WireContract { kind: if ports.1 == "reaction" { "declaration reference" } else { "resource flow" }, from_port: ports.0, to_port: ports.1, derived: edit.is_none(), edit: edit.map(String::from), why_not: why.map(String::from) })
+        (Wire { from, to, substance }, WireContract { kind: if ports.1 == "reaction" { "declaration reference" } else { "resource flow" }, from_port: ports.0.into(), to_port: ports.1.into(), derived: edit.is_none(), edit: edit.map(String::from), why_not: why.map(String::from) })
     };
     match st {
         Stmt::Call { call, .. } if nested && call.name == "transfer" => {
@@ -460,23 +462,23 @@ fn walk(st: &Stmt, cx: &Cx, deps: &mut Deps, when: &str, container: &str, nested
                     let mut caps = Caps { edit_text: true, set_param: call_like, delete: true, rewire: matches!(kind, Kind::Transfer | Kind::React), ..Default::default() };
                     match kind {
                         Kind::Transfer => {
-                            ports.push(Port { key: "from", name: "from", dir: "in", role: "resource", ty: "store", required: true, many: false });
-                            ports.push(Port { key: "to", name: "to", dir: "out", role: "resource", ty: "store", required: true, many: false });
+                            ports.push(Port { key: "from".into(), name: "from".into(), dir: "in", role: "resource", ty: "store", required: true, many: false });
+                            ports.push(Port { key: "to".into(), name: "to".into(), dir: "out", role: "resource", ty: "store", required: true, many: false });
                         }
                         Kind::React => {
-                            ports.push(Port { key: "reaction", name: "reaction", dir: "in", role: "reference", ty: "reaction", required: true, many: false });
-                            ports.push(Port { key: "cells", name: "cells (inputs)", dir: "in", role: "resource", ty: "store", required: false, many: true });
-                            ports.push(Port { key: "products", name: "cells (outputs)", dir: "out", role: "resource", ty: "store", required: false, many: true });
+                            ports.push(Port { key: "reaction".into(), name: "reaction".into(), dir: "in", role: "reference", ty: "reaction", required: true, many: false });
+                            ports.push(Port { key: "cells".into(), name: "cells (inputs)".into(), dir: "in", role: "resource", ty: "store", required: false, many: true });
+                            ports.push(Port { key: "products".into(), name: "cells (outputs)".into(), dir: "out", role: "resource", ty: "store", required: false, many: true });
                             caps.why_not.insert("rewire_resources", "the inputs and outputs come from the reaction's formula; change the reaction or edit its formula".into());
                         }
                         Kind::Diffuse => {
-                            ports.push(Port { key: "cells", name: "cells (in)", dir: "in", role: "resource", ty: "store", required: false, many: true });
-                            ports.push(Port { key: "products", name: "cells (out)", dir: "out", role: "resource", ty: "store", required: false, many: true });
+                            ports.push(Port { key: "cells".into(), name: "cells (in)".into(), dir: "in", role: "resource", ty: "store", required: false, many: true });
+                            ports.push(Port { key: "products".into(), name: "cells (out)".into(), dir: "out", role: "resource", ty: "store", required: false, many: true });
                             caps.why_not.insert("rewire", "a diffusion spreads between a field's own cells; its substances are in its text".into());
                         }
                         _ => {
                             if matches!(s.node, Stmt::When { .. }) {
-                                ports.push(Port { key: "reads", name: "reads", dir: "in", role: "value", ty: "store", required: false, many: true });
+                                ports.push(Port { key: "reads".into(), name: "reads".into(), dir: "in", role: "value", ty: "store", required: false, many: true });
                             }
                             caps.why_not.insert("rewire", "its dependencies are drawn as value wires; edit its text".into());
                         }
@@ -541,20 +543,20 @@ fn caps_of(n: &GNode, ports: &mut Vec<Port>) -> Caps {
     let mut caps = Caps::default();
     match n.kind {
         Kind::Transfer => {
-            ports.push(Port { key: "from", name: "from", dir: "in", role: "resource", ty: "store", required: true, many: false });
-            ports.push(Port { key: "to", name: "to", dir: "out", role: "resource", ty: "store", required: true, many: false });
+            ports.push(Port { key: "from".into(), name: "from".into(), dir: "in", role: "resource", ty: "store", required: true, many: false });
+            ports.push(Port { key: "to".into(), name: "to".into(), dir: "out", role: "resource", ty: "store", required: true, many: false });
             caps = Caps { edit_text: true, set_param: true, delete: true, rewire: true, duplicate: true, label, ..Default::default() };
         }
         Kind::React => {
-            ports.push(Port { key: "reaction", name: "reaction", dir: "in", role: "reference", ty: "reaction", required: true, many: false });
-            ports.push(Port { key: "cells", name: "cells (inputs)", dir: "in", role: "resource", ty: "store", required: false, many: true });
-            ports.push(Port { key: "products", name: "cells (outputs)", dir: "out", role: "resource", ty: "store", required: false, many: true });
+            ports.push(Port { key: "reaction".into(), name: "reaction".into(), dir: "in", role: "reference", ty: "reaction", required: true, many: false });
+            ports.push(Port { key: "cells".into(), name: "cells (inputs)".into(), dir: "in", role: "resource", ty: "store", required: false, many: true });
+            ports.push(Port { key: "products".into(), name: "cells (outputs)".into(), dir: "out", role: "resource", ty: "store", required: false, many: true });
             caps = Caps { edit_text: true, set_param: true, delete: true, rewire: true, duplicate: true, label, ..Default::default() };
             caps.why_not.insert("rewire_resources", "the inputs and outputs come from the reaction's formula; change the reaction or edit its formula".into());
         }
         Kind::Diffuse => {
-            ports.push(Port { key: "cells", name: "cells (in)", dir: "in", role: "resource", ty: "store", required: false, many: true });
-            ports.push(Port { key: "products", name: "cells (out)", dir: "out", role: "resource", ty: "store", required: false, many: true });
+            ports.push(Port { key: "cells".into(), name: "cells (in)".into(), dir: "in", role: "resource", ty: "store", required: false, many: true });
+            ports.push(Port { key: "products".into(), name: "cells (out)".into(), dir: "out", role: "resource", ty: "store", required: false, many: true });
             caps = Caps { edit_text: true, set_param: true, delete: true, rewire: false, duplicate: true, label, ..Default::default() };
             caps.why_not.insert("rewire", "a diffusion spreads between a field's own cells; its substances are in its text".into());
         }
@@ -564,15 +566,15 @@ fn caps_of(n: &GNode, ports: &mut Vec<Port>) -> Caps {
             caps.why_not.insert("rewire", "what it reads and writes is drawn as value wires; change them in its text".into());
         }
         Kind::Store => {
-            ports.push(Port { key: "in", name: "in", dir: "in", role: "resource", ty: "store", required: false, many: true });
-            ports.push(Port { key: "out", name: "out", dir: "out", role: "resource", ty: "store", required: false, many: true });
+            ports.push(Port { key: "in".into(), name: "in".into(), dir: "in", role: "resource", ty: "store", required: false, many: true });
+            ports.push(Port { key: "out".into(), name: "out".into(), dir: "out", role: "resource", ty: "store", required: false, many: true });
             caps.set_param = !n.params.is_empty();
             for k in ["edit_text", "delete", "duplicate", "rewire"] {
                 caps.why_not.insert(k, declaration_only.into());
             }
         }
         Kind::Reaction => {
-            ports.push(Port { key: "use", name: "used by", dir: "out", role: "reference", ty: "reaction", required: false, many: true });
+            ports.push(Port { key: "use".into(), name: "used by".into(), dir: "out", role: "reference", ty: "reaction", required: false, many: true });
             caps.set_param = !n.params.is_empty();
             for k in ["edit_text", "delete", "duplicate", "rewire"] {
                 caps.why_not.insert(k, declaration_only.into());
@@ -590,14 +592,102 @@ fn caps_of(n: &GNode, ports: &mut Vec<Port>) -> Caps {
                 caps.why_not.insert(k, declaration_only.into());
             }
         }
+        Kind::Instance => {
+            caps = Caps { edit_text: false, set_param: true, delete: true, rewire: true, duplicate: false, label: false, ..Default::default() };
+            caps.why_not.insert("edit_text", "its rules come from its definition: detach it to edit them as ordinary rules, or edit them as a new version".into());
+            caps.why_not.insert("duplicate", "use the operator again (Tab, Operators): each instance has its own name".into());
+        }
+        Kind::Operator => {
+            for k in ["edit_text", "delete", "duplicate", "rewire", "set_param"] {
+                caps.why_not.insert(k, "a version of a definition does not change: edit it as a new version from one of its instances, or detach an instance".into());
+            }
+        }
     }
     if !caps.set_param && !caps.why_not.contains_key("set_param") {
         caps.why_not.insert("set_param", "nothing here has a value to set".into());
     }
-    if !caps.label {
+    if !caps.label && !caps.why_not.contains_key("label") {
         caps.why_not.insert("label", if n.group.is_some() { "it already has a label".into() } else { "only statements are labelled".into() });
     }
     caps
+}
+
+/// A statement an instance writes out (`proposals/reusable-operators.md` §5): shown read-only in the instance's network,
+/// named as the runner names it (`Soil.rules.feed_supply@supply`), so its counts are its own.
+#[derive(Clone, Debug)]
+pub struct Generated {
+    pub id: String,
+    /// The instance's box.
+    pub instance: String,
+    /// The written-out rule's box id (`Soil.rules.feed_supply`).
+    pub group: String,
+    pub kind: Kind,
+    pub title: String,
+    pub text: String,
+    pub step: Option<&'static str>,
+    pub params: Vec<(String, String)>,
+    pub meta: NodeContract,
+}
+
+/// Every instance's written-out statements and their wires, from the prepared file.
+fn generated(file: &File, world: &str, out: &mut Vec<Generated>, wires: &mut Vec<(Wire, WireContract)>) -> Result<(), String> {
+    let w = file.items.iter().find_map(|i| match &i.node { Item::World(w) if w.name == world => Some(w), _ => None }).ok_or("no world")?;
+    let uses: Vec<(String, String, i64)> = w.decls.iter().filter_map(|d| match &d.node { WDecl::Use { def, version, name, .. } => Some((name.clone(), def.clone(), *version)), _ => None }).collect();
+    if uses.is_empty() {
+        return Ok(());
+    }
+    let prepared = crate::prepare(file).map_err(|p| format!("{}: {}: {}", p.code, p.path, p.message))?;
+    let schedule = crate::schedule::lower(&prepared, world)?;
+    let pw = prepared.items.iter().find_map(|i| match &i.node { Item::World(w) if w.name == world => Some(w), _ => None }).ok_or("no world")?;
+    let mut formulas = Formulas::new();
+    for d in &pw.decls {
+        if let WDecl::Reaction { name, formula, .. } = &d.node {
+            formulas.insert(name.clone(), (formula.inputs.iter().map(|t| t.name.clone()).collect(), formula.outputs.iter().map(|t| t.name.clone()).collect()));
+        }
+    }
+    let step_of = |slot: crate::schedule::Slot| schedule.steps.iter().find(|s| s.slot == slot).map(|s| s.name);
+    for (inst, def, version) in uses {
+        // The definition's rule names, in order: the written-out rules are `INSTANCE_RULE`.
+        let rules: Vec<String> = w.decls.iter().find_map(|d| match &d.node {
+            WDecl::Operator { name, version: v, rules, .. } if *name == def && *v == version => Some(rules.iter().filter_map(|r| match &r.node { WDecl::Rule { name, .. } => Some(name.clone()), _ => None }).collect()),
+            _ => None,
+        }).unwrap_or_default();
+        for r in rules {
+            let rname = format!("{inst}_{r}");
+            let Some(WDecl::Rule { on, body, .. }) = pw.decls.iter().map(|d| &d.node).find(|d| matches!(d, WDecl::Rule { name, .. } if *name == rname)) else { continue };
+            let lowered = schedule.rules.iter().find(|x| x.name == rname);
+            let cx = Cx { world, w: pw, rule: &rname, on, formulas: &formulas };
+            for (i, st) in body.iter().enumerate() {
+                let id = match &st.node { Stmt::Call { label: Some(l), .. } => format!("{world}.rules.{rname}@{l}"), _ => format!("{world}.rules.{rname}#{i}") };
+                let (kind, title, call_name) = kind_of(&st.node);
+                let mut deps = Deps { complete: true, ..Default::default() };
+                let mut nested = Vec::new();
+                walk(&st.node, &cx, &mut deps, "", &id, &mut nested, &[], wires);
+                stmt_wires(&st.node, &id, &cx, true, wires);
+                let params: Vec<(String, String)> = match &st.node {
+                    Stmt::Call { call, .. } => call.args.iter().filter_map(|a| a.name.as_ref().map(|n| (n.clone(), value_text(&a.value)))).collect(),
+                    _ => Vec::new(),
+                };
+                let mut caps = Caps::default();
+                for k in ["edit_text", "set_param", "delete", "rewire", "duplicate", "label"] {
+                    caps.why_not.insert(k, format!("written out by instance `{inst}` from `{def}` version {version}: set its parameters, detach it, or edit it as a new version"));
+                }
+                let step = lowered.and_then(|l| l.stmts.get(i)).and_then(|l| l.slot.clone().ok()).and_then(step_of);
+                out.push(Generated {
+                    id,
+                    instance: format!("{world}.uses.{inst}"),
+                    group: format!("{world}.rules.{rname}"),
+                    kind,
+                    title: title.to_string(),
+                    text: stmt_text(&st.node),
+                    step,
+                    meta: NodeContract { context: format!("use:{inst}"), identity: "generated", ports: Vec::new(), params: params.iter().map(|(k, v)| param_meta(call_name, k, v)).collect(), caps, deps, summary: None, children: Vec::new(), condition: None },
+                    params,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The contract of the `world` of `file`.
@@ -623,6 +713,11 @@ pub fn contract(file: &File, world: &str) -> Result<Contract, String> {
             contexts.push((format!("rule:{name}"), format!("{world} / rules / {name}")));
         }
     }
+    for d in &w.decls {
+        if let WDecl::Use { name, .. } = &d.node {
+            contexts.push((format!("use:{name}"), format!("{world} / uses / {name}")));
+        }
+    }
     let mut nodes = BTreeMap::new();
     let mut nested = Vec::new();
     let mut more_wires = Vec::new();
@@ -631,8 +726,28 @@ pub fn contract(file: &File, world: &str) -> Result<Contract, String> {
         let context = rule_name.as_ref().map_or("world".to_string(), |r| format!("rule:{r}"));
         let mut ports = Vec::new();
         let mut caps = caps_of(n, &mut ports);
+        let mut params_kinds: Vec<OParam> = Vec::new();
+        if n.kind == Kind::Instance {
+            // The bindings of an instance are its ports: what it takes from on the left, what it fills on the right.
+            if let Some(WDecl::Use { def, version, .. }) = w.decls.iter().map(|d| &d.node).find(|d| matches!(d, WDecl::Use { name, .. } if format!("{world}.uses.{name}") == n.id)) {
+                params_kinds = crate::graph::operator_params(w, def, *version);
+                for p in &params_kinds {
+                    let (dir, role) = match p.kind.as_str() {
+                        "source" => ("in", "resource"),
+                        "reaction" => ("in", "reference"),
+                        "field" | "sink" => ("out", "resource"),
+                        _ => continue,
+                    };
+                    let ty = if p.kind == "reaction" { "reaction" } else { "store" };
+                    ports.push(Port { key: p.name.clone(), name: p.name.clone(), dir, role, ty, required: p.default.is_none(), many: false });
+                }
+                if params_kinds.is_empty() {
+                    caps.why_not.insert("set_param", format!("its definition `{def}` version {version} is not in the world"));
+                }
+            }
+        }
         if n.kind == Kind::Decl && n.id.contains(".waste.") {
-            ports.push(Port { key: "out", name: "routes to", dir: "out", role: "resource", ty: "store", required: true, many: false });
+            ports.push(Port { key: "out".into(), name: "routes to".into(), dir: "out", role: "resource", ty: "store", required: true, many: false });
         }
         let call_name = match n.kind {
             Kind::Transfer => "transfer",
@@ -640,7 +755,18 @@ pub fn contract(file: &File, world: &str) -> Result<Contract, String> {
             Kind::Diffuse => "diffuse_conserved",
             _ => "",
         };
-        let params = n.params.iter().map(|(k, v)| param_meta(call_name, k, v)).collect();
+        let params = n.params.iter().map(|(k, v)| {
+            let mut m = param_meta(call_name, k, v);
+            // An instance's parameter has its definition's kind, and says what its default is.
+            if let Some(p) = params_kinds.iter().find(|p| p.name == *k) {
+                m.ty = match p.kind.as_str() { "amount" => "amount", "rate" => "rate", "int" => "integer", "float" => "number", _ => "name" };
+                m.help = "a parameter of the instance's definition";
+                if let Some(d) = &p.default {
+                    m.why_not = Some(format!("default {}", value_text(d)));
+                }
+            }
+            m
+        }).collect();
         let mut deps = Deps { complete: !matches!(n.kind, Kind::Signal | Kind::Code), ..Default::default() };
         let mut children = Vec::new();
         let mut condition = None;
@@ -661,12 +787,12 @@ pub fn contract(file: &File, world: &str) -> Result<Contract, String> {
                     match &st.node {
                         Stmt::When { cond, .. } => {
                             caps.why_not.insert("set_param", "a `when` has no arguments; set its condition, or the statements inside it".into());
-                            ports.push(Port { key: "reads", name: "reads", dir: "in", role: "value", ty: "store", required: false, many: true });
+                            ports.push(Port { key: "reads".into(), name: "reads".into(), dir: "in", role: "value", ty: "store", required: false, many: true });
                             condition = Some(value_text(&Value::Expr(cond.clone())));
                         }
                         Stmt::Assign { .. } | Stmt::Call { .. } if n.kind == Kind::Signal => {
-                            ports.push(Port { key: "reads", name: "reads", dir: "in", role: "value", ty: "store", required: false, many: true });
-                            ports.push(Port { key: "writes", name: "writes", dir: "out", role: "value", ty: "store", required: true, many: false });
+                            ports.push(Port { key: "reads".into(), name: "reads".into(), dir: "in", role: "value", ty: "store", required: false, many: true });
+                            ports.push(Port { key: "writes".into(), name: "writes".into(), dir: "out", role: "value", ty: "store", required: true, many: false });
                         }
                         _ => {}
                     }
@@ -694,20 +820,35 @@ pub fn contract(file: &File, world: &str) -> Result<Contract, String> {
         }
         nodes.insert(n.id.clone(), NodeContract { context, identity, ports, params, caps, deps, summary, children, condition });
     }
+    let mut made = Vec::new();
+    generated(file, world, &mut made, &mut more_wires)?;
     let kind = |id: &str| g.nodes.iter().find(|n| n.id == id).map(|n| n.kind);
+    // Which binding of an instance a wire stands for: the parameter bound to the declaration at its other end.
+    let binding = |inst: &str, other: &str| -> String {
+        let short = other.rsplit('.').next().unwrap_or(other);
+        g.nodes.iter().find(|n| n.id == inst).and_then(|n| n.params.iter().find(|(_, v)| v == short).map(|(k, _)| k.clone())).unwrap_or_default()
+    };
     let wires = g
         .wires
         .iter()
         .map(|wire| match (kind(&wire.from), kind(&wire.to)) {
-            (Some(Kind::Reaction), Some(Kind::React)) => WireContract { kind: "declaration reference", from_port: "use", to_port: "reaction", derived: false, edit: Some("sets the reaction this `react` runs".into()), why_not: None },
-            (Some(Kind::Store), Some(Kind::Transfer)) => WireContract { kind: "resource flow", from_port: "out", to_port: "from", derived: false, edit: Some("sets `from` of the transfer".into()), why_not: None },
-            (Some(Kind::Transfer), Some(Kind::Store)) => WireContract { kind: "resource flow", from_port: "to", to_port: "in", derived: false, edit: Some("sets `to` of the transfer".into()), why_not: None },
-            (Some(Kind::Store), Some(Kind::React | Kind::Diffuse)) => WireContract { kind: "resource flow", from_port: "out", to_port: "cells", derived: true, edit: None, why_not: Some("an input of the reaction's formula (or a substance the diffusion spreads), not an argument of its own".into()) },
-            (Some(Kind::React | Kind::Diffuse), Some(Kind::Store)) => WireContract { kind: "resource flow", from_port: "products", to_port: "in", derived: true, edit: None, why_not: Some("an output of the reaction's formula (or a substance the diffusion spreads), not an argument of its own".into()) },
-            _ => WireContract { kind: "resource flow", from_port: "out", to_port: "in", derived: true, edit: None, why_not: Some("a declared route (waste), changed in its declaration".into()) },
+            (Some(Kind::Store | Kind::Reaction), Some(Kind::Instance)) => {
+                let p = binding(&wire.to, &wire.from);
+                WireContract { kind: if kind(&wire.from) == Some(Kind::Reaction) { "declaration reference" } else { "resource flow" }, from_port: if kind(&wire.from) == Some(Kind::Reaction) { "use".into() } else { "out".into() }, to_port: p.clone(), derived: false, edit: Some(format!("binds `{p}` of the instance")), why_not: None }
+            }
+            (Some(Kind::Instance), Some(Kind::Store)) => {
+                let p = binding(&wire.from, &wire.to);
+                WireContract { kind: "resource flow", from_port: p.clone(), to_port: "in".into(), derived: false, edit: Some(format!("binds `{p}` of the instance")), why_not: None }
+            }
+            (Some(Kind::Reaction), Some(Kind::React)) => WireContract { kind: "declaration reference", from_port: "use".into(), to_port: "reaction".into(), derived: false, edit: Some("sets the reaction this `react` runs".into()), why_not: None },
+            (Some(Kind::Store), Some(Kind::Transfer)) => WireContract { kind: "resource flow", from_port: "out".into(), to_port: "from".into(), derived: false, edit: Some("sets `from` of the transfer".into()), why_not: None },
+            (Some(Kind::Transfer), Some(Kind::Store)) => WireContract { kind: "resource flow", from_port: "to".into(), to_port: "in".into(), derived: false, edit: Some("sets `to` of the transfer".into()), why_not: None },
+            (Some(Kind::Store), Some(Kind::React | Kind::Diffuse)) => WireContract { kind: "resource flow", from_port: "out".into(), to_port: "cells".into(), derived: true, edit: None, why_not: Some("an input of the reaction's formula (or a substance the diffusion spreads), not an argument of its own".into()) },
+            (Some(Kind::React | Kind::Diffuse), Some(Kind::Store)) => WireContract { kind: "resource flow", from_port: "products".into(), to_port: "in".into(), derived: true, edit: None, why_not: Some("an output of the reaction's formula (or a substance the diffusion spreads), not an argument of its own".into()) },
+            _ => WireContract { kind: "resource flow", from_port: "out".into(), to_port: "in".into(), derived: true, edit: None, why_not: Some("a declared route (waste), changed in its declaration".into()) },
         })
         .collect();
-    Ok(Contract { nodes, wires, more_wires, nested, contexts })
+    Ok(Contract { nodes, wires, more_wires, nested, contexts, generated: made })
 }
 
 /// A name the code box offers as a completion (`proposals/houdini-node-system.md` §8): what it is, where it is declared

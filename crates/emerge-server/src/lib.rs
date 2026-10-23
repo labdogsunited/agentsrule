@@ -4,6 +4,7 @@
 pub mod api;
 pub mod exit2;
 pub mod journal;
+pub mod library;
 pub mod mcp;
 pub mod picture;
 pub mod record;

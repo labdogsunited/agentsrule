@@ -33,6 +33,11 @@ pub enum Kind {
     Code,
     /// Anything else the world declares: elements, constants, substances, waste, menus, settings.
     Decl,
+    /// `use NAME version N as I(…)`: an instance of an operator, its bindings as wires and its value parameters as
+    /// parameters (`proposals/reusable-operators.md`).
+    Instance,
+    /// `operator NAME version N { … }`: a definition.
+    Operator,
 }
 
 impl Kind {
@@ -47,6 +52,8 @@ impl Kind {
             Kind::Signal => "signal",
             Kind::Code => "code",
             Kind::Decl => "decl",
+            Kind::Instance => "instance",
+            Kind::Operator => "operator",
         }
     }
 }
@@ -120,6 +127,8 @@ fn plural(d: &WDecl) -> &'static str {
         WDecl::Genesis(_) => "genesis",
         WDecl::Config { .. } => "config",
         WDecl::Setting(_) => "settings",
+        WDecl::Operator { .. } => "operators",
+        WDecl::Use { .. } => "uses",
     }
 }
 
@@ -132,7 +141,18 @@ fn name_of(d: &WDecl) -> String {
         WDecl::Genesis(_) => "genesis".into(),
         WDecl::Config { name, .. } => name.clone(),
         WDecl::Setting(e) => e.key.clone(),
+        // A definition is its name and version (`operators.NutrientSupply@v1`); an instance is its own name.
+        WDecl::Operator { name, version, .. } => format!("{name}@v{version}"),
+        WDecl::Use { name, .. } => name.clone(),
     }
+}
+
+/// The parameters of operator `def` version `version` of `w` (none if it is not there).
+pub fn operator_params(w: &World, def: &str, version: i64) -> Vec<OParam> {
+    w.decls.iter().find_map(|d| match &d.node {
+        WDecl::Operator { name, version: v, params, .. } if name == def && *v == version => Some(params.iter().map(|p| p.node.clone()).collect()),
+        _ => None,
+    }).unwrap_or_default()
 }
 
 /// The name an argument holds, if it is a plain name.
@@ -196,9 +216,31 @@ pub fn graph(file: &File, world: &str) -> Result<Graph, String> {
             WDecl::Field { .. } | WDecl::Source { .. } | WDecl::Sink { .. } => Kind::Store,
             WDecl::Reaction { .. } => Kind::Reaction,
             WDecl::Rule { .. } => Kind::Rule,
+            WDecl::Use { .. } => Kind::Instance,
+            WDecl::Operator { .. } => Kind::Operator,
             _ => Kind::Decl,
         };
         let rule_id = id(&d.node);
+        if let WDecl::Use { def, version, name, args } = &d.node {
+            // An instance: every parameter of its definition, as given or as its default (`(default)` after it), and a
+            // wire for each declaration it is bound to: what it takes from in, what it fills out.
+            let params = operator_params(w, def, *version);
+            let given = |k: &str| args.iter().find(|a| a.name.as_deref() == Some(k)).map(|a| value_text(&a.value));
+            let shown: Vec<(String, String)> = params.iter().map(|p| (p.name.clone(), given(&p.name).or_else(|| p.default.as_ref().map(value_text)).unwrap_or_default())).collect();
+            let substances: Vec<&String> = params.iter().filter(|p| p.kind == "substance").filter_map(|p| shown.iter().find(|(k, _)| *k == p.name).map(|(_, v)| v)).collect();
+            let carried = (substances.len() == 1).then(|| substances[0].clone());
+            for p in &params {
+                let Some((_, bound)) = shown.iter().find(|(k, _)| *k == p.name) else { continue };
+                match p.kind.as_str() {
+                    "source" => if let Some(s) = store(bound) { wires.push(Wire { from: s, to: rule_id.clone(), substance: carried.clone() }) },
+                    "field" | "sink" => if let Some(s) = store(bound) { wires.push(Wire { from: rule_id.clone(), to: s, substance: carried.clone() }) },
+                    "reaction" => if let Some((r, _)) = reaction(bound) { wires.push(Wire { from: r, to: rule_id.clone(), substance: None }) },
+                    _ => {}
+                }
+            }
+            nodes.push(GNode { id: rule_id, kind, title: format!("{name} · {def} v{version}"), text: decl_text(&d.node), step: None, group: None, line: d.pos.line, params: shown });
+            continue;
+        }
         nodes.push(GNode { id: rule_id.clone(), kind, title: name_of(&d.node), text: decl_text(&d.node), step: None, group: None, line: d.pos.line, params: decl_params(&d.node) });
 
         let WDecl::Rule { name, on, body } = &d.node else { continue };
@@ -506,6 +548,23 @@ pub enum Op {
     AddInside { id: String, otherwise: bool, text: String },
     /// A `when`'s condition, replaced by `cond` (source text of an expression), checked like any edit.
     Condition { id: String, cond: String },
+    /// An instance replaced by the rules it writes out, in its place: ordinary source from then on.
+    Detach { id: String },
+    /// The instance's definition copied as the next version of it in the world, with `text` (the definition's text, its
+    /// version number set by the edit), and the instance moved to it. No other instance changes.
+    Fork { id: String, text: String },
+    /// The instance moved to `version` of its definition; `def` is that version's text when the world does not have it
+    /// yet (from the library). A version no instance uses any more is taken away in the same patch.
+    Upgrade { id: String, version: i64, def: Option<String> },
+    /// An instance of the definition `def` (its text) named `name`, with `args`: the definition is added to the world if
+    /// it is not there yet (the same name and version with other content is refused).
+    InsertOperator { def: String, name: String, args: Vec<(String, String)> },
+    /// The rules that hold `ids` made into the operator `name` version `version` and an instance `instance` of it in
+    /// their place (`reuse::operator_from`).
+    MakeOperator { ids: Vec<String>, name: String, instance: String, version: i64 },
+    /// New rules, each from (a name to start from, its field, its statements as text), with fresh names after the last
+    /// rule: a template inserted.
+    AddRules { rules: Vec<(String, String, String)> },
     /// A box dropped on a wire (`proposals/houdini-node-system.md` §6): only where the wire has a defined insertion. The
     /// one there is: a sink dropped on the wire from a transfer to its destination becomes that transfer's `overflow`
     /// (what does not fit goes to the sink). Anywhere else the box only moves.
@@ -603,7 +662,186 @@ pub fn op_patch(file: &File, world: &str, op: &Op, base: u64) -> Result<Edit, St
         replace_with(id, &stmt)
     };
 
+    // An instance by its box id: its place among the declarations and the parts of its `use`.
+    let instance = |id: &str| -> Result<(usize, String, i64, String, Vec<Arg>), String> {
+        w.decls.iter().enumerate().find_map(|(i, d)| match &d.node {
+            WDecl::Use { def, version, name, args } if format!("{world}.uses.{name}") == id => Some((i, def.clone(), *version, name.clone(), args.clone())),
+            _ => None,
+        }).ok_or_else(|| format!("no instance `{id}`"))
+    };
+    // Where something goes back to the place of declaration `i` among the rules and instances.
+    let anchor = |i: usize, skip: &[&str]| -> String {
+        let key = |d: &WDecl| match d { WDecl::Rule { name, .. } if !skip.contains(&name.as_str()) => Some(format!("rules.{name}")), WDecl::Use { name, .. } if !skip.contains(&name.as_str()) => Some(format!("uses.{name}")), _ => None };
+        if let Some(p) = w.decls[..i].iter().rev().find_map(|d| key(&d.node)) { return format!("add after {p}: "); }
+        if let Some(n) = w.decls[i + 1..].iter().find_map(|d| key(&d.node)) { return format!("add before {n}: "); }
+        "add ".to_string()
+    };
+    let use_text = |def: &str, version: i64, name: &str, args: &[Arg]| decl_text(&WDecl::Use { def: def.to_string(), version, name: name.to_string(), args: args.to_vec() });
+    let parse_decl = |text: &str| -> Result<WDecl, String> {
+        let f = crate::parse(&format!("world T {{ {text} }}")).map_err(|d| format!("{}: {}", d.code, d.message))?;
+        f.items.into_iter().find_map(|i| match i.node { Item::World(w) => w.decls.into_iter().next().map(|d| d.node), _ => None }).ok_or_else(|| "not a declaration".to_string())
+    };
+    let versions_of = |name: &str| -> Vec<i64> { w.decls.iter().filter_map(|d| match &d.node { WDecl::Operator { name: n, version, .. } if n == name => Some(*version), _ => None }).collect() };
+    let def_text = |name: &str, version: i64| -> Option<String> { w.decls.iter().find_map(|d| match &d.node { WDecl::Operator { name: n, version: v, .. } if n == name && *v == version => Some(decl_text(&d.node)), _ => None }) };
+    let users = |name: &str, version: i64| w.decls.iter().filter(|d| matches!(&d.node, WDecl::Use { def, version: v, .. } if def == name && *v == version)).count();
     match op {
+        Op::SetParam { id, param, value } if id.starts_with(&format!("{world}.uses.")) => {
+            let (_, _, _, name, args) = instance(id)?;
+            parse_value(value)?;
+            let old = args.iter().find(|a| a.name.as_deref() == Some(param.as_str())).map(|a| value_text(&a.value));
+            let undo = match old { Some(v) => format!("set uses.{name}.{param} = {v};"), None => format!("remove uses.{name}.{param};") };
+            Ok(Edit::new(world, base, format!("set uses.{name}.{param} = {value};"), undo, Some(id.clone())))
+        }
+        Op::Wire { from, to } if from.starts_with(&format!("{world}.uses.")) || to.starts_with(&format!("{world}.uses.")) => {
+            // A declaration wired to an instance binds the one parameter of its kind; with several, say which in Parameters.
+            let (inst, other) = if to.starts_with(&format!("{world}.uses.")) { (to, from) } else { (from, to) };
+            let (_, def, version, _, _) = instance(inst)?;
+            let kind = other.strip_prefix(&prefix).and_then(|r| r.split('.').next()).map(|k| match k { "sources" => "source", "sinks" => "sink", "fields" => "field", "reactions" => "reaction", _ => "" }).unwrap_or("");
+            let fit: Vec<String> = operator_params(w, &def, version).into_iter().filter(|p| p.kind == kind).map(|p| p.name).collect();
+            match fit.as_slice() {
+                [one] => op_patch(file, world, &Op::SetParam { id: inst.clone(), param: one.clone(), value: short(other).to_string() }, base),
+                [] => Err(format!("`{def}` has no {} parameter for `{}`", if kind.is_empty() { "such" } else { kind }, short(other))),
+                many => Err(format!("`{def}` has several {kind} parameters ({}): set the one you mean in Parameters", many.join(", "))),
+            }
+        }
+        Op::Delete { id } if id.starts_with(&format!("{world}.uses.")) => {
+            let (i, def, version, name, args) = instance(id)?;
+            Ok(Edit::new(world, base, format!("remove uses.{name};"), format!("{}{}", anchor(i, &[&name]), use_text(&def, version, &name, &args)), None))
+        }
+        Op::Detach { id } => {
+            let (i, def, version, name, args) = instance(id)?;
+            let prepared = crate::prepare(file).map_err(|p| format!("{}: {}: {}", p.code, p.path, p.message))?;
+            let pw = prepared.items.iter().find_map(|it| match &it.node { Item::World(x) if x.name == world => Some(x), _ => None }).ok_or("no world")?;
+            let inst = name.clone();
+            let def_rules: Vec<String> = w.decls.iter().find_map(|d| match &d.node {
+                WDecl::Operator { name: n, version: v, rules, .. } if *n == def && *v == version => Some(rules.iter().filter_map(|r| match &r.node { WDecl::Rule { name: rule, .. } => Some(format!("{inst}_{rule}")), _ => None }).collect()),
+                _ => None,
+            }).ok_or_else(|| format!("`{def}` version {version} is not in the world"))?;
+            let texts: Vec<(String, String)> = def_rules.iter().filter_map(|r| pw.decls.iter().find(|d| matches!(&d.node, WDecl::Rule { name: n, .. } if n == r)).map(|d| (r.clone(), decl_text(&d.node)))).collect();
+            let mut redo = vec![format!("remove uses.{name};")];
+            let mut place = anchor(i, &[&name]);
+            for (r, t) in &texts {
+                redo.push(format!("{place}{t}"));
+                place = format!("add after rules.{r}: ");
+            }
+            let mut undo: Vec<String> = texts.iter().map(|(r, _)| format!("remove rules.{r};")).collect();
+            undo.push(format!("{}{}", anchor(i, &[&name]), use_text(&def, version, &name, &args)));
+            Ok(Edit::new(world, base, redo.join(" "), undo.join(" "), texts.first().map(|(r, _)| format!("{world}.rules.{r}"))))
+        }
+        Op::Fork { id, text } => {
+            let (_, def, version, name, _) = instance(id)?;
+            let WDecl::Operator { name: n, params, rules, .. } = parse_decl(text)? else { return Err("the text is not an operator definition".into()) };
+            if n != def {
+                return Err(format!("a new version of `{def}` keeps its name (the text names `{n}`)"));
+            }
+            let next = versions_of(&def).into_iter().max().unwrap_or(version) + 1;
+            let new = decl_text(&WDecl::Operator { name: def.clone(), version: next, params, rules });
+            Ok(Edit::new(world, base, format!("add {new} set uses.{name}.version = {next};"), format!("set uses.{name}.version = {version}; remove operators.{def}@v{next};"), Some(id.clone())))
+        }
+        Op::Upgrade { id, version: to, def: given } => {
+            let (_, def, from, name, _) = instance(id)?;
+            if *to == from {
+                return Err(format!("`{name}` already uses version {to}"));
+            }
+            let (mut redo, mut undo) = (Vec::new(), Vec::new());
+            match (def_text(&def, *to), given) {
+                (Some(have), Some(g)) if crate::parse(&format!("world T {{ {g} }}")).ok().map(|f| crate::format(&f)) != crate::parse(&format!("world T {{ {have} }}")).ok().map(|f| crate::format(&f)) => {
+                    return Err(format!("the world's `{def}` version {to} is not this one: publish it as a new version first"));
+                }
+                (Some(_), _) => {}
+                (None, Some(g)) => {
+                    let WDecl::Operator { name: n, version: v, .. } = parse_decl(g)? else { return Err("not an operator definition".into()) };
+                    if n != def || v != *to {
+                        return Err(format!("the definition given is `{n}` version {v}, not `{def}` version {to}"));
+                    }
+                    redo.push(format!("add {g}"));
+                    undo.push(format!("remove operators.{def}@v{to};"));
+                }
+                (None, None) => return Err(format!("the world has no `{def}` version {to}")),
+            }
+            redo.push(format!("set uses.{name}.version = {to};"));
+            undo.insert(0, format!("set uses.{name}.version = {from};"));
+            // The old version goes if this instance was its last user.
+            if users(&def, from) == 1 {
+                let old = def_text(&def, from).unwrap_or_default();
+                redo.push(format!("remove operators.{def}@v{from};"));
+                undo.insert(0, format!("add {old}"));
+            }
+            Ok(Edit::new(world, base, redo.join(" "), undo.join(" "), Some(id.clone())))
+        }
+        Op::InsertOperator { def, name, args } => {
+            let WDecl::Operator { name: d, version, params, .. } = parse_decl(def)? else { return Err("not an operator definition".into()) };
+            let canon = |t: &str| crate::parse(&format!("world T {{ {t} }}")).ok().map(|f| crate::format(&f));
+            let mut redo = Vec::new();
+            let mut undo = Vec::new();
+            match def_text(&d, version) {
+                Some(have) if canon(&have) != canon(def) => return Err(format!("this world's `{d}` version {version} is not the library's: publish one of them as a new version")),
+                Some(_) => {}
+                None => {
+                    redo.push(format!("add {def}"));
+                    undo.push(format!("remove operators.{d}@v{version};"));
+                }
+            }
+            let taken: Vec<String> = w.decls.iter().filter_map(|x| match &x.node { WDecl::Use { name, .. } => Some(name.clone()), WDecl::Rule { name, .. } => Some(name.clone()), _ => None }).collect();
+            let stem: String = d.chars().enumerate().flat_map(|(i, c)| if c.is_ascii_uppercase() && i > 0 { vec!['_', c.to_ascii_lowercase()] } else { vec![c.to_ascii_lowercase()] }).collect();
+            let inst = if name.is_empty() { (1..).map(|k| format!("{stem}_{k}")).find(|n| !taken.contains(n)).unwrap() } else { name.clone() };
+            let mut a = Vec::new();
+            for (k, v) in args {
+                if !params.iter().any(|p| p.node.name == *k) {
+                    return Err(format!("`{d}` has no parameter `{k}`"));
+                }
+                a.push(Arg { name: Some(k.clone()), value: parse_value(v)? });
+            }
+            let last = w.decls.iter().rev().find_map(|x| match &x.node { WDecl::Rule { name, .. } => Some(format!("add after rules.{name}: ")), WDecl::Use { name, .. } => Some(format!("add after uses.{name}: ")), _ => None }).unwrap_or_else(|| "add ".into());
+            redo.push(format!("{last}{}", use_text(&d, version, &inst, &a)));
+            undo.insert(0, format!("remove uses.{inst};"));
+            Ok(Edit::new(world, base, redo.join(" "), undo.join(" "), Some(format!("{world}.uses.{inst}"))))
+        }
+        Op::MakeOperator { ids, name, instance: inst, version } => {
+            let (d, rules, args) = crate::reuse::operator_from(file, world, ids, name, *version)?;
+            if !versions_of(name).is_empty() && versions_of(name).contains(version) {
+                return Err(format!("the world already has `{name}` version {version}"));
+            }
+            let first = w.decls.iter().position(|x| matches!(&x.node, WDecl::Rule { name, .. } if *name == rules[0])).unwrap();
+            let skip: Vec<&str> = rules.iter().map(String::as_str).collect();
+            let place = anchor(first, &skip);
+            let mut redo: Vec<String> = rules.iter().map(|r| format!("remove rules.{r};")).collect();
+            redo.push(format!("add {}", decl_text(&d)));
+            redo.push(format!("{place}{}", use_text(name, *version, inst, &args)));
+            let mut undo = vec![format!("remove uses.{inst};"), format!("remove operators.{name}@v{version};")];
+            let mut back = place;
+            for r in &rules {
+                let text = w.decls.iter().find(|x| matches!(&x.node, WDecl::Rule { name, .. } if name == r)).map(|x| decl_text(&x.node)).unwrap_or_default();
+                undo.push(format!("{back}{text}"));
+                back = format!("add after rules.{r}: ");
+            }
+            Ok(Edit::new(world, base, redo.join(" "), undo.join(" "), Some(format!("{world}.uses.{inst}"))))
+        }
+        Op::AddRules { rules } => {
+            if rules.is_empty() {
+                return Err("no rules to add".into());
+            }
+            let mut taken: Vec<String> = w.decls.iter().filter_map(|d| crate::check::declared(&d.node).map(|(n, _)| n.to_string())).collect();
+            let fields: Vec<&str> = w.decls.iter().filter_map(|d| match &d.node { WDecl::Field { name, .. } => Some(name.as_str()), _ => None }).collect();
+            let mut place = w.decls.iter().rev().find_map(|d| match &d.node { WDecl::Rule { name, .. } => Some(format!("rules.{name}")), WDecl::Use { name, .. } => Some(format!("uses.{name}")), _ => None });
+            let (mut redo, mut undo) = (Vec::new(), Vec::new());
+            let mut selected = None;
+            for (hint, on, text) in rules {
+                if !fields.contains(&on.as_str()) {
+                    return Err(format!("this world has no field `{on}` for the rule to work on"));
+                }
+                let body = parse_block(text)?;
+                let n = (1..).map(|k| if k == 1 { hint.clone() } else { format!("{hint}_{k}") }).find(|n| !taken.contains(n)).unwrap();
+                taken.push(n.clone());
+                let at = match &place { Some(p) => format!("add after {p}: "), None => "add ".to_string() };
+                redo.push(format!("{at}rule {n} on {on} {{ {} }}", body.iter().map(|s| stmt_text(&s.node)).collect::<Vec<_>>().join(" ")));
+                undo.push(format!("remove rules.{n};"));
+                selected.get_or_insert_with(|| match body.first().map(|s| &s.node) { Some(Stmt::Call { label: Some(l), .. }) => format!("{world}.rules.{n}@{l}"), _ => format!("{world}.rules.{n}#0") });
+                place = Some(format!("rules.{n}"));
+            }
+            undo.reverse();
+            Ok(Edit::new(world, base, redo.join(" "), undo.join(" "), selected))
+        }
         Op::AddInside { id, otherwise, text } => nested_edit(file, world, id, NestedChange::Add { otherwise: *otherwise, text: text.clone() }, base),
         Op::Condition { id, cond } => nested_edit(file, world, id, NestedChange::Condition(cond.clone()), base),
         Op::Wire { from, to } if from.contains('/') || to.contains('/') => {

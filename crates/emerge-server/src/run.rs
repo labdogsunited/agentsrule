@@ -205,8 +205,10 @@ impl Run {
 
     /// Whether the world can still change: it has entities, or a state field (an automaton has
     /// no entities; `proposals/field-rules.md`).
+    /// Whether the world still runs: it has creatures, or it is a world that has none to lose (a state field's automaton,
+    /// or a world created with no lineages, whose fields change on their own). Only a world whose creatures all died stops.
     pub fn alive(&self) -> bool {
-        self.population() > 0 || !self.live.world.states.is_empty()
+        self.population() > 0 || !self.live.world.states.is_empty() || self.spec.lineages.is_empty()
     }
 
     /// Runs `n` ticks, or fewer if the world dies out. Returns the ticks run.

@@ -300,3 +300,135 @@ fn a_recording_of_one_cell_keeps_only_that_cell() {
     let r = engine.call("region.query", &json!({"world": w, "x": [7.0 * side, 8.0 * side], "y": [10.0 * side, 11.0 * side]})).unwrap();
     assert_eq!(r["cells"]["count"], 1);
 }
+
+const OPS: &str = include_str!("../../../examples/operators.em");
+
+/// The operators example with its operator taken out and each instance written out by hand.
+fn by_hand() -> String {
+    OPS.replace(&OPS[OPS.find("    // What one inflow is").unwrap()..OPS.find("    rule spread on cells").unwrap()], "")
+        .replace("    use NutrientSupply version 1 as carbon_in(from: rock, into: cells, what: carbon, ration: 20mu);\n    use NutrientSupply version 1 as humus_in(from: rock, into: cells, what: humus);\n",
+            "    rule carbon_in_supply on cells {\n        transfer(carbon, from: rock, to: self, amount: 20mu, overflow: void) @supply;\n    }\n\n    rule humus_in_supply on cells {\n        transfer(humus, from: rock, to: self, amount: 5mu, overflow: void) @supply;\n    }\n")
+}
+
+fn soil(engine: &mut Engine, src: &str) -> String {
+    engine.call("world.create", &json!({"source": src, "lineages": [], "seed": 3})).unwrap()["world"].as_str().unwrap().to_string()
+}
+
+/// H6: an instance is one box (its bindings wires, its value parameters its parameters, defaults shown), its network shows
+/// the statements it writes out under the runner's own names, and the world runs exactly as the same rules written by hand.
+#[test]
+fn an_instance_is_a_box_and_runs_as_its_rules_written_by_hand() {
+    let mut engine = Engine::new();
+    let (a, b) = (soil(&mut engine, OPS), soil(&mut engine, &by_hand()));
+    let g = graph(&mut engine, &a);
+    let inst = node(&g, "Soil.uses.carbon_in").unwrap();
+    assert_eq!(inst["kind"], "instance");
+    let params: Vec<(String, String)> = serde_json::from_value(inst["params"].clone()).unwrap();
+    assert!(params.contains(&("ration".into(), "20mu".into())) && params.contains(&("spill".into(), "void".into())), "{params:?}");
+    let keys: Vec<&str> = inst["contract"]["ports"].as_array().unwrap().iter().map(|p| p["key"].as_str().unwrap()).collect();
+    assert_eq!(keys, ["from", "into", "spill"]);
+    assert!(wires_of(&g, "Soil.uses.carbon_in").iter().any(|x| x["from"] == "Soil.sources.rock" && x["to_port"] == "from" && x["substance"] == "carbon"));
+    let made: Vec<&str> = g["generated"].as_array().unwrap().iter().filter(|x| x["instance"] == "Soil.uses.carbon_in").map(|x| x["id"].as_str().unwrap()).collect();
+    assert_eq!(made, ["Soil.rules.carbon_in_supply@supply"]);
+    assert!(g["contexts"].as_array().unwrap().iter().any(|c| c["key"] == "use:carbon_in"));
+    assert!(wires_of(&g, "Soil.rules.carbon_in_supply@supply").len() >= 2, "the written-out statement has its wires");
+    // The runner counts the written-out statement by that name.
+    engine.call("run.step", &json!({"world": a, "ticks": 40})).unwrap();
+    engine.call("run.step", &json!({"world": b, "ticks": 40})).unwrap();
+    assert_eq!(engine.run(&a).unwrap().digest(), engine.run(&b).unwrap().digest(), "an instance runs as its rules written by hand");
+    let act = engine.call("rules.activity", &json!({"world": a})).unwrap();
+    assert!(act["rows"].as_array().unwrap().iter().any(|r| r["path"] == "Soil.rules.carbon_in_supply@supply" && r["delivered_mu"].as_u64().unwrap() > 0), "{act}");
+}
+
+/// H6: an instance's parameter is a hot swap of what it writes out; deleting, detaching and editing as a new version are
+/// one revision and one undo each, and leave the other instance alone.
+#[test]
+fn an_instance_is_set_detached_and_edited_as_a_new_version() {
+    let mut engine = Engine::new();
+    let w = soil(&mut engine, OPS);
+    let op = |engine: &mut Engine, base: u64, op: Value| engine.call("world.graph_op", &json!({"world": w, "base_revision": base, "op": op}));
+    let text_of = |g: &Value, id: &str| g["generated"].as_array().unwrap().iter().find(|x| x["id"] == id).map(|x| x["text"].as_str().unwrap().to_string());
+    op(&mut engine, 0, json!({"op": "set_param", "id": "Soil.uses.carbon_in", "param": "ration", "value": "30mu"})).unwrap();
+    assert!(text_of(&graph(&mut engine, &w), "Soil.rules.carbon_in_supply@supply").unwrap().contains("amount: 30mu"));
+    op(&mut engine, 1, json!({"op": "set_param", "id": "Soil.uses.humus_in", "param": "ration", "value": "7mu"})).unwrap();
+    engine.call("world.undo", &json!({"world": w})).unwrap();
+    assert!(!graph(&mut engine, &w)["nodes"].as_array().unwrap().iter().any(|n| n["id"] == "Soil.uses.humus_in" && n["text"].as_str().unwrap().contains("ration")), "undo takes back an argument that was not given");
+    // Edit as a new version: only this instance moves.
+    let def = node(&graph(&mut engine, &w), "Soil.operators.NutrientSupply@v1").unwrap()["text"].as_str().unwrap().replace("overflow: spill", "overflow: void");
+    op(&mut engine, 3, json!({"op": "fork", "id": "Soil.uses.humus_in", "text": def})).unwrap();
+    let g = graph(&mut engine, &w);
+    assert!(node(&g, "Soil.operators.NutrientSupply@v2").is_some() && node(&g, "Soil.uses.humus_in").unwrap()["text"].as_str().unwrap().contains("version 2"));
+    assert!(node(&g, "Soil.uses.carbon_in").unwrap()["text"].as_str().unwrap().contains("version 1"), "the other instance stays on its version");
+    // Move it back to version 1: version 2 has no user left, so it goes in the same patch.
+    op(&mut engine, 4, json!({"op": "upgrade", "id": "Soil.uses.humus_in", "version": 1})).unwrap();
+    assert!(node(&graph(&mut engine, &w), "Soil.operators.NutrientSupply@v2").is_none());
+    // Detach: the instance becomes its rule, in its place; undo brings the instance back.
+    op(&mut engine, 5, json!({"op": "detach", "id": "Soil.uses.carbon_in"})).unwrap();
+    let g = graph(&mut engine, &w);
+    assert!(node(&g, "Soil.uses.carbon_in").is_none() && node(&g, "Soil.rules.carbon_in_supply@supply").is_some(), "detached: an ordinary rule now");
+    engine.call("world.undo", &json!({"world": w})).unwrap();
+    assert!(node(&graph(&mut engine, &w), "Soil.uses.carbon_in").is_some());
+    // Delete and undo: back in its place (before the other instance).
+    op(&mut engine, 7, json!({"op": "delete", "id": "Soil.uses.carbon_in"})).unwrap();
+    engine.call("world.undo", &json!({"world": w})).unwrap();
+    let src = engine.call("world.source", &json!({"world": w})).unwrap()["source"].as_str().unwrap().to_string();
+    assert!(src.find("as carbon_in").unwrap() < src.find("as humus_in").unwrap(), "the order of instances is kept");
+    // A store wired to the instance binds the one parameter of its kind; a declaration it has no parameter for is refused.
+    op(&mut engine, 9, json!({"op": "wire", "from": "Soil.uses.carbon_in", "to": "Soil.sinks.void"})).unwrap();
+    assert!(node(&graph(&mut engine, &w), "Soil.uses.carbon_in").unwrap()["text"].as_str().unwrap().contains("spill: void"));
+    let e = op(&mut engine, 10, json!({"op": "wire", "from": "Soil.reactions.rot", "to": "Soil.uses.carbon_in"})).unwrap_err();
+    assert!(e.message.contains("no reaction parameter"), "{}", e.message);
+}
+
+/// H6, the library: a template from the dish's statements written into another world with other bindings and controls; an
+/// operator made from a rule (the world runs as before), put into another world, a new version, an explicit upgrade with its
+/// difference; all of it kept in the state directory.
+#[test]
+fn the_library_keeps_templates_and_versions() {
+    let dir = scratch("library");
+    let mut engine = Engine::new().with_state_dir(dir.clone());
+    let (a, b, twin) = (dish(&mut engine), dish(&mut engine), dish(&mut engine));
+    // A template of the nitrate inflow, written into world b for body at 3mu.
+    let t = engine.call("template.save", &json!({"world": a, "ids": ["Dish.rules.weather@transfer_nitrate"], "name": "Inflow", "about": "one inflow"})).unwrap();
+    assert_eq!(t["template"]["controls"][0]["key"], "transfer_nitrate.amount");
+    let r = engine.call("template.insert", &json!({"world": b, "base_revision": 0, "name": "Inflow", "bindings": {"nitrate": "body"}, "controls": {"transfer_nitrate.amount": "3mu"}})).unwrap();
+    let g = graph(&mut engine, &b);
+    let made = node(&g, r["selected"].as_str().unwrap()).unwrap()["text"].as_str().unwrap().to_string();
+    assert_eq!(made, "transfer(body, from: rock, to: self, amount: 3mu, overflow: void) @transfer_nitrate;");
+    // An operator made from the weather rule: the world keeps running as its twin.
+    let ids: Vec<String> = g["nodes"].as_array().unwrap().iter().filter(|n| n["group"] == "Dish.rules.weather").map(|n| n["id"].as_str().unwrap().to_string()).collect();
+    let pub1 = engine.call("operator.publish", &json!({"world": a, "base_revision": 0, "ids": ids, "name": "Weather", "instance": "weather_1", "about": "rock weathers into the cells"})).unwrap();
+    assert_eq!(pub1["operator"]["version"], 1);
+    let ga = graph(&mut engine, &a);
+    assert!(node(&ga, "Dish.uses.weather_1").is_some() && node(&ga, "Dish.rules.weather").is_none());
+    engine.call("run.step", &json!({"world": a, "ticks": 20})).unwrap();
+    engine.call("run.step", &json!({"world": twin, "ticks": 20})).unwrap();
+    assert_eq!(engine.run(&a).unwrap().digest(), engine.run(&twin).unwrap().digest(), "made into an operator, the world runs as before");
+    // Into world b from the library.
+    engine.call("operator.insert", &json!({"world": b, "base_revision": 1, "name": "Weather", "as": "more_weather"})).unwrap();
+    assert!(node(&graph(&mut engine, &b), "Dish.operators.Weather@v1").is_some(), "the world holds the definition it uses");
+    // A new version in a: edit as a new version, publish it, then upgrade b explicitly, seeing the difference first.
+    let def = node(&graph(&mut engine, &a), "Dish.operators.Weather@v1").unwrap()["text"].as_str().unwrap().replace("= 20mu", "= 25mu");
+    engine.call("world.graph_op", &json!({"world": a, "base_revision": 1, "op": {"op": "fork", "id": "Dish.uses.weather_1", "text": def}})).unwrap();
+    engine.call("operator.publish", &json!({"world": a, "id": "Dish.operators.Weather@v2", "name": "Weather"})).unwrap();
+    let diff = engine.call("operator.upgrade", &json!({"world": b, "base_revision": 2, "id": "Dish.uses.more_weather", "dry_run": true, "diff": true})).unwrap();
+    assert_eq!((diff["from"].as_i64(), diff["to"].as_i64()), (Some(1), Some(2)));
+    assert!(diff["to_text"].as_str().unwrap().contains("25mu") && diff["from_text"].as_str().unwrap().contains("20mu"));
+    assert!(node(&graph(&mut engine, &b), "Dish.uses.more_weather").unwrap()["text"].as_str().unwrap().contains("version 1"), "nothing changes until the upgrade is applied");
+    engine.call("operator.upgrade", &json!({"world": b, "base_revision": 2, "id": "Dish.uses.more_weather"})).unwrap();
+    let gb = graph(&mut engine, &b);
+    assert!(node(&gb, "Dish.operators.Weather@v2").is_some() && node(&gb, "Dish.operators.Weather@v1").is_none(), "upgraded, and the unused version gone in the same patch");
+    engine.call("world.undo", &json!({"world": b})).unwrap();
+    assert!(node(&graph(&mut engine, &b), "Dish.operators.Weather@v1").is_some(), "one undo");
+    // A version kept does not change.
+    assert!(engine.call("operator.publish", &json!({"world": b, "id": "Dish.operators.Weather@v1", "name": "Weather"})).is_ok(), "the same content is the same version");
+    // The library outlives the server.
+    drop(engine);
+    let again = Engine::new().with_state_dir(dir.clone());
+    let mut again = again;
+    let l = again.call("library.list", &json!({})).unwrap();
+    assert_eq!(l["templates"][0]["name"], "Inflow");
+    let versions: Vec<i64> = l["operators"][0]["versions"].as_array().unwrap().iter().map(|v| v["version"].as_i64().unwrap()).collect();
+    assert_eq!(versions, [1, 2]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

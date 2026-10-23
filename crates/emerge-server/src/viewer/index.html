@@ -145,6 +145,12 @@
   #netctx { max-width: 150px; }
   .box.ghost { opacity: 0.6; border-style: dashed; }
   .box.k-rule .t { background: #c9b26b; } .box.k-rule { border-width: 2px; }
+  .box.k-instance .t { background: #e07b9a; } .box.k-instance { border: 2px double #e07b9a; } .box.generated { opacity: 0.85; border-style: dotted; }
+  .box.k-operator .t { background: #e07b9a; }
+  #picked .reuse { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-top: 8px; font: 12px system-ui, sans-serif; }
+  #picked .reuse h4 { margin: 0 0 4px; font-size: 12px; } #picked .reuse pre { white-space: pre-wrap; font: 11px ui-monospace, monospace; margin: 4px 0; color: var(--muted); max-height: 180px; overflow: auto; }
+  #picked .reuse .grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; } #picked .reuse input, #picked .reuse select { font: 12px ui-monospace, monospace; padding: 2px 4px; }
+  #picked .reuse .diff { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   #graph .rdot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #2b313b; border: 2px solid #8b93a1; z-index: 3; cursor: move; }
   #graph .rdot:hover, #graph .rdot.pick { border-color: var(--accent); }
   #graph .wire.hotwire { stroke-width: 4; opacity: 1; filter: drop-shadow(0 0 3px #6fcf97); }
@@ -493,7 +499,7 @@
     
 
       </div></div>
-  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><span id="netcrumbs" title="Where you are in the network. Enter (or double-click a statement) goes into its rule; U goes up."></span><select id="netctx" title="Go to a network"></select><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button><button id="netdup" title="Duplicate the selected statements (Ctrl+D). Ctrl+C and Ctrl+V do the same from a copy; Ctrl+V in another world pastes them there.">Duplicate</button><span class="sep"></span><select id="netarrange" title="Arrange the selected nodes (presentation only: no revision)"><option value="">Arrange…</option><option value="left">Align left edges</option><option value="top">Align top edges</option><option value="cx">Align in a column</option><option value="cy">Align in a row</option><option value="dx">Distribute across</option><option value="dy">Distribute down</option><option value="tidy">Lay out the selection</option></select><button id="netcollapse" title="Show each rule as one box with its statements inside it, or every statement (the whole network only)">Rules as boxes</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div><div id="obspalette"><span>Add</span><button data-mode="fixed" title="A Tracker of the selected creature and every quick watch, captured now">Tracker from selection</button><button data-mode="live" title="Whoever matches a condition now">Live query</button><button data-mode="latched" title="Everyone seen matching during a window, kept afterwards">Latched query</button><button data-mode="descendants" title="A creature and the children born to its members">Descendants</button><button data-mode="representative" title="One creature first by a ranking (it may change; each handoff is kept)">Representative</button><span style="width:10px"></span><button id="obsundo" title="Undo the last tracker change">Undo</button><button id="obsredo">Redo</button></div></main></div>
+  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><span id="netcrumbs" title="Where you are in the network. Enter (or double-click a statement) goes into its rule; U goes up."></span><select id="netctx" title="Go to a network"></select><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button><button id="netdup" title="Duplicate the selected statements (Ctrl+D). Ctrl+C and Ctrl+V do the same from a copy; Ctrl+V in another world pastes them there.">Duplicate</button><span class="sep"></span><select id="netarrange" title="Arrange the selected nodes (presentation only: no revision)"><option value="">Arrange…</option><option value="left">Align left edges</option><option value="top">Align top edges</option><option value="cx">Align in a column</option><option value="cy">Align in a row</option><option value="dx">Distribute across</option><option value="dy">Distribute down</option><option value="tidy">Lay out the selection</option></select><button id="netcollapse" title="Show each rule as one box with its statements inside it, or every statement (the whole network only)">Rules as boxes</button><span class="sep"></span><button id="nettemplate" title="Keep the selected statements in the library as a template: rules with blanks for the names they use">Template…</button><button id="netoperator" title="Make the rules of the selected statements a reusable operator, with an instance in their place (one revision)">Operator…</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div><div id="obspalette"><span>Add</span><button data-mode="fixed" title="A Tracker of the selected creature and every quick watch, captured now">Tracker from selection</button><button data-mode="live" title="Whoever matches a condition now">Live query</button><button data-mode="latched" title="Everyone seen matching during a window, kept afterwards">Latched query</button><button data-mode="descendants" title="A creature and the children born to its members">Descendants</button><button data-mode="representative" title="One creature first by a ranking (it may change; each handoff is kept)">Representative</button><span style="width:10px"></span><button id="obsundo" title="Undo the last tracker change">Undo</button><button id="obsredo">Redo</button></div></main></div>
   <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><button id="gtrack" title="Track this creature (and select it)">Track</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"><div id="lookscroll"><div id="lookcanvas"></div></div><div id="lookparm"></div></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label><label><input type="radio" name="rmode" value="trace"> trace</label></div><div id="rulesbody"></div></main></div>
@@ -1094,8 +1100,10 @@ function layoutGraph(g) {
   if (ctx !== "world" && !(g.contexts || []).some((c) => c.key === ctx)) ctx = "world";
   for (const k of [...placed.keys()]) if (!k.includes("/")) placed.delete(k);
   const col = netCol;
-  let drawn = g.nodes.filter((n) => [...collapsedView() ? ["rule"] : ["transfer", "react", "diffuse", "signal", "code"], "store", "reaction", "obs-agents", "obs-tracker", "obs-out"].includes(n.kind));
+  let drawn = g.nodes.filter((n) => [...collapsedView() ? ["rule"] : ["transfer", "react", "diffuse", "signal", "code"], "store", "reaction", "instance", "obs-agents", "obs-tracker", "obs-out"].includes(n.kind));
   ghostIds = new Set();
+  // An instance's network: the statements it writes out (read-only), with ghosts of what they touch.
+  if (ctx.startsWith("use:")) drawn = [...drawn, ...(g.generated || []).map((x) => ({ ...x, isGenerated: true }))];
   if (ctx !== "world" && ctx !== "observe") {
     const mine = drawn.filter((n) => n.contract && n.contract.context === ctx), ids = new Set([...mine.map((n) => n.id), ...(g.nested || []).filter((x) => x.contract && x.contract.context === ctx).map((x) => x.id)]), near = new Set();
     for (const w of g.wires) { if (ids.has(w.from) && !ids.has(w.to)) near.add(w.to); if (ids.has(w.to) && !ids.has(w.from)) near.add(w.from); }
@@ -1160,7 +1168,7 @@ function drawGraph() {
   svg.id = "wires";
   root.appendChild(svg);
   const ruleName = ctx.replace(/^rule:/, "");
-  const heads = ctx === "world" ? ["Sources and reactions", "Rule statements, in tick order", "Stores"] : ctx === "observe" ? ["The run", "Trackers (observation only: no rule, no revision)", "What shows them"] : ["Read from (in the world)", `Statements of ${ruleName}`, "Put into (in the world)"];
+  const heads = ctx === "world" ? ["Sources and reactions", "Rule statements, in tick order", "Stores"] : ctx === "observe" ? ["The run", "Trackers (observation only: no rule, no revision)", "What shows them"] : ctx.startsWith("use:") ? ["Read from (in the world)", `Written out by ${ctx.slice(4)} (read-only)`, "Put into (in the world)"] : ["Read from (in the world)", `Statements of ${ruleName}`, "Put into (in the world)"];
   for (const [c, name] of heads.map((h, i) => [i, h])) {
     const h = document.createElement("div");
     h.className = "col-head";
@@ -1173,7 +1181,8 @@ function drawGraph() {
   drawnIds = new Set(drawn.map((n) => n.id));
   for (const n of drawn) {
     const p = placed.get(n.id), el = document.createElement("div");
-    el.className = `box k-${n.kind}${/@code_/.test(n.id) ? " codebox" : ""}${ghostIds.has(n.id) ? " ghost" : ""}`;
+    el.className = `box k-${n.kind}${/@code_/.test(n.id) ? " codebox" : ""}${ghostIds.has(n.id) ? " ghost" : ""}${n.isGenerated ? " generated" : ""}`;
+    if (n.kind === "instance") el.title = "An instance of an operator: double-click (or Enter) to see the rules it writes out";
     if (ghostIds.has(n.id)) el.title = "Part of the world, not of this rule: double-click to go there";
     el.dataset.id = n.id;
     el.style.left = `${p.x}px`;
@@ -1322,6 +1331,7 @@ function enterBox(id) {
   if (!n) return false;
   if (ghostIds.has(id)) { goContext("world", id); return true; }
   if (n.kind === "rule") { goContext(`rule:${n.title}`); return true; }
+  if (n.kind === "instance") { goContext(`use:${id.split(".").pop()}`); return true; }
   const c = n.contract && n.contract.context;
   if (ctx === "world" && c && c.startsWith("rule:")) { goContext(c, id); return true; }
   return false;
@@ -1841,6 +1851,164 @@ function namerRow(n) {
   return row;
 }
 
+// ---- Reuse (`proposals/reusable-operators.md`): an instance's Parameters (its parameters, its definition, Detach, Edit as
+// a new version, Upgrade with the difference shown first, Publish), forms to insert a template or an operator from the
+// library (Tab), and the toolbar's Template… and Operator… for the selection. Every change of the world is one graph edit.
+let library = { at: 0, data: { templates: [], operators: [] } };
+async function loadLibrary(force) {
+  if (!force && performance.now() - library.at < 3000) return library.data;
+  library.data = await call("library.list").catch(() => ({ templates: [], operators: [] }));
+  library.at = performance.now();
+  return library.data;
+}
+async function reuseCall(method, params) {
+  oops();
+  try {
+    const r = await call(method, { world: $("world").value, base_revision: graphData.revision, ...params });
+    await loadGraph();
+    await loadCode().catch(() => {});
+    await loadLibrary(true);
+    if (r && r.selected) { if (ctx !== "world") goContext("world"); select(r.selected); }
+    return r;
+  } catch (e) { oops(e); return null; }
+}
+const reuseBox = (title) => { const b = document.createElement("div"), h = document.createElement("h4"); b.className = "reuse"; h.textContent = title; b.append(h); return b; };
+const rbtn = (label, f, title) => { const b = document.createElement("button"); b.textContent = label; if (title) b.title = title; b.onclick = f; return b; };
+// The declarations of this world of one kind (for a binding's choices).
+function declsOf(kind) {
+  const seg = { source: "sources", sink: "sinks", field: "fields", substance: "substances", reaction: "reactions" }[kind];
+  return graphData.nodes.filter((x) => x.id.startsWith(`${graphData.world}.${seg}.`)).map((x) => x.id.split(".").pop());
+}
+function renderInstanceParm(n, t) {
+  const picked = $("picked"), m = /^use (\w+) version (\d+) as (\w+)/.exec(n.text), def = m && m[1], ver = m && +m[2], inst = m && m[3];
+  const small = document.createElement("small");
+  small.textContent = `${n.id} · an instance of ${def} version ${ver} · line ${n.line}`;
+  picked.append(small);
+  const meta = (n.contract && n.contract.params) || [];
+  if (n.params && n.params.length) {
+    picked.append(paramsGrid(n, false));
+    const d = meta.filter((p) => p.why_not && /^default/.test(p.why_not)).map((p) => `${p.key}: ${p.why_not}`);
+    if (d.length) { const sm = document.createElement("small"); sm.textContent = `Defaults of the definition: ${d.join(" · ")}`; picked.append(sm); }
+  }
+  const defNode = graphData.nodes.find((x) => x.id === `${graphData.world}.operators.${def}@v${ver}`);
+  const box = reuseBox(`Operator ${def} version ${ver}`), pre = document.createElement("pre");
+  pre.textContent = defNode ? defNode.text : "(the definition is not in the world)";
+  box.append(pre);
+  const row = document.createElement("div"); row.className = "edit";
+  const out = document.createElement("div");
+  row.append(
+    rbtn("Go inside", () => enterBox(n.id), "The rules this instance writes out, read-only"),
+    rbtn("Detach", () => { if (confirm(`Replace ${inst} by the rules it writes out? They become ordinary rules, with no link to ${def}.`)) graphOp({ op: "detach", id: n.id }); }, "Replace the instance by its rules (one revision)"),
+    rbtn("Edit as a new version", () => {
+      out.textContent = "";
+      const ta = document.createElement("textarea"); ta.value = defNode ? defNode.text : ""; ta.rows = 10; ta.spellcheck = false; ta.onkeydown = (e) => e.stopPropagation();
+      const note = document.createElement("small"); note.textContent = `Saved as the next version of ${def}; only ${inst} moves to it. Other instances and other worlds keep theirs.`;
+      out.append(ta, note, rbtn("Make the new version", () => graphOp({ op: "fork", id: n.id, text: ta.value })));
+    }, "Copy the definition as its next version with your change, and move this instance to it"),
+    rbtn("Upgrade…", async () => {
+      out.textContent = "";
+      try {
+        const d = await call("operator.upgrade", { world: $("world").value, base_revision: graphData.revision, id: n.id, dry_run: true, diff: true });
+        if (d.to === d.from) { out.textContent = `${inst} uses version ${d.from}, the newest there is (in this world and the library).`; return; }
+        const grid = document.createElement("div"), a = document.createElement("pre"), b = document.createElement("pre"); grid.className = "diff";
+        a.textContent = `now: version ${d.from}\n${d.from_text || ""}`; b.textContent = `version ${d.to}\n${d.to_text || ""}`;
+        grid.append(a, b);
+        out.append(grid, rbtn(`Move ${inst} to version ${d.to}`, () => reuseCall("operator.upgrade", { id: n.id, version: d.to })));
+      } catch (e) { out.textContent = String(e.message || e); }
+    }, "Compare with a newer version (this world's or the library's) before moving to it"),
+    rbtn("Publish", async () => { try { const r = await call("operator.publish", { world: $("world").value, id: `${graphData.world}.operators.${def}@v${ver}`, name: def }); out.textContent = `In the library as ${r.name} version ${r.version}.`; loadLibrary(true); } catch (e) { out.textContent = String(e.message || e); } }, "Keep this version in the library, to use it in other worlds"),
+    rbtn("Delete", () => { if (confirm(`Delete the instance ${inst}?`)) graphOp({ op: "delete", id: n.id }); }),
+  );
+  box.append(row, out);
+  picked.append(box);
+  noteFor(t);
+}
+// A form to insert a template or an operator from the library, in Parameters: bindings from this world's declarations,
+// controls and value parameters with their defaults.
+function insertForm(kind, entry, version) {
+  const picked = $("picked");
+  picked.textContent = "";
+  const box = reuseBox(kind === "template" ? `Insert template ${entry.name}` : `Insert operator ${entry.name} version ${version.version}`);
+  if (entry.about || (version && version.about)) { const sm = document.createElement("small"); sm.textContent = entry.about || version.about; box.append(sm); }
+  const grid = document.createElement("div"); grid.className = "grid";
+  const fields = [];
+  const choose = (label, kind2, dflt, key) => {
+    const l = document.createElement("label"), sel = document.createElement("select");
+    l.textContent = `${label} (${kind2})`;
+    for (const x of declsOf(kind2)) sel.append(new Option(x, x));
+    if (dflt && !declsOf(kind2).includes(dflt)) sel.prepend(new Option(`${dflt} (not in this world)`, dflt));
+    sel.value = dflt && [...sel.options].some((o) => o.value === dflt) ? dflt : sel.options[0] ? sel.options[0].value : "";
+    grid.append(l, sel);
+    fields.push({ key, el: sel, kind: "binding" });
+  };
+  const input = (label, dflt, key, kind2) => {
+    const l = document.createElement("label"), i = document.createElement("input");
+    l.textContent = label; i.value = dflt || ""; i.spellcheck = false; i.onkeydown = (e) => e.stopPropagation();
+    grid.append(l, i);
+    fields.push({ key, el: i, kind: kind2 });
+  };
+  if (kind === "template") {
+    for (const b of entry.bindings) { const k = (b.kind || "").replace(/s$/, ""); choose(b.name, k, b.name, b.name); }
+    for (const c of entry.controls) input(c.key, c.default, c.key, "control");
+  } else {
+    input("instance name", "", "as", "as");
+    for (const p of version.params) {
+      if (["substance", "source", "sink", "field", "reaction"].includes(p.kind)) choose(p.name, p.kind, p.default || p.name, p.name);
+      else input(`${p.name} (${p.kind})`, p.default || "", p.name, "value");
+    }
+  }
+  box.append(grid);
+  const go = rbtn("Insert", async () => {
+    const val = (f) => f.el.value.trim();
+    if (kind === "template") {
+      const bindings = {}, controls = {};
+      for (const f of fields) { if (f.kind === "binding" && val(f) && val(f) !== f.key) bindings[f.key] = val(f); if (f.kind === "control" && val(f)) controls[f.key] = val(f); }
+      await reuseCall("template.insert", { name: entry.name, bindings, controls });
+    } else {
+      const args = {}; let as = "";
+      for (const f of fields) { if (f.kind === "as") as = val(f); else if (val(f)) args[f.key] = val(f); }
+      await reuseCall("operator.insert", { name: entry.name, version: version.version, as, args });
+    }
+  });
+  go.className = "primary";
+  box.append(go, rbtn("Cancel", () => renderParm()));
+  picked.append(box);
+  activate("params");
+}
+// The toolbar's Template… and Operator…: the selected statements kept as a template, or their rules made an operator.
+function selectionForm(kind) {
+  const ids = [...(multi.size ? multi : selected ? [selected] : [])].filter((id) => graphData.nodes.some((x) => x.id === id && x.group));
+  if (!ids.length) return oops("Select the statements first: click one, or Shift-click several.");
+  oops();
+  const picked = $("picked");
+  picked.textContent = "";
+  const box = reuseBox(kind === "template" ? `Keep ${ids.length} statement${ids.length > 1 ? "s" : ""} as a template` : `Make the rules of ${ids.length} statement${ids.length > 1 ? "s" : ""} an operator`);
+  const sm = document.createElement("small");
+  sm.textContent = kind === "template" ? "A template keeps the statements with blanks for the names they use; inserting it writes ordinary rules, with no link back." : "The rules become a definition (every name they use a parameter, every amount and rate of a labelled statement a parameter with its value as default) and one instance takes their place: the world runs as before.";
+  const grid = document.createElement("div"); grid.className = "grid";
+  const nm = document.createElement("input"), ab = document.createElement("input"), inst = document.createElement("input");
+  for (const i of [nm, ab, inst]) { i.spellcheck = false; i.onkeydown = (e) => e.stopPropagation(); }
+  nm.placeholder = kind === "template" ? "Inflow" : "NutrientSupply"; ab.placeholder = "what it is for";
+  grid.append(Object.assign(document.createElement("label"), { textContent: "name" }), nm, Object.assign(document.createElement("label"), { textContent: "about" }), ab);
+  if (kind === "operator") { inst.placeholder = "instance name (optional)"; grid.append(Object.assign(document.createElement("label"), { textContent: "instance" }), inst); }
+  const msg = document.createElement("div"); msg.className = "msg";
+  const go = rbtn(kind === "template" ? "Keep in the library" : "Make the operator", async () => {
+    if (!nm.value.trim()) { msg.textContent = "Give it a name."; return; }
+    if (kind === "template") {
+      try { await call("template.save", { world: $("world").value, ids, name: nm.value.trim(), about: ab.value }); msg.className = "msg ok"; msg.textContent = `Kept as template ${nm.value.trim()}: insert it with Tab.`; loadLibrary(true); }
+      catch (e) { msg.className = "msg bad"; msg.textContent = String(e.message || e); }
+    } else {
+      const r = await reuseCall("operator.publish", { ids, name: nm.value.trim(), about: ab.value, ...(inst.value.trim() ? { instance: inst.value.trim() } : {}) });
+      if (r && r.operator) { msg.className = "msg ok"; msg.textContent = `${r.operator.name} version ${r.operator.version} made and kept in the library.`; }
+    }
+  });
+  go.className = "primary";
+  box.append(sm, grid, go, rbtn("Cancel", () => renderParm()), msg);
+  picked.append(box);
+  activate("params");
+}
+$("nettemplate").onclick = () => selectionForm("template");
+$("netoperator").onclick = () => selectionForm("operator");
 // Tab: a menu to add a node at the pointer (Houdini's Tab menu). Type to filter, arrows and Enter (or a
 // click) create it; Escape sends nothing. A new box is placed where the menu was opened.
 const TAB_NODES = [
@@ -1885,7 +2053,10 @@ window.addEventListener("keydown", (e) => {
 function tabItems() {
   const q = $("tabq").value.trim().toLowerCase();
   if (tabMode) return tabMode.items.filter(([k, name, d]) => !q || name.toLowerCase().includes(q) || d.toLowerCase().includes(q));
-  return TAB_NODES.filter(([k, name, d]) => !q || name.includes(q) || d.includes(q) || k.startsWith(q));
+  // After the statements: the library's templates and operators (their newest version first).
+  const lib = [...library.data.templates.map((t) => [`tpl:${t.name}`, `template ${t.name}`, t.about || `${t.rules.length} rule${t.rules.length === 1 ? "" : "s"} from ${t.from_world}`]),
+    ...library.data.operators.flatMap((o) => [...o.versions].reverse().map((v) => [`op:${o.name}:${v.version}`, `operator ${o.name} v${v.version}`, v.about || `${v.params.length} parameters`]))];
+  return [...TAB_NODES, ...lib].filter(([k, name, d]) => !q || name.toLowerCase().includes(q) || d.toLowerCase().includes(q) || k.startsWith(q));
 }
 function drawTabList() {
   const items = tabItems();
@@ -1902,6 +2073,7 @@ function drawTabList() {
 }
 function closeTabMenu() { $("tabmenu").style.display = "none"; tabAt = null; tabMode = null; $("tabq").placeholder = "Add a node: type to filter, Enter to create"; }
 function openTabMenu() {
+  loadLibrary().then(() => { if ($("tabmenu").style.display === "block" && !tabMode) drawTabList(); }).catch(() => {});
   const r = stages.graph.getBoundingClientRect(), at = netPointer || { x: r.left + 80, y: r.top + 60 };
   const cam = cams.graph;
   tabAt = { gx: (at.x - r.left - cam.x) / cam.s, gy: (at.y - r.top - cam.y) / cam.s };
@@ -1917,6 +2089,8 @@ function openTabMenu() {
 async function createFromTab(kind) {
   const at = tabAt, mode = tabMode;
   closeTabMenu();
+  if (!mode && kind.startsWith("tpl:")) { const t = library.data.templates.find((x) => x.name === kind.slice(4)); if (t) insertForm("template", t); return; }
+  if (!mode && kind.startsWith("op:")) { const [, name, v] = kind.split(":"), o = library.data.operators.find((x) => x.name === name); if (o) insertForm("operator", o, o.versions.find((x) => x.version === +v)); return; }
   const r = mode ? await (() => { const k = JSON.parse(kind); return graphOp({ op: "add_connected", kind: k.kind, from: mode.from, to: mode.to, substance: k.substance }); })() : await graphOp({ op: "add_rule", kind });
   if (!r || !r.selected || !at) return;
   const p = placed.get(r.selected), box = [...$("graph").querySelectorAll(".box")].find((b) => b.dataset.id === r.selected);
@@ -1966,7 +2140,7 @@ let pinned = null;                 // { world, id, name }
 const inflight = new Set();        // worlds with a source edit in flight from this page
 let lastFrame = { tick: null, revision: null };
 const dkey = (w, id) => `${w}\0${id}`;
-const parmNode = (t) => (t && graphData && $("world").value === t.world ? graphData.nodes.find((x) => x.id === t.id) || (graphData.nested || []).map((x) => ({ ...x, isNested: true })).find((x) => x.id === t.id) : null);
+const parmNode = (t) => (t && graphData && $("world").value === t.world ? graphData.nodes.find((x) => x.id === t.id) || (graphData.nested || []).map((x) => ({ ...x, isNested: true })).find((x) => x.id === t.id) || (graphData.generated || []).map((x) => ({ ...x, isGenerated: true })).find((x) => x.id === t.id) : null);
 const normText = (t) => t.replace(/\s+/g, " ").trim();
 function viewportNote(rev) {
   return lastFrame.revision != null && lastFrame.revision < rev ? ` · the viewport still shows revision ${lastFrame.revision}` : "";
@@ -2099,6 +2273,15 @@ function renderParm() {
     why.textContent = `Runs only where: ${n.when}.`;
     picked.append(why);
   }
+  if (n.isGenerated) {
+    // A statement an instance writes out: read-only here; its instance is where it changes.
+    small.textContent = `${n.id} · written out by ${n.instance.split(".").pop()}${n.step ? ` · runs in ${n.step}` : ""}`;
+    const why = document.createElement("div"); why.className = "msg"; why.textContent = n.contract.why_not.edit_text;
+    const go = document.createElement("button"); go.textContent = `Select instance ${n.instance.split(".").pop()}`; go.onclick = () => { goContext("world", n.instance); };
+    picked.append(document.createTextNode(n.text), why, go);
+    return noteFor(t);
+  }
+  if (n.kind === "instance") return renderInstanceParm(n, t);
   if (!n.group) {
     if (n.params && n.params.length) picked.append(paramsGrid(n, false));
     picked.append(document.createTextNode(n.text));
@@ -3431,6 +3614,12 @@ async function inspectRead(n) {
       const f = await call("reactions.flow", { world: w });
       const r = f.reactions.find((x) => x.name === n.title);
       out.measured = r ? { kind: "reaction", r, since: f.world_rules_since, stamp: f.observation, creatures_since: 0 } : { kind: "none", why: "no such reaction in the runner" };
+    } catch (e) { out.measured = { kind: "none", why: String(e.message || e) }; }
+  } else if (n.kind === "instance") {
+    // An instance: the runner's counts of the statements it writes out (named `INSTANCE_RULE@label`).
+    try {
+      const a = await call("rules.activity", { world: w }), stem = `${g.world}.rules.${n.id.split(".").pop()}_`;
+      out.measured = { kind: "source", rows: a.rows.filter((r) => r.path.startsWith(stem)), since: a.since_tick, ticks: a.ticks, stamp: a.observation };
     } catch (e) { out.measured = { kind: "none", why: String(e.message || e) }; }
   } else if (/\.sources\./.test(n.id)) {
     try {

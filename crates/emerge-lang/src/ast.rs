@@ -201,7 +201,24 @@ pub enum WDecl {
     Config { name: String, entries: Vec<Node<Entry>> },
     /// `space`, `remains`, `max_age`, `child_offset`, `mind_steps`.
     Setting(Entry),
+    /// `operator NAME version N { param…; rule… }`: a reusable definition (`proposals/reusable-operators.md`), written
+    /// out by `instantiate` wherever a `use` names it. Its body holds `rule` declarations only.
+    Operator { name: String, version: i64, params: Vec<Node<OParam>>, rules: Vec<Node<WDecl>> },
+    /// `use NAME version N as INSTANCE(arg: value, …);`: an instance of a definition.
+    Use { def: String, version: i64, name: String, args: Vec<Arg> },
 }
+
+/// A parameter of an operator: a kind (`substance`, `source`, `sink`, `field`, `reaction`, `amount`, `rate`, `int`,
+/// `float`) and an optional default.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OParam {
+    pub name: String,
+    pub kind: String,
+    pub default: Option<Value>,
+}
+
+/// The kinds an operator parameter may have: the names first, then the values.
+pub const PARAM_KINDS: [&str; 9] = ["substance", "source", "sink", "field", "reaction", "amount", "rate", "int", "float"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Param {

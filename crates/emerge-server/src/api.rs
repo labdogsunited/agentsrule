@@ -12,6 +12,7 @@ const LANGUAGE: &str = include_str!("../../../language.md");
 const EXAMPLE: &str = include_str!("../../../examples/dish.em");
 const EXAMPLE_VIEWS: &str = include_str!("../../../examples/views/dish.em");
 const LIFE: &str = include_str!("../../../examples/life.em");
+const OPERATORS: &str = include_str!("../../../examples/operators.em");
 const PRESET_VIEWS: &str = include_str!("../../../examples/views/presets.em");
 const NURSERY: &str = include_str!("../../../examples/presets/nursery.em");
 const LONG_NIGHT: &str = include_str!("../../../examples/presets/long_night.em");
@@ -121,6 +122,8 @@ pub struct Engine {
     /// Where what outlives the server is kept (`layouts/<world name>.json`, the library), if anywhere. Chosen by whoever
     /// starts the server, never by a caller.
     state_dir: Option<std::path::PathBuf>,
+    /// Templates and operator versions (`proposals/reusable-operators.md`), in `<state dir>/library` or in memory.
+    library: crate::library::Library,
 }
 
 /// The organisation of a network kept across restarts: `<state>/layouts/<world name>.json`.
@@ -205,6 +208,9 @@ fn graph_op(v: &Value) -> Result<(emerge_lang::graph::Op, String), Fault> {
             let n = items.len();
             (Op::Paste { items }, format!("paste {n} statement{}", if n == 1 { "" } else { "s" }))
         }
+        Some("detach") => (Op::Detach { id: get("id")? }, format!("detach {}", get("id")?)),
+        Some("fork") => (Op::Fork { id: get("id")?, text: get("text")? }, format!("edit {} as a new version", get("id")?)),
+        Some("upgrade") => (Op::Upgrade { id: get("id")?, version: v["version"].as_i64().ok_or_else(|| bad("`op.version` must be a whole number"))?, def: v["def"].as_str().map(str::to_string) }, format!("move {} to version {}", get("id")?, v["version"])),
         Some("add_inside") => {
             let other = v["branch"].as_str() == Some("else");
             (Op::AddInside { id: get("id")?, otherwise: other, text: get("text")? }, format!("add to the {} of {}", if other { "else" } else { "when" }, get("id")?))
@@ -221,7 +227,7 @@ fn graph_op(v: &Value) -> Result<(emerge_lang::graph::Op, String), Fault> {
             let n = ops.len();
             (Op::Batch { ops }, format!("{n} edits together"))
         }
-        _ => return Err(bad("`op.op` must be set_param, wire, delete, add_rule, add_connected, duplicate, label, unwire, paste, insert, add_inside, condition or batch")),
+        _ => return Err(bad("`op.op` must be set_param, wire, delete, add_rule, add_connected, duplicate, label, unwire, paste, insert, add_inside, condition, detach, fork, upgrade or batch")),
     })
 }
 
@@ -269,6 +275,7 @@ impl Engine {
 
     /// The same engine, keeping what outlives it in `dir`.
     pub fn with_state_dir(mut self, dir: std::path::PathBuf) -> Engine {
+        self.library = crate::library::Library::new(Some(dir.join("library")));
         self.state_dir = Some(dir);
         self
     }
@@ -522,8 +529,108 @@ impl Engine {
         }
     }
 
+    /// Reuse (`proposals/reusable-operators.md`): the library's templates and operator versions, a template made from
+    /// selected statements and written into a world with other bindings, an operator made from selected rules (and an
+    /// instance in their place), one inserted from the library, an instance moved to another version. Each change of a
+    /// world is one graph edit: one patch, one revision, one undo.
+    fn reuse_call(&mut self, method: &str, p: &Value) -> Result<Value, Fault> {
+        use emerge_lang::graph::Op;
+        if method == "library.list" {
+            return Ok(self.library.list());
+        }
+        let base = number(p, "base_revision", None).ok();
+        let entry = self.entry(p)?;
+        let file = emerge_lang::parse(&entry.run.live.source).map_err(|d| fault(-32005, format!("{}: {}", d.code, d.message)))?;
+        let world = file.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(w) => Some(w.name.clone()), _ => None }).ok_or_else(|| fault(-32005, "the source has no world".to_string()))?;
+        let w = file.items.iter().find_map(|i| match &i.node { emerge_lang::ast::Item::World(x) if x.name == world => Some(x.clone()), _ => None }).unwrap();
+        let world_versions = |name: &str| w.decls.iter().filter_map(|d| match &d.node { emerge_lang::ast::WDecl::Operator { name: n, version, .. } if n == name => Some(*version), _ => None }).collect::<Vec<i64>>();
+        let ids = || -> Result<Vec<String>, Fault> { p["ids"].as_array().ok_or_else(|| bad("`ids` must be a list of statement box ids")).map(|l| l.iter().filter_map(|x| x.as_str().map(String::from)).collect()) };
+        let strings = |k: &str| -> std::collections::BTreeMap<String, String> { p[k].as_object().map(|m| m.iter().filter_map(|(a, b)| b.as_str().map(|b| (a.clone(), b.to_string()))).collect()).unwrap_or_default() };
+        // One graph edit applied (or, with `dry_run`, only checked and shown).
+        let (op, what): (Op, String) = match method {
+            "template.save" => {
+                let name = text(p, "name")?;
+                let t = emerge_lang::reuse::template_from(&file, &world, &ids()?).map_err(bad)?;
+                let v = json!({"name": name, "about": p["about"].as_str().unwrap_or(""), "from_world": world,
+                    "rules": t.rules.iter().map(|(r, on, x)| json!({"rule": r, "on": on, "text": x})).collect::<Vec<_>>(),
+                    "bindings": t.bindings.iter().map(|(n, k)| json!({"name": n, "kind": k})).collect::<Vec<_>>(),
+                    "controls": t.controls.iter().map(|(k, d)| json!({"key": k, "default": d})).collect::<Vec<_>>()});
+                self.library.save_template(name, v.clone(), p["replace"].as_bool().unwrap_or(false)).map_err(bad)?;
+                return Ok(json!({"template": v}));
+            }
+            "template.insert" => {
+                let name = text(p, "name")?;
+                let t = self.library.templates().get(name).cloned().ok_or_else(|| bad(format!("no template `{name}` in the library")))?;
+                let tm = emerge_lang::reuse::Template {
+                    rules: t["rules"].as_array().into_iter().flatten().map(|r| (r["rule"].as_str().unwrap_or("").to_string(), r["on"].as_str().unwrap_or("").to_string(), r["text"].as_str().unwrap_or("").to_string())).collect(),
+                    bindings: t["bindings"].as_array().into_iter().flatten().map(|b| (b["name"].as_str().unwrap_or("").to_string(), "name")).collect(),
+                    controls: t["controls"].as_array().into_iter().flatten().map(|c| (c["key"].as_str().unwrap_or("").to_string(), c["default"].as_str().unwrap_or("").to_string())).collect(),
+                };
+                let stem = name.to_lowercase();
+                let rules = emerge_lang::reuse::template_rules(&tm, &strings("bindings"), &strings("controls")).map_err(bad)?.into_iter().map(|(r, on, x)| (format!("{stem}_{r}"), on, x)).collect();
+                (Op::AddRules { rules }, format!("insert template {name}"))
+            }
+            "operator.publish" => {
+                let name = text(p, "name")?.to_string();
+                crate::library::plain(&name).map_err(bad)?;
+                let about = p["about"].as_str().unwrap_or("").to_string();
+                if let Some(id) = p["id"].as_str() {
+                    // A definition the world holds, put in the library as the version it is.
+                    let d = w.decls.iter().find(|d| matches!(&d.node, emerge_lang::ast::WDecl::Operator { name: n, version, .. } if format!("{world}.operators.{n}@v{version}") == id)).ok_or_else(|| bad(format!("no definition `{id}`")))?;
+                    let emerge_lang::ast::WDecl::Operator { version, .. } = &d.node else { unreachable!() };
+                    let v = self.library.publish(&name, *version, &emerge_lang::fmt::decl_text(&d.node), &about).map_err(bad)?;
+                    return Ok(json!({"name": name, "version": v}));
+                }
+                let version = self.library.versions(&name).into_iter().chain(world_versions(&name)).max().unwrap_or(0) + 1;
+                let inst = p["instance"].as_str().map(str::to_string).unwrap_or_else(|| format!("{}_1", name.to_lowercase()));
+                let (def, _, _) = emerge_lang::reuse::operator_from(&file, &world, &ids()?, &name, version).map_err(bad)?;
+                let def_text = emerge_lang::fmt::decl_text(&def);
+                if p["dry_run"].as_bool() != Some(true) {
+                    // The world first (one revision): the library keeps the version once the world has taken it.
+                    let edit = emerge_lang::graph::op_patch(&file, &world, &Op::MakeOperator { ids: ids()?, name: name.clone(), instance: inst.clone(), version }, base.ok_or_else(|| bad("`base_revision` must be a whole number"))?).map_err(bad)?;
+                    let entry = self.runs.get_mut(text(p, "world")?).unwrap();
+                    let mut r = apply_edit(entry, edit, base.unwrap(), &format!("graph make operator {name} version {version}"), &format!("make operator {name}"))?;
+                    self.library.publish(&name, version, &def_text, &about).map_err(bad)?;
+                    r["operator"] = json!({"name": name, "version": version, "text": def_text});
+                    return Ok(r);
+                }
+                (Op::MakeOperator { ids: ids()?, name, instance: inst, version }, "make operator".to_string())
+            }
+            "operator.insert" => {
+                let name = text(p, "name")?;
+                let version = match p["version"].as_i64() { Some(v) => v, None => self.library.versions(name).into_iter().max().ok_or_else(|| bad(format!("no operator `{name}` in the library")))? };
+                let def = self.library.operator(name, version).and_then(|t| crate::library::with_version(t, version)).ok_or_else(|| bad(format!("the library has no `{name}` version {version}")))?;
+                let args = strings("args").into_iter().collect();
+                (Op::InsertOperator { def, name: p["as"].as_str().unwrap_or("").to_string(), args }, format!("insert operator {name} version {version}"))
+            }
+            "operator.upgrade" => {
+                let id = text(p, "id")?.to_string();
+                let (def, from) = w.decls.iter().find_map(|d| match &d.node { emerge_lang::ast::WDecl::Use { def, version, name, .. } if format!("{world}.uses.{name}") == id => Some((def.clone(), *version)), _ => None }).ok_or_else(|| bad(format!("no instance `{id}`")))?;
+                let latest = self.library.versions(&def).into_iter().chain(world_versions(&def)).max().unwrap_or(from);
+                let to = p["version"].as_i64().unwrap_or(latest);
+                let in_world = w.decls.iter().find(|d| matches!(&d.node, emerge_lang::ast::WDecl::Operator { name, version, .. } if *name == def && *version == to)).map(|d| emerge_lang::fmt::decl_text(&d.node));
+                let lib = self.library.operator(&def, to).and_then(|t| crate::library::with_version(t, to));
+                let old = w.decls.iter().find(|d| matches!(&d.node, emerge_lang::ast::WDecl::Operator { name, version, .. } if *name == def && *version == from)).map(|d| emerge_lang::fmt::decl_text(&d.node));
+                if p["dry_run"].as_bool() == Some(true) && p["diff"].as_bool() == Some(true) {
+                    return Ok(json!({"instance": id, "operator": def, "from": from, "to": to, "from_text": old, "to_text": in_world.clone().or(lib.clone()), "latest": latest}));
+                }
+                (Op::Upgrade { id, version: to, def: if in_world.is_some() { None } else { lib } }, format!("move to version {to}"))
+            }
+            _ => return Err(bad("no such method")),
+        };
+        let base = base.ok_or_else(|| bad("`base_revision` must be a whole number"))?;
+        let edit = emerge_lang::graph::op_patch(&file, &world, &op, base).map_err(bad)?;
+        let entry = self.runs.get_mut(text(p, "world")?).unwrap();
+        if p["dry_run"].as_bool() == Some(true) {
+            entry.run.check_patch(&edit.patch, base).map_err(|r| rejected(&r))?;
+            return Ok(json!({"dry_run": true, "checked": true, "what": what, "patch": edit.patch, "selected": edit.selected}));
+        }
+        apply_edit(entry, edit, base, &format!("graph {what}"), &what)
+    }
+
     fn call_inner(&mut self, method: &str, p: &Value) -> Result<Value, Fault> {
         match method {
+            "library.list" | "template.save" | "template.insert" | "operator.publish" | "operator.insert" | "operator.upgrade" => self.reuse_call(method, p),
             "views.get" | "views.set" | "views.undo" | "views.redo" | "view.graph" | "view.edit" | "view.copy" | "view.preview" | "view.display" => self.look_call(method, p),
             "world.create" => {
                 let lineages: Vec<String> = p["lineages"].as_array().ok_or_else(|| bad("`lineages` must be a list of names"))?.iter().filter_map(|l| l.as_str().map(String::from)).collect();
@@ -609,6 +716,8 @@ impl Engine {
                     "wires": g.wires.iter().zip(&contract.wires).chain(contract.more_wires.iter().map(|(w, c)| (w, c))).map(|(w, c)| json!({"from": w.from, "to": w.to, "substance": w.substance, "kind": c.kind, "from_port": c.from_port, "to_port": c.to_port, "derived": c.derived, "edit": c.edit, "why_not": c.why_not})).collect::<Vec<_>>(),
                     "nested": contract.nested.iter().map(|n| json!({"id": n.id, "container": n.container, "group": n.group, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "when": n.when, "params": n.params, "contract": node_contract_json(&n.meta)})).collect::<Vec<_>>(),
                     "contexts": contract.contexts.iter().map(|(k, label)| json!({"key": k, "label": label})).collect::<Vec<_>>(),
+                    // What each instance writes out (read-only, named as the runner names it).
+                    "generated": contract.generated.iter().map(|n| json!({"id": n.id, "instance": n.instance, "group": n.group, "kind": n.kind.as_str(), "title": n.title, "text": n.text, "step": n.step, "params": n.params, "contract": node_contract_json(&n.meta)})).collect::<Vec<_>>(),
                 }))
             }
             "world.names" => {
@@ -1337,6 +1446,7 @@ impl Engine {
                 Ok(json!({"examples": [
                 {"id": "dish", "name": "Reference dish", "about": "chemistry, a conserved field, world rules, menus and two lineages (Drifter, Builder)", "source": EXAMPLE, "views": EXAMPLE_VIEWS, "lineages": ["Drifter", "Builder"], "resizable": true},
                 {"id": "life", "name": "Game of Life (glider gun)", "about": "a state field with `life_like`: no creatures, no chemistry; runs on the CPU", "source": LIFE, "views": "", "lineages": [], "resizable": false},
+                {"id": "operators", "name": "Soil (reusable operators)", "about": "an operator definition and two instances of it, written out into ordinary rules before anything checks the world; no creatures", "source": OPERATORS, "views": "", "lineages": [], "resizable": false, "mutation": false, "backend": "cpu"},
                 {"id": "test9", "name": "Test-9 dish", "about": "the dish of test 9: Drifter must find body synthesis (a body reaction plus take(nitrate))", "source": TEST9, "views": EXAMPLE_VIEWS, "lineages": ["Drifter", "Builder"], "resizable": true},
                 {"id": "nursery", "name": "Sunlit Nursery", "preset": {"version": 1, "group": "presets", "file": "examples/presets/nursery.em", "needs": "creatures", "controls": [
                     {"label": "light supply", "target": "rule sunlight, transfer @transfer_light, amount", "live": true, "unit": "mu per cell per tick", "range": [0, 200], "default": 40, "patch": "set rules.sunlight@transfer_light.amount = {v}mu;"},

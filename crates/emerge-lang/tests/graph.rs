@@ -52,7 +52,7 @@ fn every_statement_is_one_box_and_the_text_is_the_formatters() {
             assert_eq!(g.nodes.iter().filter(|n| n.group.is_some()).count(), stmts, "{}", path.display());
             // The text of a box is in the formatted file, indented one level inside the world.
             for node in g.nodes.iter().filter(|n| n.group.is_none()) {
-                let block: Vec<String> = node.text.lines().map(|l| format!("    {l}")).collect();
+                let block: Vec<String> = node.text.lines().map(|l| if l.is_empty() { String::new() } else { format!("    {l}") }).collect();
                 let joined = block.join("\n");
                 assert!(formatted.contains(&joined), "{}: the text of {} is not in `emerge fmt`'s output:\n{joined}", path.display(), node.id);
             }

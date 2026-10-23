@@ -123,6 +123,8 @@ fn decl_index(w: &World, p: &Path, at: &At) -> Result<usize, Problem> {
             let i = w.decls.iter().position(|x| matches!(declared(&x.node), Some(("setting" | "block", n)) if n == name));
             i.ok_or_else(|| unknown(at, p, &format!("setting or block `{name}`")))
         }
+        (Key::Field("uses"), [Key::Field(name)]) => w.decls.iter().position(|d| matches!(&d.node, WDecl::Use { name: n, .. } if n == name)).ok_or_else(|| unknown(at, p, &format!("instance `{name}`"))),
+        (Key::Field("operators"), [Key::Field(name), Key::Label(label)]) => operator_index(w, name, label, p, at),
         (Key::Field(kind), [Key::Field(name)]) => {
             let want = match kind {
                 "rules" => "rule",
@@ -185,9 +187,42 @@ fn world_replace(w: &mut World, path: &Path, body: &Block, at: &At) -> Result<()
     }
 }
 
+/// The index of the operator definition `NAME@vK` (`proposals/reusable-operators.md` §3).
+fn operator_index(w: &World, name: &str, label: &str, path: &Path, at: &At) -> Result<usize, Problem> {
+    let version: i64 = label.strip_prefix('v').and_then(|v| v.parse().ok()).ok_or_else(|| at.err("E0114", path, "an operator is named with its version: `operators.NAME@v2`".into()))?;
+    w.decls.iter().position(|d| matches!(&d.node, WDecl::Operator { name: n, version: v, .. } if n == name && *v == version)).ok_or_else(|| unknown(at, path, &format!("operator `{name}` version {version}")))
+}
+
+fn use_mut<'a>(w: &'a mut World, name: &str) -> Option<(&'a mut i64, &'a mut Vec<Arg>)> {
+    w.decls.iter_mut().find_map(|d| match &mut d.node {
+        WDecl::Use { name: n, version, args, .. } if n == name => Some((version, args)),
+        _ => None,
+    })
+}
+
 fn world_remove(w: &mut World, path: &Path, move_to: Option<&str>, at: &At) -> Result<(), Problem> {
     let ks = keys(path);
     match (ks[0], &ks[1..]) {
+        (Key::Field("uses"), [Key::Field(name)]) => {
+            let i = w.decls.iter().position(|d| matches!(&d.node, WDecl::Use { name: n, .. } if n == name)).ok_or_else(|| unknown(at, path, &format!("instance `{name}`")))?;
+            w.decls.remove(i);
+            Ok(())
+        }
+        // An argument of an instance taken away: the parameter's default applies again.
+        (Key::Field("uses"), [Key::Field(name), Key::Field(arg)]) => {
+            let (_, args) = use_mut(w, name).ok_or_else(|| unknown(at, path, &format!("instance `{name}`")))?;
+            let before = args.len();
+            args.retain(|a| a.name.as_deref() != Some(*arg));
+            if args.len() == before {
+                return Err(unknown(at, path, &format!("argument `{arg}` of instance `{name}`")));
+            }
+            Ok(())
+        }
+        (Key::Field("operators"), [Key::Field(name), Key::Label(label)]) => {
+            let i = operator_index(w, name, label, path, at)?;
+            w.decls.remove(i);
+            Ok(())
+        }
         (Key::Field("rules"), [Key::Field(name), Key::Label(label)]) => {
             let b = rule_body(w, name).ok_or_else(|| unknown(at, path, &format!("rule `{name}`")))?;
             if splice(b, label, &[]) { Ok(()) } else { Err(unknown(at, path, &format!("statement `@{label}` in rule `{name}`"))) }
@@ -237,6 +272,22 @@ fn world_set(w: &mut World, path: &Path, value: &Value, at: &At) -> Result<(), P
     let ks = keys(path);
     let Key::Field(head) = ks[0] else { unreachable!() };
     match (head, &ks[1..]) {
+        // An instance's argument (a promoted control), or the version of the definition it uses.
+        ("uses", [Key::Field(name), Key::Field(arg)]) => {
+            let (version, args) = use_mut(w, name).ok_or_else(|| unknown(at, path, &format!("instance `{name}`")))?;
+            if *arg == "version" {
+                match value {
+                    Value::Expr(Expr::Lit(Lit::Int(v))) if *v >= 1 => *version = *v,
+                    _ => return Err(at.err("E0205", path, "a version is a whole number from 1".into())),
+                }
+                return Ok(());
+            }
+            match args.iter_mut().find(|a| a.name.as_deref() == Some(*arg)) {
+                Some(a) => a.value = value.clone(),
+                None => args.push(Arg { name: Some(arg.to_string()), value: value.clone() }),
+            }
+            Ok(())
+        }
         ("consts", [Key::Field(name)]) => {
             let found = w.decls.iter_mut().find_map(|d| match &mut d.node {
                 WDecl::Const { name: n, value } if n == name => Some(value),
@@ -414,7 +465,8 @@ fn declared(d: &WDecl) -> Option<(&'static str, &str)> {
         WDecl::Rule { name, .. } => ("rule", name),
         WDecl::Setting(e) => ("setting", &e.key),
         WDecl::Config { name, .. } => ("block", name),
-        WDecl::Menu { .. } | WDecl::Waste { .. } | WDecl::Genesis(_) => return None,
+        // A definition is unique by name and version, an instance by its name: `world_add` checks those.
+        WDecl::Menu { .. } | WDecl::Waste { .. } | WDecl::Genesis(_) | WDecl::Operator { .. } | WDecl::Use { .. } => return None,
     })
 }
 
@@ -445,6 +497,15 @@ fn world_add(w: &mut World, position: Option<&(bool, Path)>, item: &AddItem, at:
             Ok(())
         }
         AddItem::Decl(d) => {
+            let same = |x: &WDecl| match (d, x) {
+                (WDecl::Operator { name, version, .. }, WDecl::Operator { name: n, version: v, .. }) => name == n && version == v,
+                (WDecl::Use { name, .. }, WDecl::Use { name: n, .. }) => name == n,
+                _ => false,
+            };
+            if let Some(x) = w.decls.iter().find(|x| same(&x.node)) {
+                let what = match &x.node { WDecl::Operator { name, version, .. } => format!("operator `{name}` version {version}"), WDecl::Use { name, .. } => format!("instance `{name}`"), _ => String::new() };
+                return Err(at.err("E0111", &Path { root: "uses".into(), segs: vec![] }, format!("the world already has {what}")));
+            }
             if let Some((kind, name)) = declared(d) {
                 let clash = w.decls.iter().find_map(|x| declared(&x.node).filter(|(_, n)| *n == name));
                 if let Some((other, _)) = clash {

@@ -11,6 +11,7 @@ pub mod contract;
 pub mod expand;
 pub mod fmt;
 pub mod graph;
+pub mod instantiate;
 pub mod lexer;
 pub mod look;
 pub mod order;
@@ -19,16 +20,17 @@ pub mod unroll;
 pub mod parser;
 pub mod patch;
 pub mod resolve;
+pub mod reuse;
 pub mod view;
 
 pub use ast::File;
 pub use expand::expand;
 pub use resolve::resolve;
 
-/// What `check` and the runner's `build` work on: lineages expanded (`expand`), then
-/// the loops of rules unrolled (`unroll`), then constants resolved (`resolve`).
+/// What `check` and the runner's `build` work on: lineages expanded (`expand`), then operators' instances written out
+/// (`instantiate`), then the loops of rules unrolled (`unroll`), then constants resolved (`resolve`).
 pub fn prepare(file: &File) -> Result<File, check::Problem> {
-    resolve(&unroll::unroll(&expand(file)?)?)
+    resolve(&unroll::unroll(&instantiate::instantiate(&expand(file)?)?)?)
 }
 
 /// A diagnostic with its code (`language.md` §14) and position.
