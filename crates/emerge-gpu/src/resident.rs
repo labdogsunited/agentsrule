@@ -888,11 +888,19 @@ impl<'a> Resident<'a> {
     /// The events kept so far, sorted by tick, deaths before births, then id; and how many were dropped
     /// because the log was full. `None` if events were never enabled.
     pub fn events(&self) -> Option<(Vec<emerge_ref::world::Event>, u64)> {
+        self.events_since(0).map(|(v, _, dropped)| (v, dropped))
+    }
+
+    /// The events logged after the first `from` records (a later tick's records always follow an earlier tick's, so a
+    /// reader that keeps its place reads each record once), sorted as `events` sorts them; the number of records kept
+    /// now (the next `from`); and how many were dropped because the log was full.
+    pub fn events_since(&self, from: usize) -> Option<(Vec<emerge_ref::world::Event>, usize, u64)> {
         use emerge_ref::world::Event;
         let ev = self.events.as_ref()?;
         let asked = self.gpu.read::<u32>(&ev.evn, 1)[0] as usize;
         let kept = asked.min(ev.cap);
-        let words: Vec<u32> = self.gpu.read(&ev.log, kept * 6);
+        let from = from.min(kept);
+        let words: Vec<u32> = self.gpu.read_at(&ev.log, from * 6, (kept - from) * 6);
         let mut out: Vec<(u64, u8, u64, Event)> = words.chunks(6).map(|r| {
             let (tick, id, par) = (u64::from(r[1]), u64::from(r[2]) | (u64::from(r[3]) << 32), u64::from(r[4]) | (u64::from(r[5]) << 32));
             match r[0] {
@@ -902,7 +910,7 @@ impl<'a> Resident<'a> {
             }
         }).collect();
         out.sort_by_key(|e| (e.0, e.1, e.2));
-        Some((out.into_iter().map(|e| e.3).collect(), (asked - kept) as u64))
+        Some((out.into_iter().map(|e| e.3).collect(), kept, (asked - kept) as u64))
     }
 
     /// Words used in the master and view pools.

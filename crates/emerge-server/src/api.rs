@@ -101,6 +101,8 @@ pub struct Engine {
     journal_dir: Option<std::path::PathBuf>,
     /// Pairs the user declared between worlds (`runs.pair`): their relationship is recorded, never inferred from position.
     pairs: Vec<(String, String, String)>,
+    /// This engine's incarnation: a run's ID is this and its world handle, so a restarted server's `w1` is another run.
+    session: String,
 }
 
 /// The longest one `run.step` call runs, so that a client waiting on it does not time out.
@@ -152,12 +154,23 @@ fn number(p: &Value, key: &str, default: Option<u64>) -> Result<u64, Fault> {
 
 impl Engine {
     pub fn new() -> Engine {
-        Engine::default()
+        Engine { session: session_id(), ..Engine::default() }
     }
 
     /// An engine that journals every world to `dir/<world>.jsonl`.
     pub fn with_journals(dir: std::path::PathBuf) -> Engine {
-        Engine { journal_dir: Some(dir), ..Engine::default() }
+        Engine { journal_dir: Some(dir), session: session_id(), ..Engine::default() }
+    }
+
+    /// The run of world `id`, to change (tests that need a state the API cannot make, such as entity IDs above 2^53).
+    #[doc(hidden)]
+    pub fn run_mut(&mut self, id: &str) -> Option<&mut Run> {
+        self.runs.get_mut(id).map(|e| &mut e.run)
+    }
+
+    /// This engine's incarnation (part of every run ID).
+    pub fn session(&self) -> &str {
+        &self.session
     }
 
     fn entry(&mut self, p: &Value) -> Result<&mut Entry, Fault> {
@@ -197,14 +210,77 @@ impl Engine {
         let mut out = self.call_inner(method, p)?;
         // Every science answer says which run, revision and tick it was read at, so a panel can tell that two answers
         // belong together (same token) or do not (`proposals/science-panels.md` §14).
-        const OBSERVATIONS: [&str; 17] = ["rules.lens", "rules.matrix", "rules.activity", "history.query", "genome.census", "genome.atlas", "genome.compare", "accounts.query", "region.query", "ancestry.query", "life.query", "reactions.flow", "trace.query", "stats.query", "genome.graph", "notebook.events", "entities.query"];
+        const OBSERVATIONS: [&str; 22] = ["rules.lens", "rules.matrix", "rules.activity", "history.query", "genome.census", "genome.atlas", "genome.compare", "accounts.query", "region.query", "ancestry.query", "life.query", "reactions.flow", "trace.query", "stats.query", "genome.graph", "notebook.events", "entities.query",
+            "entities.get", "entities.find", "tracker.query", "tracker.list", "tracker.samples"];
         if OBSERVATIONS.contains(&method) && out.is_object() {
             if let Some(e) = p["world"].as_str().and_then(|w| self.runs.get(w)) {
                 let (tick, rev) = (e.run.tick(), e.run.revision());
-                out["observation"] = json!({"token": format!("{}@{rev}:{tick}", p["world"].as_str().unwrap_or("")), "world": p["world"], "tick": tick, "revision": rev, "backend": e.run.device});
+                out["observation"] = json!({"token": format!("{}@{rev}:{tick}", p["world"].as_str().unwrap_or("")), "world": p["world"], "run": e.run.run_id, "tick": tick, "revision": rev, "backend": e.run.device, "observation_revision": e.run.track.revision});
             }
         }
         Ok(out)
+    }
+
+    /// A call that names a run (`run`) must reach that run: a world handle of a restarted server, or of another
+    /// world, is refused rather than read as the same subject.
+    fn check_run(&self, p: &Value) -> Result<(), Fault> {
+        if let (Some(r), Some(w)) = (p["run"].as_str(), p["world"].as_str()) {
+            let have = self.runs.get(w).map(|e| e.run.run_id.as_str());
+            if have != Some(r) {
+                return Err(Fault { code: -32012, message: format!("run `{r}` is not here: world `{w}` is {}", have.map_or("gone".to_string(), |h| format!("run `{h}`"))), data: Some(json!({"kind": "run_unavailable", "current": have})) });
+            }
+        }
+        Ok(())
+    }
+
+    /// The `tracker.*` methods (`proposals/agent-tracking.md` §13): definitions, recordings and their data.
+    fn tracker_call(&mut self, method: &str, p: &Value) -> Result<Value, Fault> {
+        self.check_run(p)?;
+        let e = self.entry(p)?;
+        let gpu = e.run.spec.gpu;
+        let id = p["tracker"].as_str().unwrap_or("");
+        let mut t = std::mem::take(&mut e.run.track);
+        let run = &e.run;
+        let out = match method {
+            "tracker.create" => t.create(run, p),
+            "tracker.update" => t.update(run, p),
+            "tracker.stop" => t.stop(run, id),
+            "tracker.resume" => t.resume(run, id),
+            "tracker.remove" => t.remove(id, p["delete_data"].as_bool().unwrap_or(false)),
+            "tracker.undo" => t.step_history(run, true),
+            "tracker.redo" => t.step_history(run, false),
+            "tracker.list" => Ok(t.list()),
+            "tracker.query" => t.query(run, id),
+            "tracker.record_start" => t.record_start(run, p, gpu),
+            "tracker.record_stop" => t.record_stop(run, id),
+            "tracker.samples" => t.samples(run, id, p["after"].as_u64(), p["limit"].as_u64().unwrap_or(1000).min(10_000) as usize),
+            "tracker.export" => {
+                let inter = t.tracker(id).filter(|x| x.rec.as_ref().is_some_and(|r| r.interactions.is_some())).map(|x| run.interactions_of(&x.members.keys().copied().collect()));
+                t.export(run, id, p["format"].as_str().unwrap_or("json"), inter.map(|r| r.unwrap_or_else(|m| json!({"unavailable": m}))))
+            }
+            "tracker.interactions" => match t.tracker(id) {
+                Some(x) => run.interactions_of(&x.members.keys().copied().collect()),
+                None => Err(format!("no tracker `{id}`")),
+            },
+            _ => Err(format!("no method `{method}`")),
+        };
+        e.run.track = t;
+        // Recording interactions shares the run's one transfer-recording slot: attach to a compatible one, or start it.
+        if method == "tracker.record_start" && out.is_ok() && p["interactions"].as_bool().unwrap_or(false) {
+            let ticks = p["stop_at"].as_u64().map_or(1_000, |s| s.saturating_sub(e.run.tick()).max(1));
+            let ids = e.run.track.tracker(id).map(|t| t.members.keys().copied().collect()).filter(|_| e.run.track.tracker(id).is_some_and(|t| matches!(t.mode, crate::track::Mode::Fixed)));
+            match e.run.claim_trace(&format!("tracker {id}"), ticks, ids) {
+                Ok(owner) => e.run.track.attach_interactions(id, &owner),
+                Err(m) => {
+                    let mut t = std::mem::take(&mut e.run.track);
+                    let _ = t.record_stop(&e.run, id);
+                    if let Some(r) = t.trackers.iter_mut().find(|x| x.id == id) { r.rec = None; }
+                    e.run.track = t;
+                    return Err(bad(format!("{m}; the recording was not started")));
+                }
+            }
+        }
+        out.map_err(|m| if m.starts_with("stale") { Fault { code: -32001, message: m, data: Some(json!({"kind": "stale"})) } } else { bad(m) })
     }
 
     fn call_inner(&mut self, method: &str, p: &Value) -> Result<Value, Fault> {
@@ -235,8 +311,9 @@ impl Engine {
                     }
                     None => Journal::memory(),
                 };
-                let run = Run::create(spec, journal).map_err(|e| rejected(&e))?;
-                let out = json!({"world": id, "revision": 0, "tick": 0, "population": run.population(), "backend": run.device});
+                let mut run = Run::create(spec, journal).map_err(|e| rejected(&e))?;
+                run.run_id = format!("{}-{id}", self.session);
+                let out = json!({"world": id, "run": run.run_id, "revision": 0, "tick": 0, "population": run.population(), "backend": run.device});
                 self.runs.insert(id, Entry { run, running: false, layout: Default::default(), notes: Default::default(), frames: Default::default(), undo: Vec::new(), redo: Vec::new(), notebook: Vec::new() });
                 Ok(out)
             }
@@ -245,7 +322,7 @@ impl Engine {
                 Ok(validate(text(p, "source")?, &names))
             }
             "world.list" => Ok(json!({"worlds": self.runs.iter().map(|(id, e)| json!({
-                "world": id, "tick": e.run.tick(), "revision": e.run.revision(), "population": e.run.population(),
+                "world": id, "run": e.run.run_id, "tick": e.run.tick(), "revision": e.run.revision(), "population": e.run.population(),
                 "lineages": e.run.spec.lineages, "running": e.running, "backend": e.run.device,
             })).collect::<Vec<_>>()})),
             "world.source" => {
@@ -563,10 +640,36 @@ impl Engine {
                 let e = self.entry(p)?;
                 let id = match &p["entity"] {
                     Value::Null => e.run.first_entity().ok_or_else(|| bad("the world is empty"))?,
-                    v => v.as_u64().ok_or_else(|| bad("`entity` must be an entity ID"))?,
+                    v => crate::track::parse_id(v).map_err(bad)?,
                 };
                 Ok(json!({"entity": id, "explanation": e.run.explain(id).map_err(bad)?}))
             }
+            "entities.get" => {
+                // Exact creatures by ID, independent of any sample (`proposals/agent-tracking.md` §13).
+                let ids = crate::track::parse_ids(&p["ids"]).map_err(bad)?;
+                if ids.is_empty() || ids.len() > 4096 { return Err(bad("`ids` holds 1 to 4096 entity IDs")); }
+                self.check_run(p)?;
+                let e = self.entry(p)?;
+                let mut t = std::mem::take(&mut e.run.track);
+                let out = t.get(&e.run, &ids);
+                e.run.track = t;
+                Ok(out)
+            }
+            "entities.find" => {
+                // Every creature matching a condition at one tick, sorted and paged from one stored result.
+                let pred = match &p["where"] { Value::Null => None, v => Some(crate::track::Pred::parse(v).map_err(bad)?) };
+                let sort = p["sort"].as_str().map(|s| (s.to_string(), p["descending"].as_bool().unwrap_or(false)));
+                let limit = number(p, "limit", Some(100))?.min(1000) as usize;
+                let offset = number(p, "offset", Some(0))? as usize;
+                self.check_run(p)?;
+                let e = self.entry(p)?;
+                let mut t = std::mem::take(&mut e.run.track);
+                let sample = p["sample"].as_u64().map(|n| n as usize);
+                let out = t.find_agents(&e.run, pred, sort, limit, p["cursor"].as_str(), offset, sample);
+                e.run.track = t;
+                out.map_err(|m| if m.contains("expired") { Fault { code: -32010, message: m, data: Some(json!({"kind": "cursor_expired"})) } } else { bad(m) })
+            }
+            m if m.starts_with("tracker.") => self.tracker_call(m, p),
             "view.pick" => {
                 // What is at a point of the world: the cell's amounts and the creatures near it.
                 let coord = |k: &str| p[k].as_f64().map(|v| v as f32).ok_or_else(|| bad(format!("`{k}` must be a number")));
@@ -581,7 +684,7 @@ impl Engine {
                 let e = self.entry(p)?;
                 let id = match &p["entity"] {
                     Value::Null => e.run.first_entity().ok_or_else(|| bad("the world is empty"))?,
-                    v => v.as_u64().ok_or_else(|| bad("`entity` must be an entity ID"))?,
+                    v => crate::track::parse_id(v).map_err(bad)?,
                 };
                 let (lineage, age, g) = e.run.genome_graph(id).map_err(bad)?;
                 Ok(json!({
@@ -592,14 +695,14 @@ impl Engine {
                 }))
             }
             "accounts.start" => {
-                let clade = match &p["clade"] { Value::Null => None, v => Some(v.as_u64().ok_or_else(|| bad("`clade` must be an entity ID"))?) };
+                let clade = match &p["clade"] { Value::Null => None, v => Some(crate::track::parse_id(v).map_err(bad)?) };
                 self.entry(p)?.run.start_accounts(clade, p["flux"].as_str()).map_err(bad)
             }
             "accounts.query" => self.entry(p)?.run.accounts().map_err(bad),
             "ancestry.query" => {
                 let id = match &p["entity"] {
                     Value::Null => self.entry(p)?.run.first_entity().ok_or_else(|| bad("the world is empty"))?,
-                    v => v.as_u64().ok_or_else(|| bad("`entity` must be an entity ID"))?,
+                    v => crate::track::parse_id(v).map_err(bad)?,
                 };
                 let limit = p["limit"].as_u64().unwrap_or(200).min(5000) as usize;
                 self.entry(p)?.run.ancestry(id, limit).map_err(bad)
@@ -692,7 +795,7 @@ impl Engine {
                 self.entry(p)?.run.region(x, y).map_err(bad)
             }
             "genome.atlas" => {
-                let clade = match &p["clade"] { Value::Null => None, v => Some(v.as_u64().ok_or_else(|| bad("`clade` must be an entity ID"))?) };
+                let clade = match &p["clade"] { Value::Null => None, v => Some(crate::track::parse_id(v).map_err(bad)?) };
                 self.entry(p)?.run.atlas(clade).map_err(bad)
             }
             "accounts.import" => {
@@ -752,7 +855,7 @@ impl Engine {
                     }
                 };
                 let creatures = p["creatures"].as_bool().unwrap_or(laws.is_none());
-                e.run.start_trace(ticks, cap, laws, creatures).map_err(bad)
+                e.run.start_trace_as(ticks, cap, laws, creatures, p["owner"].as_str().unwrap_or("trace.start"), p["replace"].as_bool().unwrap_or(false)).map_err(bad)
             }
             "flow.blocked_start" => {
                 let e = self.entry(p)?;
@@ -1098,4 +1201,10 @@ fn node_contract_json(c: &emerge_lang::contract::NodeContract) -> Value {
         "deps": {"conditions": c.deps.conditions, "reads": c.deps.reads, "writes": c.deps.writes, "references": c.deps.references, "complete": c.deps.complete},
         "summary": c.summary.as_ref().map(|s| json!({"on": s.on, "statements": s.statements, "nested": s.nested, "kinds": s.kinds, "steps": s.steps})),
     })
+}
+
+/// A server incarnation: the process ID and the start time, in hex; another start gives another one.
+fn session_id() -> String {
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    format!("{:x}{:04x}", t as u64 ^ (u64::from(std::process::id()) << 40), std::process::id() & 0xffff)
 }

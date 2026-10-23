@@ -78,15 +78,33 @@ pub struct MapInfo {
 
 /// `png_with`, and the map's place in the picture.
 pub fn png_map(run: &Run, view: &View, cell_px: u32, charts: &[Charts]) -> Result<(Vec<u8>, u32, u32, MapInfo), String> {
+    shot(run, view, cell_px, charts, false).map(|s| (s.png, s.w, s.h, s.map))
+}
+
+/// A picture with what it shows (`proposals/agent-tracking.md` §12): the PNG, the map's place in it,
+/// and the frame it was drawn from, with the agents the view draws (`hits`, empty unless asked for).
+/// The PNG, the hits and any overlay all come from this one frame, so a click on the picture names
+/// the creature that was where the picture shows it.
+pub struct Shot {
+    pub png: Vec<u8>,
+    pub w: u32,
+    pub h: u32,
+    pub map: MapInfo,
+    pub frame: emerge_view::Frame,
+    pub hits: Vec<emerge_view::render::Hit>,
+}
+
+pub fn shot(run: &Run, view: &View, cell_px: u32, charts: &[Charts], hits: bool) -> Result<Shot, String> {
     let panels: Vec<emerge_view::chart::Panel> = charts.iter().map(|c| match c {
         Charts::Default => emerge_view::chart::Panel::Default,
         Charts::Block(b) => emerge_view::chart::Panel::Block(b),
     }).collect();
     let frame = run.frame();
     let image = emerge_view::render_with(view, &frame, emerge_view::Options { cell_px, legend: true }, &panels);
-    let bytes = image.encode_png().map_err(|e| e.to_string())?;
+    let png = image.encode_png().map_err(|e| e.to_string())?;
     // The renderer's rule: `cell_px` pixels a cell, or a size near 1024 pixels across.
     let k = if cell_px > 0 { cell_px } else { (1024 / frame.grid_w.max(1) as u32).max(1) };
     let map = MapInfo { w: frame.grid_w as u32 * k, h: frame.grid_h as u32 * k, grid_w: frame.grid_w, grid_h: frame.grid_h, world_w: frame.world_w, world_h: frame.world_h };
-    Ok((bytes, image.width(), image.height(), map))
+    let hits = if hits { emerge_view::render::agent_hits(view, &frame, cell_px) } else { Vec::new() };
+    Ok(Shot { png, w: image.width(), h: image.height(), map, frame, hits })
 }

@@ -37,7 +37,34 @@ struct Sub {
     cell: u32,
     last_tick: Option<u64>,
     last_sent: Instant,
+    /// Keep a pick index of the frames sent (`view.subscribe` with `pick: true`).
+    pick: bool,
+    /// The creatures this viewer selected (`view.watch`): their place travels in each frame's header.
+    watch: Vec<u64>,
+    /// The last frames sent, newest last, for `view.pick_frame` (`proposals/agent-tracking.md` §12).
+    kept: std::collections::VecDeque<Kept>,
+    /// The tracking revision of the last frame: a changed selection or tracker sends a fresh frame of the same tick,
+    /// so a paused world's markers are not out of date.
+    marks: Option<u64>,
 }
+
+/// What a sent frame showed, for picking against the picture on screen: the run, the tick and revision, and
+/// every agent the view drew, with its centre and glyph radius in picture pixels.
+struct Kept {
+    frame: u64,
+    tick: u64,
+    revision: u64,
+    run: String,
+    map: crate::picture::MapInfo,
+    wrap: bool,
+    agents: Vec<(u64, [f32; 2], f32, [f32; 2], String)>,
+}
+
+/// Frames a subscription keeps for picking, and the bytes all subscriptions keep at most.
+const KEPT_FRAMES: usize = 2;
+const KEPT_BYTES: usize = 64 << 20;
+/// Overlay entries a frame header carries at most.
+const OVERLAY_MAX: usize = 512;
 
 /// The browser viewer (`proposals/live-viewer.md`): the server answers `GET /` with its page, and
 /// accepts a web page's socket only from its own origin, with this process's token.
@@ -161,11 +188,24 @@ fn recording(message: &str, engine: &Engine, recs: &mut Vec<Recording>, next_id:
 fn subscription(message: &str, engine: &Engine, subs: &mut Vec<Sub>, next_sub: &mut u64, conn: Arc<Conn>) -> Option<Option<String>> {
     let req: Value = serde_json::from_str(message).ok()?;
     let method = req["method"].as_str()?;
-    if method != "view.subscribe" && method != "view.unsubscribe" {
+    if !["view.subscribe", "view.unsubscribe", "view.watch", "view.pick_frame"].contains(&method) {
         return None;
     }
     let p = &req["params"];
-    let result = if method == "view.unsubscribe" {
+    let result = if method == "view.watch" {
+        // The creatures this viewer has selected: their place comes with every frame, from that frame.
+        (|| {
+            let id = p["subscription"].as_u64().ok_or("`subscription` must be a subscription id")?;
+            let s = subs.iter_mut().find(|s| s.id == id).ok_or("no such subscription")?;
+            let ids = if p["ids"].is_null() { vec![] } else { crate::track::parse_ids(&p["ids"])? };
+            if ids.len() > 64 { return Err("a viewer selects at most 64 creatures at once".to_string()); }
+            s.watch = ids;
+            s.marks = None;
+            Ok(json!({"subscription": id, "watching": s.watch.iter().map(|x| x.to_string()).collect::<Vec<_>>()}))
+        })()
+    } else if method == "view.pick_frame" {
+        pick_frame(p, subs)
+    } else if method == "view.unsubscribe" {
         let id = p["subscription"].as_u64();
         let before = subs.len();
         subs.retain(|s| Some(s.id) != id);
@@ -180,12 +220,15 @@ fn subscription(message: &str, engine: &Engine, subs: &mut Vec<Sub>, next_sub: &
             let num = |k: &str, d: u64| p[k].as_u64().unwrap_or(d);
             *next_sub += 1;
             let fps = num("max_fps", 10).clamp(1, 60);
-            subs.push(Sub { id: *next_sub, conn, world: world.to_string(), view, charts, every: num("every", 1).max(1), min_gap: Duration::from_secs_f64(1.0 / fps as f64), cell: num("cell", 0) as u32, last_tick: None, last_sent: Instant::now() });
-            Ok(json!({"subscription": *next_sub}))
+            let watch = if p["watch"].is_null() { vec![] } else { crate::track::parse_ids(&p["watch"])? };
+            subs.push(Sub { id: *next_sub, conn, world: world.to_string(), view, charts, every: num("every", 1).max(1), min_gap: Duration::from_secs_f64(1.0 / fps as f64), cell: num("cell", 0) as u32, last_tick: None, last_sent: Instant::now(),
+                pick: p["pick"].as_bool().unwrap_or(false), watch, kept: Default::default(), marks: None });
+            Ok(json!({"subscription": *next_sub, "run": run.run_id}))
         })()
     };
     let reply = match result {
         Ok(v) => json!({"jsonrpc": "2.0", "id": req["id"], "result": v}),
+        Err(e) if e.starts_with("frame expired") => json!({"jsonrpc": "2.0", "id": req["id"], "error": {"code": -32011, "message": e, "data": {"kind": "frame_expired"}}}),
         Err(e) => json!({"jsonrpc": "2.0", "id": req["id"], "error": {"code": -32602, "message": e}}),
     };
     Some(req.get("id").map(|_| reply.to_string()))
@@ -198,19 +241,92 @@ fn subscription(message: &str, engine: &Engine, subs: &mut Vec<Sub>, next_sub: &
 fn push_frames(engine: &Engine, subs: &mut Vec<Sub>) {
     subs.retain_mut(|s| {
         let Some(run) = engine.run(&s.world) else { return false };
-        let due = s.last_tick.is_none_or(|t| run.tick() >= t + s.every) && s.conn.ready.load(Ordering::Acquire) && (s.last_tick.is_none() || s.last_sent.elapsed() >= s.min_gap);
+        let marks_moved = s.last_tick.is_some() && s.marks != Some(run.track.revision);
+        let due = (s.last_tick.is_none_or(|t| run.tick() >= t + s.every) || marks_moved) && s.conn.ready.load(Ordering::Acquire) && (s.last_tick.is_none() || s.last_sent.elapsed() >= s.min_gap);
         if !due {
             return true;
         }
-        let Ok((png, w, h, map)) = crate::picture::png_map(run, &s.view, s.cell, &s.charts) else { return false };
-        let header = json!({"subscription": s.id, "world": s.world, "view": s.view.name, "tick": run.tick(), "revision": run.revision(), "width": w, "height": h, "format": "png", "map": {"w": map.w, "h": map.h, "grid_w": map.grid_w, "grid_h": map.grid_h, "world_w": map.world_w, "world_h": map.world_h}}).to_string();
+        let Ok(shot) = crate::picture::shot(run, &s.view, s.cell, &s.charts, s.pick) else { return false };
+        let (map, f) = (shot.map, &shot.frame);
+        let frame_id = NEXT_FRAME.fetch_add(1, Ordering::Relaxed);
+        // Overlays from this same frame: the viewer's selection and every visible tracker's members.
+        let mut want: std::collections::BTreeMap<u64, (bool, Vec<String>)> = run.track.shown().into_iter().map(|(id, t)| (id, (false, t))).collect();
+        for id in &s.watch { want.entry(*id).or_insert((false, vec![])).0 = true; }
+        let (kx, ky) = (map.w as f32 / f.world_w, map.h as f32 / f.world_h);
+        let mut overlay = vec![];
+        let mut absent = vec![];
+        if !want.is_empty() {
+            let at: std::collections::HashMap<u64, usize> = f.agents.iter().enumerate().filter(|(_, a)| want.contains_key(&a.id)).map(|(i, a)| (a.id, i)).collect();
+            // The selection first, so a full list never loses it.
+            let mut order: Vec<(&u64, &(bool, Vec<String>))> = want.iter().collect();
+            order.sort_by_key(|(_, (sel, _))| !*sel);
+            for (id, (sel, trackers)) in order {
+                match at.get(id) {
+                    Some(&i) if overlay.len() < OVERLAY_MAX => {
+                        let a = &f.agents[i];
+                        overlay.push(json!({"id": id.to_string(), "x": a.pos[0], "y": a.pos[1], "px": a.pos[0] * kx, "py": a.pos[1] * ky, "heading": a.heading, "lineage": f.lineages.get(a.lineage), "selected": sel, "trackers": trackers}));
+                    }
+                    Some(_) => {}
+                    None => absent.push(id.to_string()),
+                }
+            }
+        }
+        let header = json!({"subscription": s.id, "world": s.world, "run": run.run_id, "frame": frame_id, "view": s.view.name, "tick": f.tick, "revision": f.revision, "width": shot.w, "height": shot.h, "format": "png",
+            "map": {"w": map.w, "h": map.h, "grid_w": map.grid_w, "grid_h": map.grid_h, "world_w": map.world_w, "world_h": map.world_h, "wrap": f.wrap},
+            "tracking_revision": run.track.revision, "agents": overlay, "absent": absent, "agents_truncated": want.len().saturating_sub(overlay.len() + absent.len()),
+            "pickable": s.pick, "drawn_agents": shot.hits.len()}).to_string();
+        if s.pick {
+            let agents = shot.hits.iter().map(|h| { let a = &f.agents[h.agent]; (a.id, h.px, h.r, a.pos, f.lineages.get(a.lineage).cloned().unwrap_or_default()) }).collect();
+            s.kept.push_back(Kept { frame: frame_id, tick: f.tick, revision: f.revision, run: run.run_id.clone(), map, wrap: f.wrap, agents });
+            while s.kept.len() > KEPT_FRAMES { s.kept.pop_front(); }
+        }
+        let png = shot.png;
         let mut frame = (header.len() as u32).to_le_bytes().to_vec();
         frame.extend_from_slice(header.as_bytes());
         frame.extend_from_slice(&png);
         s.conn.ready.store(false, Ordering::Release);
+        s.marks = Some(run.track.revision);
         (s.last_tick, s.last_sent) = (Some(run.tick()), Instant::now());
         s.conn.push.send(frame).is_ok() // a closed connection ends its subscriptions
     });
+    // All kept pick indexes within the byte budget: the oldest frames go first.
+    let size = |k: &Kept| k.agents.len() * 56 + 64;
+    let mut total: usize = subs.iter().flat_map(|s| s.kept.iter()).map(size).sum();
+    while total > KEPT_BYTES {
+        let Some(s) = subs.iter_mut().filter(|s| s.kept.len() > 1).min_by_key(|s| s.kept.front().map_or(u64::MAX, |k| k.frame)) else { break };
+        if let Some(k) = s.kept.pop_front() { total -= size(&k); }
+    }
+}
+
+static NEXT_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// `view.pick_frame`: the creatures under a point of a frame this subscription was sent, from what that frame drew
+/// (never the world as it is now). `x`, `y` are picture pixels of the map; `tolerance` is the smallest hit radius in
+/// pixels (the viewer sends 8 CSS pixels at its zoom). Candidates are nearest first, ties by ID; a frame no longer
+/// kept is `frame expired`.
+fn pick_frame(p: &Value, subs: &[Sub]) -> Result<Value, String> {
+    let id = p["subscription"].as_u64().ok_or("`subscription` must be a subscription id")?;
+    let s = subs.iter().find(|s| s.id == id).ok_or("no such subscription")?;
+    if !s.pick { return Err("this subscription keeps no pick index: subscribe with pick: true".into()); }
+    let frame = p["frame"].as_u64().ok_or("`frame` must be the frame id of a received frame")?;
+    let Some(k) = s.kept.iter().find(|k| k.frame == frame) else {
+        return Err(format!("frame expired: frame {frame} is no longer kept (the newest is {}); pick on a fresh frame", s.kept.back().map_or("none".into(), |k| k.frame.to_string())));
+    };
+    let (x, y) = (p["x"].as_f64().ok_or("`x` must be a number")? as f32, p["y"].as_f64().ok_or("`y` must be a number")? as f32);
+    let tol = p["tolerance"].as_f64().unwrap_or(8.0).clamp(0.0, 64.0) as f32;
+    let limit = p["limit"].as_u64().unwrap_or(8).clamp(1, 50) as usize;
+    let (w, h) = (k.map.w as f32, k.map.h as f32);
+    let d = |a: f32, b: f32, span: f32| { let d = (a - b).abs(); if k.wrap { d.min(span - d) } else { d } };
+    let mut hits: Vec<(f32, &(u64, [f32; 2], f32, [f32; 2], String))> = k.agents.iter().filter_map(|a| {
+        let (dx, dy) = (d(a.1[0], x, w), d(a.1[1], y, h));
+        let dist = (dx * dx + dy * dy).sqrt();
+        (dist <= a.2.max(tol)).then_some((dist, a))
+    }).collect();
+    hits.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1 .0.cmp(&b.1 .0)));
+    let total = hits.len();
+    Ok(json!({"frame": k.frame, "run": k.run, "tick": k.tick, "revision": k.revision, "x": x, "y": y, "tolerance": tol,
+        "candidates": hits.iter().take(limit).map(|(dist, a)| json!({"id": a.0.to_string(), "lineage": a.4, "distance_px": dist, "x": a.3[0], "y": a.3[1], "radius_px": a.2})).collect::<Vec<_>>(),
+        "total": total, "truncated": total > limit, "scope": "the agents this view drew in that frame (a layer's `where` leaves some out)"}))
 }
 
 /// A handshake with an `Origin` header came from a web page: browsers let any site open a socket

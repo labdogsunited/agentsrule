@@ -156,6 +156,13 @@
   #wirehint.bad { border-color: #d96666; color: #f0a0a0; }
   #palette { position: absolute; left: 12px; top: 12px; display: none; gap: 6px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; z-index: 3; cursor: default; color: var(--muted); font-size: 12px; }
   body.graph #palette { display: flex; }
+  body.graph.observe #palette { display: none; } #obspalette { position: absolute; left: 12px; top: 12px; display: none; gap: 6px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; z-index: 3; cursor: default; color: var(--muted); font-size: 12px; }
+  body.graph.observe #obspalette { display: flex; } #obspalette button { padding: 2px 8px; font-size: 12px; }
+  .box.k-obs-agents { border-color: #6fcf97; } .box.k-obs-tracker { border-color: #e0a458; } .box.k-obs-out { border-color: #7eb7f5; border-style: dashed; } .box.stopped { opacity: .6; }
+  .box .dflag { position: absolute; right: 22px; top: 3px; color: #777; cursor: pointer; font-size: 13px; } .box .dflag.on { color: #4fc3f7; }
+  .box .recdot { position: absolute; right: 8px; top: 3px; color: #555; font-size: 11px; } .box .recdot.on { color: #ff5252; }
+  .tparm label { display: flex; gap: 6px; align-items: center; color: var(--ink); margin: 4px 0; } .tparm input { width: auto; flex: 1; padding: 2px 6px; } .tparm input[type=checkbox], .tparm input[type=color] { flex: none; }
+  .tparm h3 { margin: 4px 0; font-size: 13px; } .tparm .sub { color: var(--muted); font-size: 12px; } .tparm .acts { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; } .tparm .acts button { padding: 2px 8px; font-size: 12px; }
   #palette button { padding: 3px 8px; }
   #palette button:disabled { opacity: 0.4; cursor: default; }
   #picked .params { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; margin-bottom: 8px; }
@@ -284,6 +291,38 @@
   #lineagebody .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; }
   #stage-details { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
   #detailsbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  #detailsbar .drow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; color: var(--ink); }
+  #detailsbar select, #detailsbar input { width: auto; padding: 2px 6px; font-size: 12px; }
+  #dfilter { flex: 1; min-width: 180px; } #dsearch { width: 7em !important; } #dfilter.bad { border-color: var(--bad); }
+  #detailsbar button { padding: 2px 8px; font-size: 12px; } #dpage { display: none; gap: 4px; }
+  #detailstable td.star { cursor: pointer; color: var(--accent); text-align: center; }
+  #detailstable tr.pinrow td { background: #2f3640; }
+  #detailstable tr.dead td { color: var(--muted); }
+  #detailstable th.striphead { text-align: left; color: var(--accent); font-family: system-ui, sans-serif; cursor: default; position: static; }
+  #trackov { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; overflow: visible; }
+  #trackov .selring { fill: none; stroke: #fff; stroke-width: 2.5; } #trackov .selring-o { fill: none; stroke: #000; stroke-width: 5; opacity: .7; }
+  #trackov .tring { fill: none; stroke-width: 2; } #trackov .hovring { fill: none; stroke: #fff; stroke-width: 1.5; stroke-dasharray: 3 3; }
+  #trackov .trail { fill: none; stroke-width: 1.5; opacity: .75; stroke-dasharray: 2 3; } #trackov .rtrail { fill: none; stroke-width: 2; opacity: .9; } #trackov .tdead { stroke-width: 2; }
+  #trackov .tlabel { font: 11px system-ui, sans-serif; fill: #fff; paint-order: stroke; stroke: #000; stroke-width: 3px; } #trackov .tlabel.dead { fill: #ccc; font-style: italic; }
+  #trackov .tstar, #trackov .tcam { font: 12px system-ui, sans-serif; paint-order: stroke; stroke: #000; stroke-width: 3px; } #trackov .tcam { fill: #fff; } #trackov .offarrow { fill: #fff; stroke: #000; }
+  #trackcands { position: absolute; display: none; z-index: 6; background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 6px; font-size: 12px; width: 220px; box-shadow: 0 6px 24px #0008; }
+  #trackcands h3 { margin: 0 0 4px; font-size: 12px; } #trackcands button { display: block; width: 100%; text-align: left; padding: 2px 6px; margin: 1px 0; font-size: 12px; }
+  #trackcands .sub { color: var(--muted); margin-top: 4px; }
+  #selbar { position: absolute; left: 8px; top: 8px; display: none; gap: 4px; align-items: center; flex-wrap: wrap; z-index: 5; background: #000a; border-radius: 8px; padding: 4px 6px; font-size: 12px; max-width: calc(100% - 16px); }
+  #selbar .what { font-weight: 600; padding: 0 4px; } #selbar button, #followbar button { padding: 1px 7px; font-size: 12px; } #selbar .note { color: var(--accent); padding: 0 4px; }
+  #followbar { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--chartsH, 0px) + 8px); display: none; gap: 6px; align-items: center; z-index: 5; background: #000c; border: 1px solid var(--accent); border-radius: 8px; padding: 4px 8px; font-size: 12px; }
+  main.tracking { cursor: crosshair; } #tracktool.on { color: var(--accent); border-color: var(--accent); }
+  #stage-watches { cursor: default; display: flex; flex-direction: column; background: var(--bg); }
+  #watchbar { flex: none; padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #watchbar button { padding: 2px 8px; font-size: 12px; } #watchbar #watchnote { flex: 1; }
+  #watchbody, #wnewform { overflow: auto; padding: 8px 12px; font-size: 12px; } #watchbody { flex: 1; } #wnewform:empty { display: none; } #wnewform { border-bottom: 1px solid var(--line); background: #333; }
+  .wcard { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; margin-bottom: 8px; background: var(--panel); } .wcard.stopped { opacity: .65; }
+  .wcard .wtop { display: flex; gap: 8px; align-items: center; } .wcard .wtop input[type=color] { width: 22px; height: 18px; padding: 0; border: 0; background: none; }
+  .wcard .sub { color: var(--muted); margin: 2px 0; } .wcard .sub.bad { color: var(--bad); }
+  .wcard .acts, #inspbody .acts { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0; } .wcard .acts button, #inspbody .acts button { padding: 1px 7px; font-size: 11px; }
+  .wcard .wmem { display: flex; gap: 8px; flex-wrap: wrap; } .wcard a.go, #wnewform a.go { color: var(--accent); cursor: pointer; } .wcard a.go.on { font-weight: 700; text-decoration: underline; }
+  .wform, #wnewform { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; } .wform label, #wnewform label { display: inline-flex; gap: 4px; align-items: center; margin: 0; color: var(--ink); }
+  .wform input, .wform select, #wnewform input, #wnewform select { width: auto; padding: 1px 4px; font-size: 12px; } .wform input[type=number] { width: 6em; }
   #detailstable { flex: 1; overflow: auto; }
   #detailstable table { border-collapse: collapse; width: 100%; font: 12px ui-monospace, monospace; }
   #detailstable th { position: sticky; top: 0; background: var(--panel); text-align: right; padding: 4px 10px; border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap; color: var(--muted); }
@@ -402,12 +441,13 @@
   <div class="editor" id="ed-viewport"><div class="etool"><select id="view" title="Which view of the world to draw"></select><span style="flex:1"></span><span id="zoom" title="Zoom of the focused pane">100%</span></div><div class="pbody">
         <div class="strip" id="lstrip">
           <button id="infobtn" title="Info picker: what is under the pointer (press i)">i</button>
+          <button id="tracktool" title="Track on click: each click selects a creature and adds it to the Watch set (Esc leaves the tool; watches stay)">&#9678;</button>
           <button id="gridbtn" title="Show the cell grid (G)">&#9638;</button>
           <button id="zin" title="Zoom in">+</button>
           <button id="zout" title="Zoom out">&minus;</button>
           <button id="fit" title="Fit the view to the pane (double-click does it too)">&#10530;</button>
         </div>
-        <main id="stage-picture" data-view="picture"><div id="picwrap"><img id="frame" alt="the current frame" draggable="false"><div id="gridov"></div></div><div id="chartstrip"></div><span id="empty">Create a world, or pick one.<br><button id="newbtn2" class="primary">New world…</button></span><div id="pickmark"></div><div id="infopanel"></div></main>
+        <main id="stage-picture" data-view="picture"><div id="picwrap"><img id="frame" alt="the current frame" draggable="false"><div id="gridov"></div></div><div id="chartstrip"></div><span id="empty">Create a world, or pick one.<br><button id="newbtn2" class="primary">New world…</button></span><div id="pickmark"></div><svg id="trackov"></svg><div id="trackcands"></div><div id="selbar"></div><div id="followbar"></div><div id="infopanel"></div></main>
         <div class="strip" id="rstrip">
           <button id="chartsbtn" class="on" title="Charts under the picture">&#9636;</button>
           <button id="gear" title="Update rate">&#9881;</button>
@@ -429,8 +469,8 @@
     
 
       </div></div>
-  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><span id="netcrumbs" title="Where you are in the network. Enter (or double-click a statement) goes into its rule; U goes up."></span><select id="netctx" title="Go to a network"></select><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button><button id="netdup" title="Duplicate the selected statements (Ctrl+D). Ctrl+C and Ctrl+V do the same from a copy.">Duplicate</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div></main></div>
-  <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
+  <div class="editor" id="ed-network"><div class="etool"><button id="netfit" title="Fit the network to the pane">Fit</button><button id="netgrid" title="Dotted grid behind the network">Grid</button><button id="netframeall" title="Frame all (H)">Frame all</button><button id="netframesel" title="Frame the selection (G)">Frame selection</button><span id="netcrumbs" title="Where you are in the network. Enter (or double-click a statement) goes into its rule; U goes up."></span><select id="netctx" title="Go to a network"></select><input id="netfind" type="search" placeholder="Find node" title="Fades what does not match name, type, text, substance or step. Enter selects and frames the matches."><span id="netfound"></span><span class="sep"></span><button id="netnote" title="Add a sticky note">Note</button><button id="netbox" title="Put the selected nodes in a labelled box (Shift-click or Shift-drag to select several)">Box</button><button id="netdup" title="Duplicate the selected statements (Ctrl+D). Ctrl+C and Ctrl+V do the same from a copy.">Duplicate</button></div><main id="stage-graph" data-view="graph"><div id="graph"></div><div id="palette"><span>Add</span><button data-kind="transfer">transfer</button><button data-kind="react">react</button><button data-kind="diffuse">diffuse</button><button data-kind="code" title="A box to type a statement into">code</button><span style="width:10px"></span><button id="undo" title="Undo the last graph edit (Ctrl+Z)">Undo</button><button id="redo" title="Do it again (Ctrl+Shift+Z)">Redo</button></div><div id="obspalette"><span>Add</span><button data-mode="fixed" title="A Tracker of the selected creature and every quick watch, captured now">Tracker from selection</button><button data-mode="live" title="Whoever matches a condition now">Live query</button><button data-mode="latched" title="Everyone seen matching during a window, kept afterwards">Latched query</button><button data-mode="descendants" title="A creature and the children born to its members">Descendants</button><button data-mode="representative" title="One creature first by a ranking (it may change; each handoff is kept)">Representative</button><span style="width:10px"></span><button id="obsundo" title="Undo the last tracker change">Undo</button><button id="obsredo">Redo</button></div></main></div>
+  <div class="editor" id="ed-genome"><main id="stage-genome" data-view="genome"><div id="genome"></div><div id="genomemsg"></div><div id="genomebar"><span>Creature</span><select id="entity"></select><button id="entities-refresh" title="Reload the list of creatures">Reload</button><button id="gtrack" title="Track this creature (and select it)">Track</button><input id="gsearch" type="search" placeholder="Find gene, kind, substance, signal" title="Fades the genes that do not match; nothing is hidden"><span id="gfound"></span><span id="genomenote"></span></div></main></div>
   <div class="editor" id="ed-look"><main id="stage-look"><div id="lookbar"><span id="looknote"></span></div><div id="lookbody"></div></main></div>
   <div class="editor" id="ed-rules"><main id="stage-rules"><div id="rulesbar"><span id="rulesnote"></span><label><input type="radio" name="rmode" value="schedule" checked> schedule</label><label><input type="radio" name="rmode" value="matrix"> read/write matrix</label><label><input type="radio" name="rmode" value="activity"> activity</label><label><input type="radio" name="rmode" value="trace"> trace</label></div><div id="rulesbody"></div></main></div>
   <div class="editor" id="ed-book"><main id="stage-book"><div id="bookbar"><span id="booknote"></span><button id="bookexport">Export notebook (JSON)</button></div><div id="bookbody"></div></main></div>
@@ -443,7 +483,8 @@
   <div class="editor" id="ed-census"><main id="stage-census"><div id="censusbar"><span id="censusnote"></span></div><div id="censusbody"></div></main></div>
   <div class="editor" id="ed-lineage"><main id="stage-lineage"><div id="lineagebar"><span id="lineagenote"></span><label><input type="radio" name="lmode" value="count" checked> counts</label><label><input type="radio" name="lmode" value="share"> share</label></div><div id="lineagebody"></div></main></div>
   <div class="editor" id="ed-inspect"><main id="stage-inspect"><div id="inspbar"><span id="inspnote"></span><button id="insphold" title="Keep the values on screen as they are, with the tick and revision they were read at">Hold this observation</button></div><div id="inspbody"></div></main></div>
-  <div class="editor" id="ed-details"><main id="stage-details"><div id="detailsbar"><span id="detailsnote"></span></div><div id="detailstable"></div></main></div>
+  <div class="editor" id="ed-details"><main id="stage-details"><div id="detailsbar"><div class="drow"><b>Agents</b><select id="dscope" title="Which creatures the table holds"></select><input id="dfilter" placeholder="condition, e.g. age > 50 and carried.body >= 1000" title="Evaluated by the server over the scope (Population sample, All agents): attr op value, joined with and"><input id="dsearch" placeholder="ID" title="Select a creature by its exact ID (it need not be in any sample)"><button id="dtracksel" title="Track the selected creature">Track selected</button><button id="dreveal" title="Scroll to the selected creature">Reveal selected</button><span id="dpage"><button id="dprev">&lsaquo; Prev</button><button id="dnext">Next &rsaquo;</button><button id="drefresh" title="Read the population again (a new observation)">Refresh</button></span></div><span id="detailsnote"></span></div><div id="detailstable"></div></main></div>
+  <div class="editor" id="ed-watches"><main id="stage-watches"><div id="watchbar"><span id="watchnote"></span><button id="wclick" title="Each click in the Viewport selects a creature and adds it to the Watch set">Track on click</button><button id="wnew" title="A tracker over a set: a cohort, a live or latched condition, a family, or a representative">New tracker…</button><button id="wundo">Undo</button><button id="wredo">Redo</button></div><div id="wnewform"></div><div id="watchbody"></div></main></div>
   <div class="editor" id="ed-source"><section id="code">
     <div id="codehandle"></div>
     <div class="bar"><span id="codeinfo">source</span><select id="code-world"></select><span style="flex:1"></span><button id="editcode" title="Edit a copy of the code, or open a file, and make a new world from it">Edit</button><button id="copycode">Copy</button><button id="popout" title="Open the code in its own window">Pop out</button></div>
@@ -496,6 +537,16 @@ function call(method, params = {}) {
 // open in the Genome tab.
 const info = { on: false, map: null, pin: null, hover: null, at: 0, busy: false };
 let wantEntity = null;
+// Agent tracking state (the code is further down, under "Agent tracking").
+const track = {
+  run: null, frame: null, sel: null, pin: null, inspAgent: false, list: { trackers: [] }, trails: new Map(), last: new Map(),
+  follow: null, clickTool: false, cands: null, hover: null, status: new Map(), gen: 0, note: "",
+  rec: new Map(),   // tracker id -> { after, every, pts: Map(entity id -> [{ tick, x, y }]) }: recorded trails, from the server's samples
+};
+const mkel = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+const TRAIL = 64;                        // received positions kept for the selection's recent display trail
+const LABELS = 8;                        // labelled markers at once: the selection and the camera target first
+const details = { scope: "sample", where: null, whereText: "", sort: { key: "id", dir: 1 }, rows: [], strip: [], subs: [], note: "", cursor: null, offset: 0, matched: 0, tick: null };
 const newCam = () => ({ s: 1, x: 0, y: 0, fit: true, w: 0, h: 0 });
 const cams = { picture: newCam(), graph: newCam(), genome: newCam() };
 // `mode` is the focused view (what the zoom label and Fit speak of). The viewport is always on
@@ -563,7 +614,7 @@ function applyCam(cam = cams[mode]) {
   el.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
   // Exact cells when enlarged; smooth when shrunk, so the legend's text stays readable.
   if (cam === cams.picture) el.classList.toggle("enlarged", cam.s > 1);
-  if (cam === cams.picture) { placeGrid(); placeMark(); }
+  if (cam === cams.picture) { placeGrid(); placeMark(); drawTrack(); }
   if (cam === cams.picture) $("zoom").textContent = `${Math.round(cam.s * 100)}%`;
 }
 // A view that is on screen fits its stage again when the stage changes size (a divider, a tab, the window).
@@ -610,7 +661,7 @@ function bindStage(view) {
   stage.addEventListener("pointerdown", (e) => {
     const cam = cams[view];
     focusView(view);
-    if (!cam.w || e.button > 1 || e.target.closest("#infopanel")) return;
+    if (!cam.w || e.button > 1 || e.target.closest("#infopanel, #selbar, #followbar, #trackcands")) return;
     const port = view === "graph" && e.target.closest(".port.out");
     const box = view === "graph" && e.target.closest(".box");
     if (port && box) {
@@ -710,6 +761,7 @@ function bindStage(view) {
       return;
     }
     if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > 3) drag.moved = true;
+    if (drag.moved && view === "picture" && track.follow && !track.follow.suspended) { track.follow.suspended = true; renderSelBar(); }
     cam.x = e.clientX - drag.x;
     cam.y = e.clientY - drag.y;
     cam.fit = false;
@@ -717,6 +769,7 @@ function bindStage(view) {
   });
   const drop = (e) => {
     if (drag && !drag.box && !drag.wire && drag.gene == null && !drag.moved && info.on && view === "picture") pinInfo(e);
+    else if (drag && !drag.box && !drag.wire && drag.gene == null && !drag.moved && !drag.band && view === "picture") trackClick(e).catch(oops);
     if (drag && drag.gene != null && !drag.moved) selectGene(drag.gene);
     if (drag && drag.gcard) {
       if (!drag.moved) selectGene(drag.gi);
@@ -994,10 +1047,10 @@ const wireColor = (name) => (name ? `hsl(${hue(name)} 65% 62%)` : "#8b93a1");
 function layoutGraph(g) {
   if (ctx !== "world" && !(g.contexts || []).some((c) => c.key === ctx)) ctx = "world";
   for (const k of [...placed.keys()]) if (!k.includes("/")) placed.delete(k);
-  const col = (n) => (n.kind === "reaction" || (n.kind === "store" && /\.sources\./.test(n.id)) ? 0 : n.kind === "store" ? 2 : 1);
-  let drawn = g.nodes.filter((n) => ["store", "reaction", "transfer", "react", "diffuse", "signal", "code"].includes(n.kind));
+  const col = (n) => (n.kind === "obs-agents" ? 0 : n.kind === "obs-out" ? 2 : n.kind === "obs-tracker" ? 1 : n.kind === "reaction" || (n.kind === "store" && /\.sources\./.test(n.id)) ? 0 : n.kind === "store" ? 2 : 1);
+  let drawn = g.nodes.filter((n) => ["store", "reaction", "transfer", "react", "diffuse", "signal", "code", "obs-agents", "obs-tracker", "obs-out"].includes(n.kind));
   ghostIds = new Set();
-  if (ctx !== "world") {
+  if (ctx !== "world" && ctx !== "observe") {
     const mine = drawn.filter((n) => n.contract && n.contract.context === ctx), ids = new Set(mine.map((n) => n.id)), near = new Set();
     for (const w of g.wires) { if (ids.has(w.from) && !ids.has(w.to)) near.add(w.to); if (ids.has(w.to) && !ids.has(w.from)) near.add(w.from); }
     const ghosts = drawn.filter((n) => near.has(n.id) && !ids.has(n.id));
@@ -1018,15 +1071,17 @@ function layoutGraph(g) {
 }
 
 function drawGraph() {
-  const g = graphData, root = $("graph");
+  if (ctx === "observe") observeGraph();
+  const g = netData(), root = $("graph");
   root.textContent = "";
+  document.body.classList.toggle("observe", ctx === "observe");
   if (!g) return;
   const drawn = layoutGraph(g);
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.id = "wires";
   root.appendChild(svg);
   const ruleName = ctx.replace(/^rule:/, "");
-  const heads = ctx === "world" ? ["Sources and reactions", "Rule statements, in tick order", "Stores"] : ["Read from (in the world)", `Statements of ${ruleName}`, "Put into (in the world)"];
+  const heads = ctx === "world" ? ["Sources and reactions", "Rule statements, in tick order", "Stores"] : ctx === "observe" ? ["The run", "Trackers (observation only: no rule, no revision)", "What shows them"] : ["Read from (in the world)", `Statements of ${ruleName}`, "Put into (in the world)"];
   for (const [c, name] of heads.map((h, i) => [i, h])) {
     const h = document.createElement("div");
     h.className = "col-head";
@@ -1071,11 +1126,21 @@ function drawGraph() {
       if (["transfer", "react"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port in"; el.append(p); }
       if (["store", "reaction", "transfer"].includes(n.kind)) { const p = document.createElement("div"); p.className = "port out"; el.append(p); }
     }
+    if (n.tracker) {
+      // The display flag and the recording indicator, on the node itself.
+      const fl = document.createElement("span"), rc = document.createElement("span");
+      fl.className = `dflag${n.tracker.display.visible ? " on" : ""}`; fl.title = n.tracker.display.visible ? "Display flag on: its markers are drawn (click to hide)" : "Display flag off (click to show)"; fl.textContent = "◉";
+      fl.onpointerdown = (e) => e.stopPropagation();
+      fl.onclick = (e) => { e.stopPropagation(); upd(n.tracker, { display: { visible: !n.tracker.display.visible } }).catch(oops); };
+      rc.className = `recdot${n.tracker.recording && n.tracker.recording.on ? " on" : ""}`; rc.title = n.tracker.recording ? (n.tracker.recording.on ? "Recording" : "Recording stopped (samples kept)") : "Not recording"; rc.textContent = "●";
+      el.append(fl, rc);
+      if (n.tracker.stopped != null) el.classList.add("stopped");
+    }
     root.appendChild(el);
     maxX = Math.max(maxX, p.x + BOX.w + 40);
     maxY = Math.max(maxY, p.y + BOX.h + 40);
   }
-  if (ctx !== "world") {
+  if (ctx !== "world" && ctx !== "observe") {
     // Statements inside a `when` or `else`: each group in a dashed frame that says when it runs. They are boxes of the
     // rule's network like the others; editing one waits for H4, and its panel says so.
     const nest = (g.nested || []).filter((x) => x.contract && x.contract.context === ctx), byWhen = new Map();
@@ -1188,6 +1253,7 @@ function goContext(key, pick) {
   select(pick && placed.has(pick) ? pick : null);
 }
 function enterBox(id) {
+  if (id.startsWith("obs:t")) { details.scope = `tracker:${id.slice(4).split(":")[0]}`; setMode("details"); loadDetails().catch(oops); return true; }
   const n = graphData && graphData.nodes.find((x) => x.id === id);
   if (!n) return false;
   if (ghostIds.has(id)) { goContext("world", id); return true; }
@@ -1219,6 +1285,7 @@ $("netfind").addEventListener("keydown", (e) => {
 });
 function savePositions(ids) {
   if (!graphData) return;
+  if (ids.some((id) => id.startsWith("obs:"))) { ids.forEach(savePosition); return; }
   const positions = {};
   for (const id of ids) { const p = placed.get(id); if (p) positions[posKey(id)] = [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10]; }
   call("world.layout_set", { world: $("world").value, positions }).catch(() => {});
@@ -1326,7 +1393,7 @@ $("netbox").onclick = () => {
 
 // Where a named port sits on its box, so a wire attaches to the port it stands for (null: the box has no such port).
 function portY(id, key, dir) {
-  const n = graphData.nodes.find((x) => x.id === id), p = placed.get(id), ports = n && n.contract && n.contract.ports;
+  const n = netData().nodes.find((x) => x.id === id), p = placed.get(id), ports = n && n.contract && n.contract.ports;
   if (!ports || !key || !p) return null;
   const mine = ports.filter((q) => q.dir === dir), i = mine.findIndex((q) => q.key === key);
   return i < 0 ? null : p.y + 8 + i * 16 + 6;
@@ -1370,7 +1437,7 @@ async function previewWire(e, from) {
   h.textContent = ok ? `would ${text}` : text;
 }
 function drawWires() {
-  const g = graphData, svg = $("wires");
+  const g = netData(), svg = $("wires");
   if (!g || !svg) return;
   svg.textContent = "";
   const ends = new Map();
@@ -1452,6 +1519,7 @@ window.addEventListener("keydown", (e) => {
 function savePosition(id) {
   const p = placed.get(id);
   if (!p || !graphData) return;
+  if (id.startsWith("obs:")) { const t = track.list.trackers.find((x) => `obs:${x.id}` === id); if (t) call("tracker.update", { world: $("world").value, tracker: t.id, pos: [Math.round(p.x), Math.round(p.y)] }).catch(() => {}); return; }
   call("world.layout_set", { world: $("world").value, positions: { [posKey(id)]: [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10] } }).catch(() => {});
 }
 for (const b of document.querySelectorAll("#palette button[data-kind]")) b.onclick = () => graphOp({ op: "add_rule", kind: b.dataset.kind });
@@ -1735,6 +1803,7 @@ function markSel() {
 }
 function select(id) {
   selected = id;
+  if (id) track.inspAgent = false;
   multi = new Set(id ? [id] : []);
   highlightCode(id);
   markSel();
@@ -1766,6 +1835,7 @@ function renderParm() {
   picked.textContent = "";
   renderPinBar();
   const t = parmTarget();
+  if (t && t.id.startsWith("obs:")) return renderTrackerParm(t.id);
   if (!t) {
     if (selection && selection.kind === "gene") return renderGeneParm();
     picked.textContent = "Click a box in the graph.";
@@ -1941,6 +2011,8 @@ async function loadGraph() {
   if (w !== $("world").value) return;   // a late answer for a world that is no longer the active one
   graphData = g;
   graphRev = graphData.revision;
+  g.contexts = [...(g.contexts || []), { key: "observe", label: `${(g.contexts || [])[0] ? g.contexts[0].label : "World"} / Observe` }];
+  if (ctx === "observe") await loadTrackers().catch(() => {});
   drawGraph();
   updateHistory();
 }
@@ -1968,7 +2040,8 @@ async function loadEntities() {
   if (!w) { genomeMsg = "Create a world first (or pick one)."; genomeData = null; drawGenome(); return; }
   $("genomenote").textContent = "loading…";
   try {
-    const r = await call("entities.query", { world: w, limit: 60 });
+    const r = await call("entities.find", { world: w, sample: 60, limit: 60 });
+    r.entities = r.agents; r.total = r.matched;
     const sel = $("entity"), prev = sel.value;
     sel.textContent = "";
     for (const e of r.entities) {
@@ -1977,10 +2050,19 @@ async function loadEntities() {
       o.textContent = `#${e.id} · ${e.lineage} · age ${e.age} · ${e.active_genes} genes`;
       sel.append(o);
     }
-    if (r.entities.some((e) => String(e.id) === prev)) sel.value = prev;
+    if (r.entities.some((e) => e.id === prev)) sel.value = prev;
+    else if (prev && wantEntity == null) {
+      // The creature on show is not in this sample (it died, or the sample moved on): keep it, never a replacement.
+      const o = document.createElement("option");
+      o.value = prev;
+      o.textContent = `#${prev} · shown before`;
+      sel.prepend(o);
+      sel.value = prev;
+    }
     if (wantEntity != null) {
-      // A creature chosen elsewhere (the info picker) may not be in the sample: add it.
-      if (![...sel.options].some((o) => +o.value === wantEntity)) {
+      wantEntity = String(wantEntity);
+      // A creature chosen elsewhere (the info picker, a selection) may not be in the sample: add it.
+      if (![...sel.options].some((o) => o.value === wantEntity)) {
         const o = document.createElement("option");
         o.value = wantEntity;
         o.textContent = `#${wantEntity} · picked`;
@@ -2002,7 +2084,7 @@ async function loadEntities() {
 }
 
 async function loadGenome(quiet) {
-  const w = $("world").value, id = +$("entity").value;
+  const w = $("world").value, id = $("entity").value;
   if (!w || !id) { genomeData = null; drawGenome(); return; }
   try {
     genomeData = await call("genome.graph", { world: w, entity: id });
@@ -2011,7 +2093,7 @@ async function loadGenome(quiet) {
     drawGenome();
   } catch (e) {
     genomeData = null;
-    genomeMsg = /no living entity/.test(String(e.message)) ? `Creature #${id} has died. Pick another from the list.` : genomeWhy(e);
+    genomeMsg = /no living entity/.test(String(e.message)) ? `Creature #${id} is no longer living. Its genome is not kept; pick another from the list (this one stays selected until you do).` : genomeWhy(e);
     drawGenome();
     if (quiet) loadEntities().catch(() => {});
   }
@@ -2194,17 +2276,18 @@ $("entities-refresh").onclick = () => loadEntities().then(() => loadGenome()).ca
 // Tabs move by dragging (to a leaf's middle, or to one of its edges to split it), a leaf can be maximized
 // for a while, editors can be closed and added back, and desktops are named arrangements. One instance of
 // each editor; the arrangement is kept in this browser and checked before it is used again.
-const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", inspect: "Inspector", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget", family: "Ancestry", compare: "Compare Runs", region: "Region", flow: "Flow Map", life: "Life Histories", book: "Notebook" };
+const EDITORS = { viewport: "Viewport", params: "Parameters", network: "Network", genome: "Genome", look: "Look", details: "Details", inspect: "Inspector", source: "Source", rules: "Rule Lens", lineage: "Lineage History", census: "Genome Census", budget: "Resource Budget", family: "Ancestry", compare: "Compare Runs", region: "Region", flow: "Flow Map", life: "Life Histories", book: "Notebook", watches: "Watches" };
 const VIEW_OF = { viewport: "picture", network: "graph", genome: "genome" };          // editors with a camera
-const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", inspect: "inspect", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life", book: "book" };
+const EDITOR_OF = { picture: "viewport", graph: "network", genome: "genome", inspect: "inspect", details: "details", look: "look", code: "source", params: "params", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life", book: "book", watches: "watches" };
 let tree = null, closed = [], maxLeaf = null, focusLeaf = null, leafSeq = 0;
 const mkLeaf = (tabs, active) => ({ t: "leaf", id: `L${++leafSeq}`, tabs, active: active || tabs[0] });
 const mkSplit = (dir, ratio, a, b) => ({ t: "split", dir, ratio, a, b });
 const BUILTIN = {
-  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "inspect", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]))),
-  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "inspect", "details", "genome", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]))),
-  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "inspect", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book"]), mkLeaf(["params"]))),
-  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "family", "compare", "region", "flow", "life", "book", "details", "inspect", "genome", "network", "look", "params", "source"]))),
+  Simulate: () => mkSplit("h", 0.6, mkLeaf(["viewport"]), mkSplit("v", 0.4, mkLeaf(["params"]), mkLeaf(["network", "genome", "look", "details", "source", "inspect", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book", "watches"]))),
+  Rules: () => mkSplit("h", 0.62, mkSplit("v", 0.68, mkLeaf(["network", "look"]), mkLeaf(["viewport"])), mkSplit("v", 0.5, mkLeaf(["params"]), mkLeaf(["source", "inspect", "details", "genome", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book", "watches"]))),
+  Genome: () => mkSplit("h", 0.5, mkLeaf(["viewport"]), mkSplit("v", 0.62, mkLeaf(["genome", "network", "look", "details", "source", "inspect", "rules", "lineage", "census", "budget", "family", "compare", "region", "flow", "life", "book", "watches"]), mkLeaf(["params"]))),
+  Track: () => mkSplit("h", 0.58, mkSplit("v", 0.62, mkLeaf(["viewport"]), mkLeaf(["details", "lineage", "life", "family"])), mkSplit("v", 0.45, mkLeaf(["inspect", "params", "genome"]), mkSplit("v", 0.5, mkLeaf(["network", "look", "source"]), mkLeaf(["watches", "rules", "census", "budget", "compare", "region", "flow", "book"])))),
+  Science: () => mkSplit("h", 0.5, mkSplit("v", 0.55, mkLeaf(["viewport"]), mkLeaf(["lineage"])), mkSplit("v", 0.6, mkLeaf(["rules"]), mkLeaf(["census", "budget", "family", "compare", "region", "flow", "life", "book", "details", "inspect", "genome", "network", "look", "params", "source", "watches"]))),
 };
 const leavesOf = (n = tree) => (n.t === "leaf" ? [n] : [...leavesOf(n.a), ...leavesOf(n.b)]);
 const findLeaf = (id) => leavesOf().find((l) => l.id === id);
@@ -2324,7 +2407,7 @@ function resizeSplit(e, n, box, a, b, bar) {
 let prevVis = {};
 function syncVisible() {
   const on = new Set((maxLeaf ? [findLeaf(maxLeaf)] : leavesOf()).filter(Boolean).filter((l) => document.querySelector(`[data-leaf="${l.id}"]`)).map((l) => l.active));
-  const map = { picture: "viewport", graph: "network", genome: "genome", inspect: "inspect", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life", book: "book" };
+  const map = { picture: "viewport", graph: "network", genome: "genome", inspect: "inspect", details: "details", look: "look", source: "source", rules: "rules", lineage: "lineage", census: "census", budget: "budget", family: "family", compare: "compare", region: "region", flow: "flow", life: "life", book: "book", watches: "watches" };
   for (const [v, ed] of Object.entries(map)) visible[v] = on.has(ed);
   document.body.classList.toggle("graph", visible.graph);
   document.body.classList.toggle("genome", visible.genome);
@@ -2351,6 +2434,9 @@ function syncVisible() {
   if (fresh("flow")) loadFlow().catch(oops);
   if (fresh("life")) loadLife().catch(oops);
   if (fresh("book")) loadBook().catch(oops);
+  if (fresh("watches")) loadWatches().catch(oops);
+  if (fresh("picture")) requestAnimationFrame(drawTrack);
+  renderSelBar();
   if (fresh("source")) loadCode().catch(oops);
   prevVis = { ...visible };
   const fl = findLeaf(focusLeaf), v = fl && VIEW_OF[fl.active];
@@ -2514,10 +2600,18 @@ function showInfo(r, p, at) {
     c.textContent = `${e.distance.toFixed(1)} away${carried ? ` · carries ${carried}` : ""}`;
     w.append(l, c);
     if (info.pin) {
+      const id = e.ref || String(e.id);
       const b = document.createElement("button");
       b.textContent = "Open genome";
-      b.onclick = () => { wantEntity = e.id; info.pin = null; infoOff(); setMode("genome"); };
-      w.append(b);
+      b.onclick = () => { wantEntity = id; info.pin = null; infoOff(); setMode("genome"); };
+      const s1 = document.createElement("button");
+      s1.textContent = "Select";
+      s1.onclick = () => { info.pin = null; infoOff(); setAgent(id); };
+      const t1 = document.createElement("button");
+      t1.textContent = watchOf(id) ? "Tracked" : "Track";
+      t1.disabled = !!watchOf(id);
+      t1.onclick = () => { setAgent(id); trackAgent(id).then(() => showInfo(r, p, at)).catch(oops); };
+      w.append(s1, document.createTextNode(" "), t1, document.createTextNode(" "), b);
     }
     panel.append(w);
   }
@@ -2593,7 +2687,7 @@ stage.addEventListener("pointerleave", () => { if (info.on && !info.pin) { info.
 $("infobtn").onclick = toggleInfo;
 // Documentation (`/help`): the page for the pane you are in. F1 or the Docs button; a pane with no page of its own opens the overview.
 const DOC_OF = { viewport: "using-overview", params: "using-network", network: "using-network", inspect: "using-network", genome: "using-overview", look: "using-overview", details: "using-overview", source: "using-overview",
-  rules: "using-science", lineage: "using-science", census: "using-science", budget: "using-science", family: "using-science", compare: "using-science", region: "using-science", flow: "using-science", life: "using-science", book: "using-science" };
+  rules: "using-science", lineage: "using-science", census: "using-science", budget: "using-science", family: "using-science", compare: "using-science", region: "using-science", flow: "using-science", life: "using-science", book: "using-science", watches: "using-tracking" };
 function openDocs(page) {
   const fl = typeof findLeaf === "function" ? findLeaf(focusLeaf) : null;
   const p = page || (fl && DOC_OF[fl.active]) || "using-overview";
@@ -2628,6 +2722,7 @@ function onFrame(buf) {
     const ph = lastImg.map && lastImg.nh > lastImg.map.h ? lastImg.map.h : img.naturalHeight;   // the picture without the charts
     if (cam.fit || cam.w !== img.naturalWidth || cam.h !== ph) { cam.w = img.naturalWidth; cam.h = ph; fitCam(cam); }
     applyCam(cam);
+    trackFrame(header);
   };
   img.src = url;
   if (isShown("picture")) {
@@ -2772,48 +2867,6 @@ function lookRow(viewName, text, layer, ro) {
 }
 
 // ---- Details: a table of the creatures (what the runner holds for each), sortable; a click inspects one.
-let detailsSort = { key: "id", dir: 1 }, detailsRows = [], detailsSubs = [];
-async function loadDetails() {
-  const w = $("world").value;
-  if (!w) { $("detailsnote").textContent = "Create a world, or pick one."; $("detailstable").textContent = ""; return; }
-  const r = await call("entities.query", { world: w, limit: 400 });
-  if (w !== $("world").value || !visible.details) return;
-  detailsRows = r.entities;
-  detailsSubs = [...new Set(r.entities.flatMap((e) => Object.keys(e.carried_mu || {})))].sort();
-  $("detailsnote").textContent = `${w} · tick ${r.tick} · ${r.entities.length} of ${r.total} creatures (an even sample when there are more) · amounts in µ · click a row to open its genome`;
-  drawDetails();
-}
-function drawDetails() {
-  const cols = [["id", "id"], ["lineage", "lineage", true], ["age", "age"], ["active_genes", "genes"], ["x", "x"], ["y", "y"], ...detailsSubs.map((s) => [`c:${s}`, s])];
-  const val = (e, k) => (k.startsWith("c:") ? (e.carried_mu || {})[k.slice(2)] || 0 : e[k]);
-  const rows = [...detailsRows].sort((a, b) => { const x = val(a, detailsSort.key), y = val(b, detailsSort.key); return (x < y ? -1 : x > y ? 1 : 0) * detailsSort.dir; });
-  const t = document.createElement("table"), head = document.createElement("tr");
-  for (const [k, name, left] of cols) {
-    const th = document.createElement("th");
-    th.textContent = name + (detailsSort.key === k ? (detailsSort.dir > 0 ? " \u25B2" : " \u25BC") : "");
-    th.className = (left ? "l " : "") + (detailsSort.key === k ? "sorted" : "");
-    th.onclick = () => { detailsSort = { key: k, dir: detailsSort.key === k ? -detailsSort.dir : 1 }; drawDetails(); };
-    head.append(th);
-  }
-  t.append(head);
-  for (const e of rows) {
-    const tr = document.createElement("tr");
-    if (e.id === wantEntity) tr.className = "sel";
-    for (const [k, , left] of cols) {
-      const td = document.createElement("td"), v = val(e, k);
-      td.textContent = typeof v === "number" && !Number.isInteger(v) ? v.toFixed(1) : v;
-      if (left) td.className = "l";
-      tr.append(td);
-    }
-    tr.onclick = () => { wantEntity = e.id; setMode("genome"); };
-    t.append(tr);
-  }
-  const keep = $("detailstable").scrollTop;
-  $("detailstable").textContent = "";
-  $("detailstable").append(t);
-  $("detailstable").scrollTop = keep;
-}
-
 // ---- Inspector (`proposals/houdini-node-system.md` §10): what the selected box is, what the world holds in it, and what the
 // runner counted for it, kept apart. DECLARED comes from the source (stamped with the revision it was read at); OBSERVED is a
 // reading of the running world at one tick; MEASURED is what the runner counted over an interval, from when it began counting.
@@ -2922,7 +2975,9 @@ async function loadInspect() {
   const w = $("world").value, note = $("inspnote");
   if (!w) { note.textContent = "Create a world, or pick one."; $("inspbody").textContent = ""; return; }
   if (!graphData || graphData.world === undefined) await loadGraph().catch(() => {});
-  if (inspHeld && inspHeld.world === w) { renderInspect(inspHeld.data, true); inspNote(); return; }
+  if (inspHeld && inspHeld.world === w) { if (inspHeld.data.agent) renderAgentInspect(inspHeld.data, true); else renderInspect(inspHeld.data, true); inspNote(); return; }
+  const ag = inspAgentTarget();
+  if (ag) return loadAgentInspect(ag);
   const id = parmTarget() && parmTarget().id, n = id && graphData && (graphData.nodes.find((x) => x.id === id) || (graphData.nested || []).map((x) => ({ ...x, isNested: true })).find((x) => x.id === id));
   if (!n) { note.textContent = `${w}`; $("inspbody").textContent = "Select a box in the Network."; return; }
   const d = await inspectRead(n);
@@ -3297,18 +3352,26 @@ async function loadFamily() {
   const list = ents.entities.filter((e) => !science.lineage || e.lineage === science.lineage);
   sel.innerHTML = list.map((e) => `<option value="${e.id}">#${e.id} · ${esc(e.lineage)} · age ${e.age}</option>`).join("");
   if (science.entity && science.world === w && list.some((e) => e.id === science.entity)) familyPick = String(science.entity);
+  // A creature chosen elsewhere (a selection, a tracker) need not be in the sample: it is added, not replaced.
+  if (familyPick && !list.some((e) => String(e.id) === familyPick)) sel.insertAdjacentHTML("afterbegin", `<option value="${esc(familyPick)}">#${esc(familyPick)} · selected</option>`);
   if (familyPick && list.some((e) => String(e.id) === familyPick)) sel.value = familyPick;
   sel.onchange = () => { familyPick = sel.value; setScience({ entity: +sel.value }); };
   if (!list.length) { note.textContent = `no creature of ${science.lineage} in the sample`; return; }
   const head = tag("div"); head.append("Creature ", sel, ents.total > ents.entities.length ? ` (an even sample of ${ents.entities.length} of ${ents.total})` : "");
+  const tb = (label, title, fn) => { const b = tag("button"); b.textContent = label; b.title = title; b.onclick = () => Promise.resolve(fn()).catch(oops); head.append(" ", b); };
+  tb("Select", "Select this creature (Viewport, Details, Inspector follow)", () => setAgent(sel.value));
+  tb("Track", "Watch this creature", () => trackAgent(sel.value));
+  tb("Track family", "A Descendants tracker: this creature and every child born to its members from now on", () => call("tracker.create", { world: w, mode: "descendants", root: sel.value, name: `Family of #${sel.value}` }).then(loadTrackers).then(afterTrackChange));
+  tb("…with earlier children", "The same, with the descendants already born taken from the birth events", () => call("tracker.create", { world: w, mode: "descendants", root: sel.value, include_past: true, name: `Family of #${sel.value} (with earlier children)` }).then(loadTrackers).then(afterTrackChange));
   body.append(head);
   let a;
-  try { a = await call("ancestry.query", { world: w, entity: +sel.value }); } catch (e) { note.textContent = `${w} · ${e.message || e}`; return; }
+  try { a = await call("ancestry.query", { world: w, entity: sel.value }); } catch (e) { note.textContent = `${w} · ${e.message || e}`; return; }
   note.textContent = `${scopeText() ? scopeText() + " · " : ""}${w} · tick ${a.tick} · ${a.source}`;
   const t = tag("table");
   const state = (x) => (x.alive ? "alive" : x.died ? `died at tick ${x.died.tick} (${x.died.cause})` : "gone");
   t.innerHTML = "<tr><th>generation</th><th>creature</th><th>born</th><th>state</th><th>children</th></tr>" +
-    [a.entity, ...a.ancestors].map((x, i) => `<tr class="${i === 0 ? "focal" : x.alive ? "" : "dead"}"><td>${i === 0 ? "this creature" : `${i} up`}</td><td>#${x.id}</td><td>${x.born === null ? "genesis" : "tick " + x.born}</td><td>${esc(state(x))}</td><td>${x.children}</td></tr>`).join("");
+    [a.entity, ...a.ancestors].map((x, i) => `<tr class="${i === 0 ? "focal" : x.alive ? "" : "dead"}"><td>${i === 0 ? "this creature" : `${i} up`}</td><td><a class="go" data-agent="${x.id}" title="Select it">#${x.id}</a></td><td>${x.born === null ? "genesis" : "tick " + x.born}</td><td>${esc(state(x))}</td><td>${x.children}</td></tr>`).join("");
+  for (const g of t.querySelectorAll("a[data-agent]")) g.onclick = () => setAgent(g.dataset.agent);
   body.append(t);
   const d = a.descendants, n = tag("div");
   n.textContent = `${a.ancestors_complete ? `The line reaches founder #${a.founder}.` : `Showing the nearest ${a.ancestor_limit} ancestors; the line goes further back.`} Descendants: ${d.ever} ever born, ${d.alive_now} alive now, ${d.generations} generations deep. ${a.not_recorded}.`;
@@ -3517,8 +3580,12 @@ async function subscribe() {
   if (!world || !view) return;
   if (sub) { await call("view.unsubscribe", { subscription: sub }).catch(() => {}); sub = null; }
   const charts = $("charts").checked ? ["default"] : [];
-  const r = await call("view.subscribe", { world, view, views: viewsText(), charts, every: +$("every").value || 1, max_fps: +$("fps").value || 8 });
+  const r = await call("view.subscribe", { world, view, views: viewsText(), charts, every: +$("every").value || 1, max_fps: +$("fps").value || 8, pick: true, watch: watchIds() });
   sub = r.subscription;
+  if (r.run !== track.run) { track.run = r.run; trackRestore(); }
+  await sendWatch();
+  await loadTrackers().catch(() => {});
+  renderSelBar();
 }
 
 async function stats() {
@@ -3608,12 +3675,14 @@ function connect() {
         const w = ws.find((x) => x.world === $("world").value);
         if (isShown("graph") && w && w.revision !== graphRev) loadGraph().catch(() => {});
         if (isShown("genome") && ++genomeTick % 3 === 0) loadGenome(true).catch(() => {});
-        if (isShown("details") && ++genomeTick % 2 === 0) loadDetails().catch(() => {});
+        // "All agents" pages one observation until Refresh; the other scopes are read again every two seconds.
+        if (isShown("details") && (details.polls = (details.polls || 0) + 1) % 2 === 0 && details.scope !== "all") loadDetails().catch(() => {});
         if (isShown("inspect") && !inspHeld && ++genomeTick % 3 === 0) loadInspect().catch(() => {});
         if (isShown("rules") && w && w.revision !== rulesRev) loadRules().catch(() => {});
         if (isShown("lineage") && ++genomeTick % 2 === 0) loadLineage().catch(() => {});
         if (isShown("census") && ++genomeTick % 4 === 0) loadCensus(true).catch(() => {});
         if (isShown("budget") && ++genomeTick % 4 === 0) loadBudget().catch(() => {});
+        loadTrackers().then(refreshStatus).then(() => (track.rec.size ? loadRecTrails() : null)).then(() => { drawTrack(); renderSelBar(); if (isShown("watches")) drawWatches(); }).catch(() => {});
         const cw = ws.find((x) => x.world === codeWorld());
         if (codeOpen() && cw && (cw.world !== codeWorldName || cw.revision !== codeRev)) loadCode().catch(() => {});
       }).catch(() => {});
@@ -3632,7 +3701,7 @@ function connect() {
 }
 
 $("create").onclick = () => create().catch(oops);
-$("world").onchange = () => { selection = null; selected = null; inspHeld = null; renderParm(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); if (visible.flow) loadFlow(); if (visible.life) loadLife(); if (visible.book) loadBook(); if (visible.inspect) loadInspect(); }).catch(oops) };
+$("world").onchange = () => { selection = null; selected = null; inspHeld = null; renderParm(); track.frame = null; track.trails.clear(); track.last.clear(); track.follow = null; track.status.clear(); track.rec.clear(); drawTrack(); return refreshViews().then(subscribe).then(stats).then(() => (isShown("graph") ? loadGraph() : isShown("genome") ? loadEntities().then(() => loadGenome()) : null)).then(() => loadCode()).then(() => { if (visible.rules) loadRules(); if (visible.lineage) loadLineage(); if (visible.census) loadCensus(); if (visible.budget) loadBudget(); if (visible.family) loadFamily(); if (visible.compare) loadCompare(); if (visible.flow) loadFlow(); if (visible.life) loadLife(); if (visible.book) loadBook(); if (visible.inspect) loadInspect(); }).catch(oops) };
 $("view").onchange = $("every").onchange = $("fps").onchange = $("charts").onchange = () => subscribe().then(() => { if (visible.look) return loadLook(); }).catch(oops);
 // Space plays and pauses the active world.
 let runningNow = {};
@@ -3653,6 +3722,765 @@ const leave = (how, ask) => {
 };
 $("restart").onclick = () => leave("restart", "Restart the server? Worlds in memory are lost.");
 $("stop").onclick = () => leave("stop", "Stop the server? Worlds in memory are lost.");
+// ---- Agent tracking (proposals/agent-tracking.md). A click selects a creature's identity, not a point: it is picked against
+// the frame on screen (`view.pick_frame`), so it names the creature that picture showed, and the outline follows that ID as the
+// world moves. Track keeps it watched while you work elsewhere; a watch is a tracker on the server, the same object the
+// Observe network shows. Outlines and trails come with each frame, from that frame. Nothing here changes the world: no source
+// revision, no tick. Entity IDs stay decimal strings end to end (a JavaScript number cannot hold every 64-bit ID).
+const tkey = () => `emerge.track.${track.run || ""}`;
+function trackSave() {
+  try { localStorage.setItem(tkey(), JSON.stringify({ sel: track.sel && track.sel.id, pin: track.pin && track.pin.id, clickTool: track.clickTool })); } catch (_) {}
+}
+// A page reload keeps the selection only for the same run: a new server's `w1` is another run, and its creature #1042 another creature.
+function trackRestore() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(tkey()) || "null"); } catch (_) {}
+  track.sel = s && s.sel ? { world: $("world").value, run: track.run, id: s.sel } : null;
+  track.pin = s && s.pin ? { world: $("world").value, run: track.run, id: s.pin } : null;
+  track.inspAgent = !!track.sel;
+}
+const watchedBy = (id) => track.list.trackers.filter((t) => t.members_now.includes(id));
+const watchOf = (id) => track.list.trackers.find((t) => t.kind === "watch" && t.members_now.includes(id) && t.stopped == null);
+const trackerColor = (id) => { const t = watchedBy(id).find((x) => x.display.visible && x.stopped == null); return t ? t.display.color : null; };
+async function loadTrackers() {
+  const w = $("world").value;
+  if (!w) { track.list = { trackers: [] }; return; }
+  const r = await call("tracker.list", { world: w });
+  if (w !== $("world").value) return;
+  track.list = r;
+}
+function watchIds() { const ids = new Set(); if (track.sel) ids.add(track.sel.id); if (track.follow) ids.add(track.follow.id); return [...ids]; }
+async function sendWatch() { if (sub) await call("view.watch", { subscription: sub, ids: watchIds() }).catch(() => {}); }
+
+// Select a creature (null: clear). Unpinned agent-aware panes follow; the Inspector shows it until a box is selected.
+function setAgent(id, quiet) {
+  const w = $("world").value;
+  track.sel = id ? { world: w, run: track.run, id: String(id) } : null;
+  track.inspAgent = !!id;
+  if (!id) track.trails.clear();
+  sendWatch();
+  if (id && Number.isSafeInteger(Number(id))) setScience({ entity: Number(id) });
+  trackSave();
+  drawTrack();
+  renderSelBar();
+  if (!quiet) {
+    // Details holds the selection in its rows or in the strip; one it holds in neither is read exactly.
+    if (visible.details) { if (!id || [...details.rows, ...details.strip].some((r) => r.id === String(id))) drawDetails(); else loadDetails().catch(() => {}); }
+    if (visible.inspect && !inspHeld) loadInspect().catch(() => {});
+    if (visible.watches) drawWatches();
+  }
+}
+
+// The frame on screen, after its picture has decoded: overlays and trails swap with it, never ahead of it.
+function trackFrame(h) {
+  if (h.run && h.run !== track.run) { track.run = h.run; trackRestore(); sendWatch(); }
+  track.frame = h;
+  for (const a of h.agents || []) {
+    track.last.set(a.id, { x: a.x, y: a.y, px: a.px, py: a.py, tick: h.tick });
+    const keep = a.selected ? TRAIL : Math.max(0, ...(a.trackers || []).map((t) => { const x = track.list.trackers.find((y) => y.id === t); return x ? x.display.trail : 0; }));
+    if (!keep) { track.trails.delete(a.id); continue; }
+    const tr = track.trails.get(a.id) || [];
+    if (!tr.length || tr[tr.length - 1].tick !== h.tick) tr.push({ tick: h.tick, px: a.px, py: a.py });
+    while (tr.length > keep) tr.shift();
+    track.trails.set(a.id, tr);
+  }
+  followStep(h);
+  drawTrack();
+  renderSelBar();
+}
+
+// Markers over the picture, in screen pixels: a thick white ring for the selection, a ring in its tracker's colour for a watched
+// creature (with a star), a camera mark for the camera target, a cross for a watched creature known to be dead, at its last
+// observed place. A target off the pane gets an arrow at the edge. Labels are few, so they can be read.
+function drawTrack() {
+  const svg = $("trackov");
+  if (!svg) return;
+  svg.textContent = "";
+  const h = track.frame;
+  if (!h || !visible.picture || !h.map || !$("frame").src || h.world !== $("world").value) return;
+  const r = stage.getBoundingClientRect(), W = r.width, H = r.height - (chartsH || 0);
+  svg.setAttribute("width", r.width); svg.setAttribute("height", r.height);
+  const NS = "http://www.w3.org/2000/svg", mk = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); svg.append(e); return e; };
+  const halfW = h.map.w / 2, halfH = h.map.h / 2;
+  // Recorded trails: the server's samples at their ticks, split where a sample is missing, at a death, and where a step
+  // between two samples is more than half the world (it may have crossed the wrapping edge: the way is not known).
+  const kx = h.map.w / h.map.world_w, ky = h.map.h / h.map.world_h;
+  for (const [tid, r] of track.rec) {
+    const t = track.list.trackers.find((x) => x.id === tid), color = t ? t.display.color : "#fff";
+    for (const [, pts] of r.pts) {
+      let d = "";
+      pts.forEach((p, i) => { const q = pts[i - 1], s = toScreen({ px: p.x * kx, py: p.y * ky }); const cut = !q || p.tick - q.tick > r.every || Math.abs(p.x - q.x) > h.map.world_w / 2 || Math.abs(p.y - q.y) > h.map.world_h / 2; d += `${cut ? "M" : "L"}${s.x.toFixed(1)},${s.y.toFixed(1)} `; });
+      if (d) mk("path", { d, class: "rtrail", stroke: color });
+    }
+  }
+  // Recent display trails: positions of frames actually received, split where a step crosses the wrap or skips far.
+  for (const [id, tr] of track.trails) {
+    if (tr.length < 2) continue;
+    let d = "";
+    tr.forEach((p, i) => { const s = toScreen(p), prev = tr[i - 1]; const jump = !prev || Math.abs(p.px - prev.px) > halfW || Math.abs(p.py - prev.py) > halfH; d += `${jump ? "M" : "L"}${s.x.toFixed(1)},${s.y.toFixed(1)} `; });
+    mk("path", { d, class: "trail", stroke: trackerColor(id) || "#ffffff" });
+  }
+  let labels = 0;
+  const order = [...(h.agents || [])].sort((a, b) => (b.selected - a.selected) || ((track.follow && b.id === track.follow.id) - (track.follow && a.id === track.follow.id)));
+  for (const a of order) {
+    const s = toScreen(a), color = trackerColor(a.id), cam = track.follow && track.follow.id === a.id;
+    const off = s.x < 0 || s.y < 0 || s.x > W || s.y > H;
+    if (off) {
+      if (!(a.selected || cam)) continue;
+      const cx = Math.min(W - 14, Math.max(14, s.x)), cy = Math.min(H - 14, Math.max(14, s.y)), ang = Math.atan2(s.y - cy, s.x - cx);
+      mk("path", { d: `M${cx + 10 * Math.cos(ang)},${cy + 10 * Math.sin(ang)} L${cx + 6 * Math.cos(ang + 2.5)},${cy + 6 * Math.sin(ang + 2.5)} L${cx + 6 * Math.cos(ang - 2.5)},${cy + 6 * Math.sin(ang - 2.5)} Z`, class: "offarrow" });
+      const t = mk("text", { x: cx + (cx > W / 2 ? -16 : 16), y: cy + 4, class: "tlabel", "text-anchor": cx > W / 2 ? "end" : "start" }); t.textContent = `#${a.id}`;
+      continue;
+    }
+    if (color) mk("circle", { cx: s.x, cy: s.y, r: 11, class: "tring", stroke: color });
+    if (a.selected) { mk("circle", { cx: s.x, cy: s.y, r: 8, class: "selring-o" }); mk("circle", { cx: s.x, cy: s.y, r: 8, class: "selring" }); }
+    if (color && !a.selected) { const t = mk("text", { x: s.x + 9, y: s.y - 8, class: "tstar", fill: color }); t.textContent = "★"; }
+    if (cam) { const t = mk("text", { x: s.x - 22, y: s.y - 9, class: "tcam" }); t.textContent = "⌖"; }
+    const tr = (a.trackers || []).map((x) => track.list.trackers.find((y) => y.id === x)).filter(Boolean);
+    const wantLabel = a.selected || cam || tr.some((x) => x.display.label);
+    if (wantLabel && labels < LABELS) {
+      labels++;
+      const t = mk("text", { x: s.x + 13, y: s.y + 4, class: "tlabel" }); t.textContent = `#${a.id}${a.lineage ? " · " + a.lineage : ""}`;
+    }
+  }
+  // Watched creatures known to be dead: a cross where they were last observed, with the tick; never a live-looking ring.
+  for (const t of track.list.trackers) {
+    if (!t.display.visible || t.stopped != null) continue;
+    for (const id of t.members_now) {
+      const st = track.status.get(id), p = track.last.get(id);
+      if (!st || st.status === "alive" || !p) continue;
+      const s = toScreen(p);
+      if (s.x < 0 || s.y < 0 || s.x > W || s.y > H) continue;
+      mk("path", { d: `M${s.x - 6},${s.y - 6} L${s.x + 6},${s.y + 6} M${s.x + 6},${s.y - 6} L${s.x - 6},${s.y + 6}`, class: "tdead", stroke: t.display.color });
+      const l = mk("text", { x: s.x + 9, y: s.y + 4, class: "tlabel dead" }); l.textContent = `#${id} ${st.status === "dead" ? "died at tick " + st.death.tick : st.status}`;
+    }
+  }
+  if (track.hover) { const s = toScreen(track.hover); mk("circle", { cx: s.x, cy: s.y, r: 10, class: "hovring" }); }
+}
+
+// A click on the picture: the creatures under it in the frame that is on screen. One clear hit selects it; several that
+// overlap give a short list to choose from (nearest first, ties by ID), with the count of any left out.
+async function trackClick(e) {
+  const p = pointToWorld(e.clientX, e.clientY), h = track.frame;
+  closeCands();
+  if (!p || !h || !sub) return;
+  if (!h.pickable) { track.note = "this view draws no creatures to pick: use i for the cell"; renderSelBar(); return; }
+  const gen = ++track.gen, world = $("world").value;
+  const tol = 8 / cams.picture.s;   // 8 CSS pixels at this zoom, in picture pixels
+  let r;
+  try { r = await call("view.pick_frame", { subscription: sub, frame: h.frame, x: p.px, y: p.py, tolerance: tol, limit: 8 }); }
+  catch (err) {
+    if (/frame expired/.test(err.message)) { track.note = "that frame is no longer kept: click again on the new picture"; renderSelBar(); return; }
+    throw err;
+  }
+  if (gen !== track.gen || world !== $("world").value) return;   // a later click or another world: this answer is stale
+  const c = r.candidates;
+  if (!c.length) { if (!track.clickTool) setAgent(null); return; }
+  const inside = c.filter((x) => x.distance_px <= x.radius_px);
+  const one = c.length === 1 ? c[0] : inside.length === 1 && c.filter((x) => x.distance_px <= inside[0].radius_px * 1.5).length === 1 ? inside[0] : null;
+  if (one) return chooseAgent(one.id);
+  const box = $("trackcands"), sr = stage.getBoundingClientRect();
+  box.textContent = "";
+  const head = mkel("h3"); head.textContent = `${r.total} creatures here at tick ${r.tick}`; box.append(head);
+  for (const x of c) {
+    const b = mkel("button", "button"); b.textContent = `#${x.id} · ${x.lineage} · ${x.distance_px.toFixed(1)} px`;
+    b.onmouseenter = () => { const sx = (x.x / h.map.world_w) * h.map.w, sy = (x.y / h.map.world_h) * h.map.h; track.hover = { px: sx, py: sy }; drawTrack(); };
+    b.onmouseleave = () => { track.hover = null; drawTrack(); };
+    b.onclick = () => { closeCands(); chooseAgent(x.id); };
+    box.append(b);
+  }
+  if (r.truncated) { const m = mkel("div", "sub"); m.textContent = `+ ${r.total - c.length} more within the hit area: zoom in to separate them`; box.append(m); }
+  box.style.left = `${Math.min(e.clientX - sr.left + 12, sr.width - 230)}px`;
+  box.style.top = `${Math.min(e.clientY - sr.top + 12, sr.height - 40 - 26 * c.length)}px`;
+  box.style.display = "block";
+  track.cands = r;
+}
+function closeCands() { $("trackcands").style.display = "none"; track.cands = null; if (track.hover) { track.hover = null; drawTrack(); } }
+async function chooseAgent(id) {
+  setAgent(id);
+  if (track.clickTool) await addToClickSet(id).catch(oops);
+}
+
+// Track: a quick watch of one creature (`Agent 1042`). Track on click adds to one watch set instead.
+async function trackAgent(id) {
+  const w = $("world").value;
+  if (!w || !id || watchOf(id)) return;
+  await call("tracker.create", { world: w, run: track.run, kind: "watch", ids: [String(id)], request: `${track.run}:${id}:${Date.now()}`, why: "Track" });
+  await loadTrackers();
+  afterTrackChange();
+}
+async function addToClickSet(id) {
+  const w = $("world").value, set = track.list.trackers.find((t) => t.kind === "watch" && t.name === "Watch set" && t.stopped == null);
+  if (watchedBy(id).some((t) => t.kind === "watch")) return;
+  if (set) await call("tracker.update", { world: w, tracker: set.id, add: [String(id)], why: "Track on click" });
+  else await call("tracker.create", { world: w, run: track.run, kind: "watch", name: "Watch set", ids: [String(id)], why: "Track on click", request: `${track.run}:set:${Date.now()}` });
+  await loadTrackers();
+  afterTrackChange();
+}
+// Stop tracking: a watch that recorded nothing is removed; one with a recording stops and keeps it (delete it in Watches).
+async function untrackAgent(id) {
+  const w = $("world").value;
+  for (const t of track.list.trackers.filter((x) => x.kind === "watch" && x.members_now.includes(id) && x.stopped == null)) {
+    if (t.members_now.length > 1) await call("tracker.update", { world: w, tracker: t.id, remove: [id] });
+    else if (t.recording && t.recording.samples) await call("tracker.stop", { world: w, tracker: t.id });
+    else await call("tracker.remove", { world: w, tracker: t.id });
+  }
+  if (track.follow && track.follow.id === id && !track.sel) track.follow = null;
+  await loadTrackers();
+  afterTrackChange();
+}
+function afterTrackChange() {
+  drawTrack(); renderSelBar();
+  if (visible.details) loadDetails().catch(() => {});
+  if (visible.watches) loadWatches().catch(() => {});
+  if (visible.inspect && !inspHeld) loadInspect().catch(() => {});
+  if (visible.graph && ctx === "observe") loadGraph().catch(() => {});
+}
+
+// Frame: move the camera once to a creature. Follow camera: keep it inside the middle of the pane until stopped; panning by
+// hand suspends it (Resume picks it up again); zooming keeps it. The picture is one image of a wrapping world, so at an edge
+// the camera jumps across with the creature instead of panning seamlessly.
+function frameAgent(id) {
+  const p = track.last.get(id);
+  if (!p) { track.note = `#${id} is not in the picture yet`; renderSelBar(); return; }
+  if (!isShown("picture")) setMode("picture");
+  const cam = cams.picture, r = stage.getBoundingClientRect();
+  if (cam.s < 2) cam.s = 2;
+  cam.x = r.width / 2 - p.px * cam.s;
+  cam.y = (r.height - (chartsH || 0)) / 2 - p.py * cam.s;
+  cam.fit = false;
+  applyCam(cam);
+}
+function followAgent(id) {
+  track.follow = id ? { id: String(id), suspended: false } : null;
+  sendWatch();
+  if (id) frameAgent(String(id));
+  renderSelBar(); drawTrack();
+}
+function followStep(h) {
+  const f = track.follow;
+  if (!f || f.suspended || !visible.picture) return;
+  const a = (h.agents || []).find((x) => x.id === f.id);
+  if (!a) {
+    if ((h.absent || []).includes(f.id)) {
+      // Not in this frame: no longer living. The camera stays at its last observed place.
+      f.suspended = true; f.ended = `#${f.id} is not in the frame at tick ${h.tick} (no longer living): the camera stays where it was last seen`;
+    }
+    return;
+  }
+  const cam = cams.picture, r = stage.getBoundingClientRect(), s = toScreen(a), W = r.width, H = r.height - (chartsH || 0);
+  if (s.x > W * 0.3 && s.x < W * 0.7 && s.y > H * 0.3 && s.y < H * 0.7) return;
+  cam.x = W / 2 - a.px * cam.s;
+  cam.y = H / 2 - a.py * cam.s;
+  cam.fit = false;
+  applyCam(cam);
+}
+
+// The selection's toolbar on the picture, and the follow bar with its always-visible Stop.
+function renderSelBar() {
+  const bar = $("selbar"), fb = $("followbar");
+  if (!bar) return;
+  const s = track.sel, h = track.frame;
+  bar.textContent = "";
+  if (s && s.world === $("world").value) {
+    const a = h && (h.agents || []).find((x) => x.id === s.id), st = track.status.get(s.id);
+    const t = mkel("span", "what");
+    t.textContent = `#${s.id}${a && a.lineage ? " · " + a.lineage : ""}${a ? ` · tick ${h.tick}` : st && st.status !== "alive" ? ` · ${st.status === "dead" ? "died at tick " + st.death.tick : st.status}` : " · not in this frame"}`;
+    bar.append(t);
+    const btn = (label, title, fn) => { const b = mkel("button", "button"); b.textContent = label; b.title = title; b.onclick = () => Promise.resolve(fn()).catch(oops); bar.append(b); return b; };
+    if (watchOf(s.id)) btn("Stop tracking", "Stop watching it (a recording it made is kept)", () => untrackAgent(s.id));
+    else btn("Track", "Keep watching it while you select others (T)", () => trackAgent(s.id));
+    btn("Frame", "Move the camera to it once (F)", () => frameAgent(s.id));
+    btn(track.follow && track.follow.id === s.id ? "Stop follow" : "Follow camera", "Keep the camera on it until stopped", () => followAgent(track.follow && track.follow.id === s.id ? null : s.id));
+    btn("Genome", "Open its genome", () => { wantEntity = s.id; setMode("genome"); });
+    btn("Ancestry", "Open its family", () => { if (Number.isSafeInteger(Number(s.id))) setScience({ entity: Number(s.id) }); familyPick = s.id; setMode("family"); });
+    btn("×", "Clear the selection (Esc)", () => setAgent(null));
+  }
+  if (track.note) { const n = mkel("span", "note"); n.textContent = track.note; bar.append(n); setTimeout(() => { if (track.note) { track.note = ""; renderSelBar(); } }, 4000); }
+  bar.style.display = bar.childNodes.length && visible.picture ? "flex" : "none";
+  fb.textContent = "";
+  const f = track.follow;
+  if (f) {
+    const t = mkel("span"); t.textContent = f.ended ? f.ended : `Follow camera: #${f.id}${f.suspended ? " (paused: you moved the camera)" : ""}`; t.title = "The picture is one image: at a wrapping edge the camera jumps across with it."; fb.append(t);
+    if (f.suspended && !f.ended) { const b = mkel("button", "button"); b.textContent = "Resume"; b.onclick = () => { f.suspended = false; frameAgent(f.id); renderSelBar(); }; fb.append(b); }
+    const b = mkel("button", "button"); b.textContent = "Stop"; b.onclick = () => followAgent(null); fb.append(b);
+  }
+  fb.style.display = f && visible.picture ? "flex" : "none";
+  $("tracktool").classList.toggle("on", track.clickTool);
+  stage.classList.toggle("tracking", track.clickTool);
+}
+function setClickTool(on) { track.clickTool = on; trackSave(); renderSelBar(); }
+
+// Status of the watched and the selected, from one exact lookup (independent of any sample); refreshed with the poll.
+async function refreshStatus() {
+  const w = $("world").value;
+  if (!w) return;
+  const ids = new Set(watchIds());
+  for (const t of track.list.trackers) if (t.kind === "watch" || t.display.visible) for (const id of t.members_now.slice(0, 64)) ids.add(id);
+  if (!ids.size) { track.status.clear(); return; }
+  const r = await call("entities.get", { world: w, ids: [...ids].slice(0, 4096) }).catch(() => null);
+  if (!r || w !== $("world").value) return;
+  track.status = new Map(r.agents.map((a) => [a.id, a]));
+}
+
+// ---- Inspector, for a creature: what it is now, from an exact lookup stamped with its tick, revision and backend. A pinned
+// Inspector stays on its creature while the selection moves; Hold keeps the values shown while the world runs on.
+function inspAgentTarget() { return track.pin && track.pin.world === $("world").value ? track.pin : track.inspAgent && track.sel && track.sel.world === $("world").value ? track.sel : null; }
+async function loadAgentInspect(t) {
+  const r = await call("entities.get", { world: t.world, run: t.run || undefined, ids: [t.id] });
+  if (t.world !== $("world").value || inspHeld) return;
+  const d = { world: t.world, agent: t.id, row: r.agents[0], stamp: r.observation, tick: r.tick, revision: r.revision, backend: r.backend };
+  renderAgentInspect(d, false);
+  $("inspnote").textContent = `${t.world} · creature #${t.id} · read at tick ${d.tick} · revision ${d.revision}`;
+  $("inspnote").className = "";
+  $("insphold").textContent = "Hold this observation";
+  inspLast = d;
+}
+function renderAgentInspect(d, held) {
+  const body = $("inspbody"), a = d.row;
+  body.textContent = "";
+  const title = mkel("div");
+  title.innerHTML = `<b></b> <small></small>`;
+  title.firstChild.textContent = `Agent #${a.id}`;
+  title.lastChild.textContent = `${a.status}${a.lineage ? " · " + a.lineage : ""}${track.pin && track.pin.id === a.id ? " · pinned" : ""}`;
+  body.append(title);
+  const ob = inspSection("observed", "Observed", `tick ${d.tick}, revision ${d.revision}, ${d.backend}${held ? " (held)" : ""}`);
+  if (a.status === "alive") {
+    const carried = Object.entries(a.carried_mu || {}).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1]);
+    ob.append(inspTable([["age", `${a.age} ticks`], ["position", `${a.x.toFixed(2)}, ${a.y.toFixed(2)}`], ["heading", `${a.heading[0].toFixed(2)}, ${a.heading[1].toFixed(2)}`], ["active genes", String(a.active_genes)],
+      ...carried.map(([k, v]) => [k, `${fmtU(v)} u (${v} µ)`])]));
+    if (!carried.length) ob.append(document.createTextNode("carries nothing"));
+  } else {
+    ob.append(document.createTextNode(a.status === "dead" ? `Died at tick ${a.death.tick} (${a.death.cause}). Values are not shown as live.` : `${a.status}: ${a.why}`));
+    const p = track.last.get(a.id);
+    if (p) { const sm = mkel("small"); sm.textContent = ` Last seen in a frame at tick ${p.tick}, at ${p.x.toFixed(1)}, ${p.y.toFixed(1)}.`; ob.append(sm); }
+  }
+  body.append(ob);
+  const life = inspSection("declared", "Lifecycle", "from the birth and death events");
+  const b = a.born || {};
+  const rows = [];
+  if (b.founder) rows.push(["born", "a founder, placed at the start (no parent)"]);
+  else if (b.parent) { const go = mkel("a", "go"); go.textContent = `#${b.parent}`; go.title = "Select its parent"; go.onclick = () => setAgent(b.parent); rows.push(["born", `tick ${b.tick}, to`], ["parent", go]); }
+  else if (b.unknown) rows.push(["born", b.unknown]);
+  if (a.death) rows.push(["died", `tick ${a.death.tick}, ${a.death.cause}`]);
+  life.append(inspTable(rows));
+  body.append(life);
+  const by = watchedBy(a.id), tr = inspSection("measured", "Tracked by", by.length ? `${by.length} tracker${by.length === 1 ? "" : "s"}` : "");
+  if (by.length) tr.append(inspTable(by.map((t) => [t.name, t.means, t.recording ? `recording every ${t.recording.every} ticks (${t.recording.samples} samples)` : "not recording"])));
+  else tr.append(document.createTextNode("Not tracked."));
+  const acts = mkel("div", "acts");
+  const btn = (label, fn) => { const x = mkel("button", "button"); x.textContent = label; x.onclick = () => Promise.resolve(fn()).catch(oops); acts.append(x); };
+  if (a.status === "alive") watchOf(a.id) ? btn("Stop tracking", () => untrackAgent(a.id)) : btn("Track", () => trackAgent(a.id));
+  btn(track.pin && track.pin.id === a.id ? "Unpin Inspector" : "Pin Inspector", () => { track.pin = track.pin && track.pin.id === a.id ? null : { world: d.world, run: track.run, id: a.id }; trackSave(); loadInspect(); });
+  if (a.status === "alive") { btn("Frame", () => frameAgent(a.id)); btn("Follow camera", () => followAgent(a.id)); btn("Genome", () => { wantEntity = a.id; setMode("genome"); }); }
+  btn("Ancestry", () => { familyPick = a.id; if (Number.isSafeInteger(Number(a.id))) setScience({ entity: Number(a.id) }); setMode("family"); });
+  tr.append(acts);
+  body.append(tr);
+}
+
+// ---- Details as an agent spreadsheet: a scope (an even sample, all agents paged from one observation, the selection, every
+// tracked creature, or one tracker's members), a condition evaluated by the server over that scope, and the selected and
+// tracked creatures kept in a strip above whatever the table holds. Sorting a sample says it sorts the sample.
+function parseWhere(text) {
+  const t = text.trim();
+  if (!t) return null;
+  const parts = t.split(/\s+and\s+/i).map((c) => {
+    const rg = c.match(/^region\s+x\s+([\d.]+)\s*\.\.\s*([\d.]+)\s+y\s+([\d.]+)\s*\.\.\s*([\d.]+)$/i);
+    if (rg) return { region: { x: [+rg[1], +rg[2]], y: [+rg[3], +rg[4]] } };
+    const nr = c.match(/^near\s+#?(\d+)\s+within\s+([\d.]+)$/i);
+    if (nr) return { near: { id: nr[1], radius: +nr[2] } };
+    const m = c.match(/^([\w.]+)\s*(<=|>=|==|!=|<|>|=)\s*(.+)$/);
+    if (!m) throw new Error(`"${c}" is not a condition: write attr op value (age > 50, carried.body >= 1000, lineage == Drifter), region x A..B y C..D, or near #ID within R`);
+    const attr = m[1], op = m[2] === "=" ? "==" : m[2], v = m[3].trim();
+    return { attr, op, value: attr === "lineage" ? v : attr === "id" ? v : Number(v) };
+  });
+  return parts.length === 1 ? parts[0] : { all: parts };
+}
+async function loadDetails() {
+  const w = $("world").value;
+  if (!w) { $("detailsnote").textContent = "Create a world, or pick one."; $("detailstable").textContent = ""; return; }
+  const sc = details.scope, gen = details.gen = (details.gen || 0) + 1;
+  let rows = [], note = "";
+  if (sc === "sample" || sc === "all") {
+    if (sc === "all" && details.cursor && details.keep) {
+      const r = await call("entities.find", { world: w, cursor: details.cursor, offset: details.offset, limit: 200 }).catch((e) => { if (/expired/.test(e.message)) { details.cursor = null; return null; } throw e; });
+      if (r) { rows = r.agents; details.tick = r.tick; details.matched = r.matched; }
+    }
+    if (!details.cursor || !details.keep) {
+      const p = { world: w, where: details.where || undefined, limit: sc === "sample" ? 400 : 200 };
+      if (sc === "sample") p.sample = 400; else { p.sort = details.sort.key.startsWith("c:") ? `carried.${details.sort.key.slice(2)}` : details.sort.key; p.descending = details.sort.dir < 0; p.offset = details.offset; }
+      const r = await call("entities.find", p);
+      rows = r.agents; details.tick = r.tick; details.matched = r.matched; details.cursor = sc === "all" ? r.cursor : null; details.keep = sc === "all";
+      note = sc === "sample" ? `${r.sampled || "every creature"}${details.where ? " (the condition is evaluated over the whole population, then sampled)" : ""}` : "";
+    }
+    if (sc === "all") note = `rows ${details.offset + 1}–${details.offset + rows.length} of ${details.matched} matches at tick ${details.tick}, sorted by the server; pages are of that one observation (Refresh to read again)`;
+  } else {
+    let ids = [];
+    if (sc === "selected") ids = track.sel ? [track.sel.id] : [];
+    else if (sc === "tracked") ids = [...new Set(track.list.trackers.flatMap((t) => t.members_now))];
+    else if (sc.startsWith("tracker:")) {
+      const q = await call("tracker.query", { world: w, tracker: sc.slice(8) }).catch(() => null);
+      if (q) { rows = q.members; details.tick = q.tick; note = `${q.tracker.name}: ${q.tracker.means}; ${q.members.length} ever in it, ${q.tracker.count_now} now`; }
+    }
+    if (ids.length) { const r = await call("entities.get", { world: w, ids: ids.slice(0, 4096) }); rows = r.agents; details.tick = r.tick; }
+    if (sc === "selected" && !ids.length) note = "nothing selected: click a creature in the Viewport";
+    if (sc === "tracked") note = `every tracked creature (${ids.length}), dead and missing ones too`;
+    if (details.where && sc !== "sample") note += " · the condition applies to Population sample and All agents only";
+  }
+  if (w !== $("world").value || !visible.details || gen !== details.gen) return;   // a later read replaced this one
+  // The strip: the selection and the quick watches, from an exact lookup, whatever the table holds.
+  const stripIds = [...new Set([...(track.sel ? [track.sel.id] : []), ...track.list.trackers.filter((t) => t.kind === "watch").flatMap((t) => t.members_now)])].filter((id) => !rows.some((r) => r.id === id));
+  const strip = stripIds.length ? (await call("entities.get", { world: w, ids: stripIds.slice(0, 64) }).catch(() => ({ agents: [] }))).agents : [];
+  if (gen !== details.gen) return;
+  details.strip = strip;
+  details.rows = rows;
+  details.subs = [...new Set([...rows, ...details.strip].flatMap((e) => Object.entries(e.carried_mu || {}).filter(([, v]) => v > 0).map(([k]) => k)))].sort();
+  details.note = note;
+  drawDetails();
+}
+function drawDetails() {
+  const sc = details.scope, local = sc !== "all";
+  const cols = [["watch", "★"], ["id", "id"], ["status", "status", true], ["lineage", "lineage", true], ["age", "age"], ["active_genes", "genes"], ["x", "x"], ["y", "y"], ...details.subs.map((s) => [`c:${s}`, s])];
+  const val = (e, k) => (k.startsWith("c:") ? (e.carried_mu ? e.carried_mu[k.slice(2)] ?? null : null) : k === "status" ? e.status || "alive" : k === "watch" ? (watchOf(e.id) ? 1 : 0) : k === "id" ? BigInt(e.id) : e[k]);
+  const cmp = (a, b) => { const x = val(a, details.sort.key), y = val(b, details.sort.key); if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1; return (x < y ? -1 : x > y ? 1 : 0) * details.sort.dir || (BigInt(a.id) < BigInt(b.id) ? -1 : 1); };
+  const rows = local ? [...details.rows].sort(cmp) : details.rows;
+  const t = document.createElement("table"), head = document.createElement("tr");
+  for (const [k, name, left] of cols) {
+    const th = document.createElement("th");
+    th.textContent = name + (details.sort.key === k ? (details.sort.dir > 0 ? " ▲" : " ▼") : "");
+    th.className = (left ? "l " : "") + (details.sort.key === k ? "sorted" : "");
+    th.title = local ? "sort the rows shown (within this scope only)" : "sort all matches on the server";
+    th.onclick = () => { details.sort = { key: k, dir: details.sort.key === k ? -details.sort.dir : 1 }; if (!local) { details.keep = false; details.offset = 0; loadDetails().catch(oops); } else drawDetails(); };
+    head.append(th);
+  }
+  t.append(head);
+  const row = (e, strip) => {
+    const tr = document.createElement("tr"), color = trackerColor(e.id), dead = e.status && e.status !== "alive";
+    tr.dataset.id = e.id;
+    tr.className = [track.sel && track.sel.id === e.id ? "sel" : "", strip ? "pinrow" : "", dead ? "dead" : ""].join(" ");
+    if (color) tr.style.boxShadow = `inset 3px 0 0 ${color}`;
+    for (const [k, , left] of cols) {
+      const td = document.createElement("td");
+      if (k === "watch") {
+        td.textContent = (watchOf(e.id) ? "★" : "☆") + (track.follow && track.follow.id === e.id ? " ⌖" : "");
+        td.title = watchOf(e.id) ? "Tracked: click to stop" : "Click to track";
+        td.className = "star";
+        td.onclick = (ev) => { ev.stopPropagation(); (watchOf(e.id) ? untrackAgent(e.id) : trackAgent(e.id)).catch(oops); };
+      } else {
+        const v = dead && !["id", "status", "lineage", "watch"].includes(k) ? null : k === "id" ? e.id : val(e, k);
+        // A known zero and an unknown value differ: unknown is a dash, with why in the tooltip.
+        td.textContent = v == null ? "–" : k === "status" && dead ? (e.death ? `dead @${e.death.tick}` : e.status) : typeof v === "number" && !Number.isInteger(v) ? v.toFixed(1) : v;
+        if (v == null) td.title = dead ? (e.death ? `died at tick ${e.death.tick} (${e.death.cause}); no live value` : e.why || "not living") : "not carried / not available";
+      }
+      if (left) td.className = "l";
+      tr.append(td);
+    }
+    tr.onclick = () => setAgent(e.id);
+    tr.ondblclick = () => { if (!dead) { wantEntity = e.id; setMode("genome"); } };
+    return tr;
+  };
+  if (details.strip.length) {
+    const h = document.createElement("tr"), th = document.createElement("th");
+    th.colSpan = cols.length; th.className = "l striphead"; th.textContent = "Selected and tracked (exact lookups, not part of the rows below)"; h.append(th); t.append(h);
+    for (const e of details.strip) t.append(row(e, true));
+    const h2 = document.createElement("tr"), th2 = document.createElement("th");
+    th2.colSpan = cols.length; th2.className = "l striphead"; th2.textContent = { sample: "Population sample", all: "All agents", selected: "Selected", tracked: "Tracked" }[sc] || "Tracker output"; h2.append(th2); t.append(h2);
+  }
+  for (const e of rows) t.append(row(e, false));
+  const keep = $("detailstable").scrollTop;
+  $("detailstable").textContent = "";
+  $("detailstable").append(t);
+  $("detailstable").scrollTop = keep;
+  const hidden = track.sel && !rows.some((r) => r.id === track.sel.id) && details.where ? ` · the selected #${track.sel.id} does not match the condition: it stays in the strip` : "";
+  $("detailsnote").textContent = `${$("world").value} · tick ${details.tick ?? "–"} · ${rows.length} rows${details.note ? " · " + details.note : ""}${local && details.sort.key !== "id" ? " · sorted within these rows" : ""}${hidden} · amounts in µ · click selects, double-click opens the genome, ★ tracks`;
+  $("dpage").style.display = sc === "all" ? "inline-flex" : "none";
+  fillScopes();
+}
+function fillScopes() {
+  const s = $("dscope"), want = [["sample", "Population sample"], ["all", "All agents"], ["selected", "Selected"], ["tracked", "Tracked"], ...track.list.trackers.map((t) => [`tracker:${t.id}`, `Tracker output: ${t.name}`])];
+  const key = want.map((x) => x[0]).join("|");
+  if (s.dataset.key !== key) { s.textContent = ""; for (const [v, l] of want) { const o = document.createElement("option"); o.value = v; o.textContent = l; s.append(o); } s.dataset.key = key; }
+  if (![...s.options].some((o) => o.value === details.scope)) details.scope = "sample";
+  s.value = details.scope;
+}
+$("dscope").onchange = () => { details.scope = $("dscope").value; details.cursor = null; details.keep = false; details.offset = 0; loadDetails().catch(oops); };
+$("dfilter").onchange = () => {
+  try { details.where = parseWhere($("dfilter").value); details.whereText = $("dfilter").value; $("dfilter").classList.remove("bad"); }
+  catch (e) { $("dfilter").classList.add("bad"); $("detailsnote").textContent = e.message; return; }
+  details.cursor = null; details.keep = false; details.offset = 0; loadDetails().catch((e) => { $("detailsnote").textContent = String(e.message || e); });
+};
+$("dtracksel").onclick = () => { if (track.sel) trackAgent(track.sel.id).catch(oops); };
+$("dreveal").onclick = () => { if (!track.sel) return; const r = $("detailstable").querySelector(`tr[data-id="${CSS.escape(track.sel.id)}"]`); if (r) r.scrollIntoView({ block: "center" }); };
+$("dprev").onclick = () => { details.offset = Math.max(0, details.offset - 200); loadDetails().catch(oops); };
+$("dnext").onclick = () => { if (details.offset + 200 < details.matched) details.offset += 200; loadDetails().catch(oops); };
+$("drefresh").onclick = () => { details.keep = false; loadDetails().catch(oops); };
+$("dsearch").onchange = () => {
+  // An exact ID, absent from any sample: looked up directly.
+  const id = $("dsearch").value.trim().replace(/^#/, "");
+  if (!/^\d+$/.test(id)) { $("detailsnote").textContent = "type an entity ID (digits)"; return; }
+  call("entities.get", { world: $("world").value, ids: [id] }).then((r) => {
+    const a = r.agents[0];
+    if (a.status === "unknown") { $("detailsnote").textContent = `#${id}: ${a.why}`; return; }
+    setAgent(id);
+    if (details.scope !== "selected") { details.scope = "selected"; loadDetails().catch(oops); }
+  }).catch(oops);
+};
+
+// ---- Watches: every tracker of the world, the quick watches first. Show is the display flag; Stop observing keeps the
+// definition and any recording; Remove deletes the definition (a recording only with a second, explicit yes).
+async function loadRecTrails() {
+  const w = $("world").value;
+  for (const [tid, r] of track.rec) {
+    const t = track.list.trackers.find((x) => x.id === tid);
+    if (!t || !t.recording) { track.rec.delete(tid); continue; }
+    r.every = t.recording.every;
+    for (;;) {
+      const s = await call("tracker.samples", { world: w, tracker: tid, after: r.after ?? undefined, limit: 5000 }).catch(() => null);
+      if (!s || !s.rows.length) break;
+      for (const row of s.rows) { const [seq, tick, , id, x, y] = row; if (!r.pts.has(id)) r.pts.set(id, []); r.pts.get(id).push({ tick, x, y }); r.after = seq; }
+      if (!s.more) break;
+    }
+  }
+}
+async function loadWatches() {
+  await loadTrackers();
+  await refreshStatus();
+  drawWatches();
+}
+function drawWatches() {
+  const body = $("watchbody"), w = $("world").value, list = [...track.list.trackers].sort((a, b) => (a.kind === "watch" ? 0 : 1) - (b.kind === "watch" ? 0 : 1));
+  body.textContent = "";
+  $("watchnote").textContent = w ? `${w} · ${list.length} tracker${list.length === 1 ? "" : "s"} · observation revision ${track.list.observation_revision ?? 0} · quick watches hold at most ${track.list.watch_limit ?? 32} creatures` : "Create a world, or pick one.";
+  $("wundo").disabled = !track.list.can_undo; $("wundo").title = track.list.can_undo ? `Undo: ${track.list.can_undo}` : "Nothing to undo";
+  $("wredo").disabled = !track.list.can_redo; $("wredo").title = track.list.can_redo ? `Redo: ${track.list.can_redo}` : "Nothing to redo";
+  if (!list.length) { body.textContent = "Nothing is tracked. Select a creature in the Viewport and press Track, or use Track on click (◎)."; return; }
+  for (const t of list) {
+    const card = mkel("div", "wcard" + (t.stopped != null ? " stopped" : "")), top = mkel("div", "wtop");
+    const sw = mkel("input"); sw.type = "color"; sw.value = t.display.color; sw.title = "Marker colour"; sw.onchange = () => upd(t, { display: { color: sw.value } });
+    const nm = mkel("b"); nm.textContent = t.name; nm.title = "Double-click to rename"; nm.ondblclick = () => { const n = prompt("Name", t.name); if (n && n.trim()) upd(t, { name: n.trim() }); };
+    const kind = mkel("small"); kind.textContent = `${t.kind === "watch" ? "watch" : "tracker"} · ${t.mode} · ${t.count_now} now${t.ever > t.count_now ? `, ${t.ever} ever` : ""}${t.capped ? ` · ${t.capped} left out (cap ${t.member_limit})` : ""}${t.stopped != null ? ` · stopped at tick ${t.stopped}` : ""}`;
+    top.append(sw, nm, kind);
+    card.append(top);
+    const means = mkel("div", "sub"); means.textContent = t.means + (t.invalid ? ` — ${t.invalid}` : ""); if (t.invalid) means.classList.add("bad"); card.append(means);
+    if (t.recording) { const rc = mkel("div", "sub"); rc.textContent = `${t.recording.on ? "● recording" : "recording stopped"} every ${t.recording.every} ticks from tick ${t.recording.first_sample_tick}: ${t.recording.samples} samples${t.recording.stopped ? ` (${t.recording.stopped.why} at tick ${t.recording.stopped.tick})` : ""}${t.recording.interactions ? " · with interactions" : ""}`; card.append(rc); }
+    const acts = mkel("div", "acts");
+    const b = (label, title, fn) => { const x = mkel("button", "button"); x.textContent = label; x.title = title; x.onclick = () => Promise.resolve(fn()).catch(oops); acts.append(x); return x; };
+    b(t.display.visible ? "Hide" : "Show", "The display flag: draw its markers", () => upd(t, { display: { visible: !t.display.visible } }));
+    if (t.members_now.length) b("Follow camera", "Follow its first member", () => followAgent(t.members_now[0]));
+    b(t.display.trail ? "No trail" : "Trail", "A short recent display trail from received frames (dotted; not a recording)", () => upd(t, { display: { trail: t.display.trail ? 0 : 64 } }));
+    if (t.recording && t.recording.samples) b(track.rec.has(t.id) ? "Hide recorded trail" : "Recorded trail", "Draw the recorded positions (solid), split at missing samples, deaths and possible wrap crossings", async () => { if (track.rec.has(t.id)) track.rec.delete(t.id); else { track.rec.set(t.id, { after: null, every: t.recording.every, pts: new Map() }); await loadRecTrails(); } drawTrack(); drawWatches(); });
+    if (t.stopped == null) {
+      if (t.recording && t.recording.on) b("Stop recording", "Stop sampling; the samples are kept", () => call("tracker.record_stop", { world: w, tracker: t.id }).then(loadWatches));
+      else b("Record…", "Sample its members at completed ticks on the server", () => recordForm(card, t));
+    }
+    if (t.recording && t.recording.samples) { b("CSV", "Export the recording with its provenance", () => exportTracker(t, "csv")); b("JSON", "Export the recording with its provenance", () => exportTracker(t, "json")); }
+    b("Node", "Show it as a Tracker node in the Network's Observe context", () => openObserve(t.id));
+    b("Details", "Show its members in Details", () => { details.scope = `tracker:${t.id}`; setMode("details"); loadDetails().catch(oops); });
+    if (t.stopped == null) b("Stop observing", "No more live updates or samples; the definition and its data stay", () => call("tracker.stop", { world: w, tracker: t.id }).then(afterTrackChange).then(loadWatches));
+    else b("Resume", "Observe again from now (the gap stays a gap)", () => call("tracker.resume", { world: w, tracker: t.id }).then(loadWatches));
+    b("Remove", "Delete this definition", async () => {
+      const has = t.recording && t.recording.samples;
+      if (has && !confirm(`${t.name} holds a recording of ${t.recording.samples} samples. Delete the recording too?`)) return;
+      await call("tracker.remove", { world: w, tracker: t.id, delete_data: !!has });
+      afterTrackChange();
+      loadWatches();
+    });
+    card.append(acts);
+    const mem = mkel("div", "wmem");
+    for (const id of t.members_now.slice(0, 16)) {
+      const st = track.status.get(id), m = mkel("a", "go");
+      m.textContent = `#${id}${st && st.status !== "alive" ? (st.status === "dead" ? ` † ${st.death.tick}` : ` (${st.status})`) : ""}`;
+      m.title = st && st.status === "dead" ? `died at tick ${st.death.tick} (${st.death.cause})` : "Select it";
+      if (track.sel && track.sel.id === id) m.classList.add("on");
+      m.onclick = () => setAgent(id);
+      mem.append(m);
+    }
+    if (t.members_now.length > 16) { const more = mkel("span", "sub"); more.textContent = ` + ${t.members_now.length - 16} more (Details shows all)`; mem.append(more); }
+    card.append(mem);
+    body.append(card);
+  }
+}
+async function upd(t, patch) { await call("tracker.update", { world: $("world").value, tracker: t.id, base: t.definition, ...patch }); await loadTrackers(); afterTrackChange(); }
+function recordForm(card, t) {
+  const f = mkel("div", "wform");
+  f.innerHTML = `<label>every <input type="number" min="1" value="${track.gpu ? 10 : 5}" class="ev"> ticks</label><label>keep <input type="number" min="1" max="4096" value="4096" class="cap"> samples each</label><label>when full <select class="pol"><option value="stop">stop</option><option value="evict">drop the oldest</option></select></label><label>stop at tick <input type="number" min="0" class="st" placeholder="never"></label><label><input type="checkbox" class="inter"> creature interactions (shares the transfer recording)</label><button class="go button">Start recording</button>`;
+  f.querySelector(".go").onclick = () => call("tracker.record_start", { world: $("world").value, tracker: t.id, every: +f.querySelector(".ev").value, cap: +f.querySelector(".cap").value, policy: f.querySelector(".pol").value, stop_at: f.querySelector(".st").value ? +f.querySelector(".st").value : undefined, interactions: f.querySelector(".inter").checked })
+    .then((r) => { track.note = `recording: first sample at tick ${r.first_sample_tick}; it continues on the server whatever this page does`; return loadWatches(); }).catch(oops);
+  card.append(f);
+}
+async function exportTracker(t, format) {
+  const r = await call("tracker.export", { world: $("world").value, tracker: t.id, format });
+  if (format === "csv") download(`${t.name.replace(/\W+/g, "_")}.csv`, r.text, "text/csv");
+  else download(`${t.name.replace(/\W+/g, "_")}.json`, JSON.stringify(r, null, 1), "application/json");
+}
+
+// ---- Observe (proposals/agent-tracking.md §8, T4): the world's trackers as a network beside the rule networks. Run agents feed
+// each Tracker; its outputs (current members, recorded samples, events) feed what shows them: Marker and Trail in the Viewport,
+// Samples and Event table in Details and exports. A Tracker node is the same object as its entry in Watches: editing either
+// edits it, with its own definition revision and undo; nothing here is source, so the world's revision never moves.
+let obsData = null;
+const netData = () => (ctx === "observe" ? obsData || observeGraph() : graphData);
+function observeGraph() {
+  const g = graphData || {}, nodes = [], wires = [], positions = {};
+  const port = (key, name, dir, type, role, required) => ({ key, name, dir, type, role, required: !!required, many: dir === "out" });
+  nodes.push({ id: "obs:agents", kind: "obs-agents", title: "Run agents", text: `every living creature of run ${track.run || "?"}, read by exact lookups`, contract: { ports: [port("agents", "agents", "out", "agent set", "the creatures of this run")] } });
+  for (const t of track.list.trackers) {
+    const id = `obs:${t.id}`;
+    nodes.push({ id, kind: "obs-tracker", title: t.name, text: `${t.mode} · ${t.count_now} now${t.stopped != null ? " · stopped" : ""}${t.invalid ? " · invalid" : ""} · def ${t.definition}`, tracker: t,
+      contract: { ports: [port("in", "agents", "in", "agent set", "where it chooses from", true), port("current", "current", "out", "agent set", "its members now"), port("samples", "samples", "out", "samples", "what its recording kept"), port("events", "events", "out", "events", "births and deaths of members it recorded")] } });
+    wires.push({ from: "obs:agents", to: id, from_port: "agents", to_port: "in", substance: "agents" });
+    if (t.pos) positions[`observe|${id}`] = t.pos;
+    const out = (suffix, kind, title, text, from_port, sub) => { const oid = `${id}:${suffix}`; nodes.push({ id: oid, kind, title, text, contract: { ports: [port("in", from_port, "in", sub, "what it shows", true)] } }); wires.push({ from: id, to: oid, from_port, to_port: "in", substance: sub }); };
+    if (t.display.visible) out("marker", "obs-out", "Marker", `rings${t.display.label ? " and labels" : ""} in the Viewport, colour ${t.display.color}`, "current", "agents");
+    if (t.display.trail) out("trail", "obs-out", "Trail", `recent display trail: ${t.display.trail} received positions (not a recording)`, "current", "agents");
+    if (t.recording) {
+      out("samples", "obs-out", "Samples", `${t.recording.samples} kept, every ${t.recording.every} ticks${t.recording.on ? " (recording)" : ""}: Details and exports`, "samples", "samples");
+      out("events", "obs-out", "Event table", "births of children and deaths of recorded members", "events", "events");
+    }
+  }
+  obsData = { world: g.world, revision: g.revision, nodes, wires, positions, frames: {}, notes: {}, contexts: g.contexts, nested: [] };
+  return obsData;
+}
+// The Parameters of a Tracker node: name, membership, cadence and display, applied as one change against the definition it was
+// read at (a change made elsewhere meanwhile is refused as stale, not overwritten).
+function renderTrackerParm(nid) {
+  const picked = $("picked"), t = track.list.trackers.find((x) => `obs:${x.id}` === nid);
+  picked.textContent = "";
+  if (!t) { picked.textContent = nid === "obs:agents" ? "Run agents: every living creature of this run. Trackers choose from it." : "An output of a tracker: select the Tracker to change it."; return; }
+  const f = mkel("div", "tparm");
+  const q = t.membership.where ? whereText(t.membership.where) : "";
+  f.innerHTML = `<h3></h3><div class="sub means"></div>
+    <label>name <input class="nm"></label>
+    <label>membership <select class="md"><option value="fixed">fixed individuals</option><option value="live">live query</option><option value="latched">latched query</option><option value="descendants">descendants</option><option value="representative">representative</option></select></label>
+    <label>condition <input class="wh" placeholder="age > 50 and carried.body >= 1000"></label>
+    <label>evaluate every <input type="number" min="1" class="ev"> ticks</label>
+    <label><input type="checkbox" class="vis"> display flag (markers in the Viewport)</label>
+    <label><input type="checkbox" class="lab"> labels</label>
+    <label>trail <input type="number" min="0" max="256" class="tr"> received positions</label>
+    <label>colour <input type="color" class="co"></label>
+    <div class="acts"><button class="ap button">Apply</button><button class="un button">Undo</button><button class="re button">Redo</button><button class="dt button">Members in Details</button></div><div class="msg sub"></div>`;
+  f.querySelector("h3").textContent = `Tracker · ${t.name}`;
+  f.querySelector(".means").textContent = `${t.means} · definition ${t.definition} · ${t.count_now} now, ${t.ever} ever${t.recording ? ` · recording: ${t.recording.samples} samples` : ""}${t.invalid ? ` · ${t.invalid}` : ""}`;
+  f.querySelector(".nm").value = t.name;
+  f.querySelector(".md").value = t.mode;
+  f.querySelector(".wh").value = q;
+  f.querySelector(".ev").value = t.every;
+  f.querySelector(".vis").checked = t.display.visible;
+  f.querySelector(".lab").checked = t.display.label;
+  f.querySelector(".tr").value = t.display.trail;
+  f.querySelector(".co").value = t.display.color;
+  const msg = f.querySelector(".msg");
+  f.querySelector(".ap").onclick = async () => {
+    const patch = { world: $("world").value, tracker: t.id, base: t.definition };
+    const nm = f.querySelector(".nm").value.trim(), md = f.querySelector(".md").value, wh = f.querySelector(".wh").value.trim();
+    if (nm !== t.name) patch.name = nm;
+    if (md !== t.mode || wh !== q) { if (md === "descendants" || (md === "fixed" && t.mode !== "fixed")) patch.mode = md; else { patch.mode = md; try { patch.where = parseWhere(wh) || { all: [] }; } catch (e) { msg.textContent = e.message; return; } } if (md === "descendants") patch.root = t.membership.root || (t.members_now[0] || ""); }
+    if (+f.querySelector(".ev").value !== t.every) patch.every = +f.querySelector(".ev").value;
+    const disp = { visible: f.querySelector(".vis").checked, label: f.querySelector(".lab").checked, trail: +f.querySelector(".tr").value, color: f.querySelector(".co").value };
+    if (JSON.stringify(disp) !== JSON.stringify({ visible: t.display.visible, label: t.display.label, trail: t.display.trail, color: t.display.color })) patch.display = disp;
+    try { const r = await call("tracker.update", patch); msg.textContent = `applied: ${r.changed.join(", ")} (definition ${r.definition})`; await loadTrackers(); afterTrackChange(); }
+    catch (e) { msg.textContent = /stale/.test(e.message) ? `${e.message}: it changed elsewhere; the form shows it again` : e.message; await loadTrackers(); afterTrackChange(); }
+  };
+  f.querySelector(".un").onclick = () => call("tracker.undo", { world: $("world").value }).then(loadTrackers).then(afterTrackChange).catch((e) => { msg.textContent = e.message; });
+  f.querySelector(".re").onclick = () => call("tracker.redo", { world: $("world").value }).then(loadTrackers).then(afterTrackChange).catch((e) => { msg.textContent = e.message; });
+  f.querySelector(".dt").onclick = () => { details.scope = `tracker:${t.id}`; setMode("details"); loadDetails().catch(oops); };
+  picked.append(f);
+}
+function whereText(p) {
+  if (!p) return "";
+  if (p.all) return p.all.map(whereText).join(" and ");
+  if (p.any) return p.any.map(whereText).join(" or ");
+  if (p.region) return `region x ${p.region.x.join("..")} y ${p.region.y.join("..")}`;
+  if (p.near) return `near #${p.near.id} within ${p.near.radius}`;
+  return `${p.attr} ${p.op} ${p.value}`;
+}
+function openObserve(id) {
+  setMode("network");
+  const go = () => { goContext("observe", id ? `obs:${id}` : null); };
+  if (graphData) go(); else loadGraph().then(go).catch(oops);
+}
+
+
+// ---- New tracker (T5): a set chosen procedurally. "Capture now" makes fixed individuals; a live query keeps re-choosing; a
+// latched query keeps everyone seen matching during a window; descendants follow the birth events; a representative is one
+// creature first by a ranking. The difference is in the name of each choice and shown on the node and in Details.
+function newTrackerForm(mode) {
+  const f = $("wnewform");
+  f.textContent = "";
+  const sel = track.sel ? track.sel.id : "", now = track.frame ? track.frame.tick : 0;
+  f.innerHTML = `<b>New tracker</b>
+    <label>kind <select class="md"><option value="capture">capture the matches now (fixed individuals)</option><option value="fixed">the selection and the watched (fixed)</option><option value="live">live query (whoever matches now)</option><option value="latched">latched query (seen matching during a window)</option><option value="descendants">descendants of a creature</option><option value="representative">representative (one, by a ranking)</option></select></label>
+    <label class="c-wh">condition <input class="wh" size="34" placeholder="age > 50 and carried.body >= 1000"></label>
+    <button class="c-view button" title="The rectangle the Viewport shows now, kept as a fixed rectangle of the world (panning later does not change it)">Viewport's view</button>
+    <label class="c-ev">evaluate every <input type="number" min="1" value="1" class="ev"> ticks</label>
+    <label class="c-win">from tick <input type="number" min="0" class="fr" value="${now}"> until <input type="number" min="0" class="un" placeholder="open"></label>
+    <label class="c-root">root # <input class="rt" value="${esc(sel)}" size="8"></label><label class="c-root"><input type="checkbox" class="past"> with children born before (from the events)</label>
+    <label class="c-rank">first by <select class="by"><option>age</option><option>active_genes</option><option>x</option><option>y</option></select><select class="hi"><option value="1">highest</option><option value="0">lowest</option></select></label>
+    <label>name <input class="nm" size="16"></label><button class="go button">Create</button><button class="cx button">Cancel</button><span class="msg sub"></span>`;
+  const md = f.querySelector(".md"), show = () => {
+    const m = md.value;
+    for (const [cls, on] of [["c-wh", ["capture", "live", "latched", "representative"].includes(m)], ["c-view", ["capture", "live", "latched", "representative"].includes(m)], ["c-ev", ["live", "latched", "representative", "descendants"].includes(m)], ["c-win", m === "latched"], ["c-root", m === "descendants"], ["c-rank", m === "representative"]])
+      for (const e of f.querySelectorAll("." + cls)) e.style.display = on ? "" : "none";
+  };
+  md.value = mode === "fixed" ? "fixed" : mode || "capture";
+  md.onchange = show;
+  show();
+  f.querySelector(".c-view").onclick = () => {
+    const h = track.frame, r = stage.getBoundingClientRect(), cam = cams.picture;
+    if (!h) return;
+    const k = h.map.world_w / h.map.w, x0 = Math.max(0, (-cam.x / cam.s) * k), y0 = Math.max(0, (-cam.y / cam.s) * k), x1 = Math.min(h.map.world_w, ((r.width - cam.x) / cam.s) * k), y1 = Math.min(h.map.world_h, ((r.height - chartsH - cam.y) / cam.s) * k);
+    f.querySelector(".wh").value = `region x ${x0.toFixed(1)}..${x1.toFixed(1)} y ${y0.toFixed(1)}..${y1.toFixed(1)}`;
+  };
+  const msg = f.querySelector(".msg");
+  f.querySelector(".cx").onclick = () => { f.textContent = ""; };
+  f.querySelector(".go").onclick = async () => {
+    const w = $("world").value, m = md.value, name = f.querySelector(".nm").value.trim() || undefined;
+    try {
+      let p;
+      const where = () => parseWhere(f.querySelector(".wh").value) || { all: [] };
+      if (m === "capture") {
+        // One observation of every match, kept as fixed individuals with the tick they were chosen at.
+        const r = await call("entities.find", { world: w, where: where(), limit: 1000 });
+        let ids = r.agents.map((a) => a.id);
+        for (let off = 1000; off < Math.min(r.matched, 4096); off += 1000) ids = ids.concat((await call("entities.find", { world: w, cursor: r.cursor, offset: off, limit: 1000 })).agents.map((a) => a.id));
+        if (!ids.length) { msg.textContent = `nothing matches at tick ${r.tick}`; return; }
+        if (r.matched > 4096) { msg.textContent = `${r.matched} match: a tracker holds 4096; narrow the condition`; return; }
+        p = { mode: "fixed", ids, name: name || `Captured at tick ${r.tick}: ${f.querySelector(".wh").value || "everyone"}`, why: `matched ${f.querySelector(".wh").value || "everyone"} at tick ${r.tick}` };
+      } else if (m === "fixed") {
+        const ids = [...new Set([...(track.sel ? [track.sel.id] : []), ...track.list.trackers.filter((t) => t.kind === "watch").flatMap((t) => t.members_now)])];
+        if (!ids.length) { msg.textContent = "select or watch a creature first"; return; }
+        p = { mode: "fixed", ids, name: name || `Cohort of ${ids.length}`, why: "chosen from the selection and the watches" };
+      } else if (m === "descendants") p = { mode: "descendants", root: f.querySelector(".rt").value.replace(/^#/, ""), include_past: f.querySelector(".past").checked, every: +f.querySelector(".ev").value, name };
+      else if (m === "latched") p = { mode: "latched", where: where(), from: +f.querySelector(".fr").value, until: f.querySelector(".un").value ? +f.querySelector(".un").value : undefined, every: +f.querySelector(".ev").value, name };
+      else if (m === "representative") p = { mode: "representative", where: where(), by: f.querySelector(".by").value, highest: f.querySelector(".hi").value === "1", every: +f.querySelector(".ev").value, name };
+      else p = { mode: "live", where: where(), every: +f.querySelector(".ev").value, name };
+      const r = await call("tracker.create", { world: w, run: track.run, request: `${track.run}:new:${Date.now()}`, ...p });
+      f.textContent = "";
+      await loadTrackers();
+      afterTrackChange();
+      track.note = `made ${r.tracker}`;
+      if (ctx === "observe" && visible.graph) select(`obs:${r.tracker}`);
+    } catch (e) { msg.textContent = e.message; }
+  };
+}
+$("wnew").onclick = () => newTrackerForm();
+for (const b of document.querySelectorAll("#obspalette button[data-mode]")) b.onclick = () => { activate("watches"); newTrackerForm(b.dataset.mode === "fixed" ? "fixed" : b.dataset.mode); };
+$("obsundo").onclick = () => call("tracker.undo", { world: $("world").value }).then(loadTrackers).then(afterTrackChange).catch(oops);
+$("obsredo").onclick = () => call("tracker.redo", { world: $("world").value }).then(loadTrackers).then(afterTrackChange).catch(oops);
+
+$("gtrack").onclick = () => { const id = $("entity").value; if (id) { setAgent(id); trackAgent(id).catch(oops); } };
+$("wundo").onclick = () => call("tracker.undo", { world: $("world").value }).then(loadTrackers).then(afterTrackChange).catch(oops);
+$("wredo").onclick = () => call("tracker.redo", { world: $("world").value }).then(loadTrackers).then(afterTrackChange).catch(oops);
+$("tracktool").onclick = () => setClickTool(!track.clickTool);
+$("wclick").onclick = () => setClickTool(!track.clickTool);
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || typing()) return;
+  if (e.key === "Escape") { if (track.cands) closeCands(); else if (track.clickTool) setClickTool(false); else if (track.sel && visible.picture && mode === "picture") setAgent(null); }
+  if (mode !== "picture" || !track.sel) return;
+  if (e.key === "t" || e.key === "T") { e.preventDefault(); (watchOf(track.sel.id) ? untrackAgent(track.sel.id) : trackAgent(track.sel.id)).catch(oops); }
+  else if (e.key === "f" || e.key === "F") { e.preventDefault(); frameAgent(track.sel.id); }
+});
+
 connect();
 </script>
 </body>

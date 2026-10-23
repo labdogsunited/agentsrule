@@ -510,6 +510,47 @@ pub fn field_layer(layer: &Layer, frame: &Frame) -> (Vec<(Rgb, f32)>, LayerKey) 
 
 /// The attributes of every agent an agents layer shows (after its `where`), and its legend.
 pub fn agents_layer(layer: &Layer, frame: &Frame) -> (Vec<([f32; 2], Attributes)>, LayerKey) {
+    let (shown, key) = agents_layer_at(layer, frame);
+    (shown.into_iter().map(|(_, p, a)| (p, a)).collect(), key)
+}
+
+/// One agent as a picture shows it, for picking (`proposals/agent-tracking.md` §12): its index in
+/// `Frame::agents`, its centre in picture pixels, and the radius of its glyph in pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hit {
+    pub agent: usize,
+    pub px: [f32; 2],
+    pub r: f32,
+}
+
+/// Every agent `view` draws of `frame` at `cell_px` (0: the size near 1024 pixels across), once each:
+/// an agent drawn by two layers keeps the larger glyph. Agents a layer's `where` leaves out are not
+/// in it, and a view with no agents layer gives none.
+pub fn agent_hits(view: &View, frame: &Frame, cell_px: u32) -> Vec<Hit> {
+    let k = if cell_px > 0 { cell_px } else { (1024 / frame.grid_w.max(1) as u32).max(1) };
+    let (w, h) = (frame.grid_w as f32 * k as f32, frame.grid_h as f32 * k as f32);
+    let (sx, sy) = (w / frame.world_w, h / frame.world_h);
+    let mut by: std::collections::BTreeMap<usize, Hit> = std::collections::BTreeMap::new();
+    for layer in &view.layers {
+        let l = &layer.node;
+        let agents = match (l.source.name.as_str(), positional(&l.source).first()) {
+            ("context", Some(Expr::Path(p))) => p.root == "agents",
+            (name, _) => name == "agents",
+        };
+        if !agents {
+            continue;
+        }
+        for (i, pos, at) in agents_layer_at(l, frame).0 {
+            let r = (at.pscale * sx.min(sy)).max(1.5) * 0.5;
+            let hit = Hit { agent: i, px: [pos[0] * sx, pos[1] * sy], r };
+            by.entry(i).and_modify(|x| x.r = x.r.max(r)).or_insert(hit);
+        }
+    }
+    by.into_values().collect()
+}
+
+/// `agents_layer`, with each shown agent's index in `Frame::agents`.
+fn agents_layer_at(layer: &Layer, frame: &Frame) -> (Vec<(usize, [f32; 2], Attributes)>, LayerKey) {
     let mut key = LayerKey { name: layer.name.clone(), source: "agents".into(), ..LayerKey::default() };
     let entry = |k: &str| layer.entries.iter().find(|e| e.node.key == k).and_then(|e| match &e.node.value {
         Value::Expr(x) => Some(x),
@@ -531,7 +572,7 @@ pub fn agents_layer(layer: &Layer, frame: &Frame) -> (Vec<([f32; 2], Attributes)
     // A body that colours by `ramp("categorical", @lineage_id)` gets the lineages in its legend.
     let by_lineage = layer.body.iter().any(|s| matches!(&s.node, VStmt::Set { attr, value: Expr::Call(c) } if attr == "Cd" && c.name == "ramp"
         && matches!(positional(c).as_slice(), [Expr::Lit(Lit::Str(n)), Expr::Path(p)] if n == "categorical" && p.root == "@lineage_id")));
-    for a in &frame.agents {
+    for (i, a) in frame.agents.iter().enumerate() {
         let cx = Ctx { frame, cell: 0, substance: None, state: None, value: None, agent: Some(a), locals: None };
         if let Some(f) = filter {
             if eval(f, &cx, &mut key) != Val::Bool(true) {
@@ -564,7 +605,7 @@ pub fn agents_layer(layer: &Layer, frame: &Frame) -> (Vec<([f32; 2], Attributes)
                 seen.insert(a.lineage, at.cd);
             }
         }
-        out.push((a.pos, at));
+        out.push((i, a.pos, at));
     }
     key.categories = seen.into_iter().map(|(l, c)| (frame.lineages.get(l).cloned().unwrap_or(format!("lineage {l}")), c)).collect();
     key.count = out.len();

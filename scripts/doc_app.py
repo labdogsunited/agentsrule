@@ -36,7 +36,7 @@ This builds what it needs, starts the server on the first free port from 7878, p
 
 ## Desktops and panes
 
-The window is split into panes, and each pane holds tabs. Drag a tab to move it, drag a divider to resize, and use the pane's menu to split it or make it fill the window. Four desktops come with the viewer:
+The window is split into panes, and each pane holds tabs. Drag a tab to move it, drag a divider to resize, and use the pane's menu to split it or make it fill the window. Five desktops come with the viewer:
 
 | Desktop | For |
 | :--- | :--- |
@@ -44,18 +44,19 @@ The window is split into panes, and each pane holds tabs. Drag a tab to move it,
 | **Rules** | editing a world's rules as a network, with the source and the inspector beside it |
 | **Genome** | one creature's genes and signals |
 | **Science** | the panels that answer questions about a run |
+| **Track** | following creatures: the Viewport with Details under it, the Inspector, the Network (for the Observe context) and Watches (see *Tracking creatures*) |
 
 ## The panes (editors)
 
 | Editor | What it shows |
 | :--- | :--- |
-| **Viewport** | the live picture of the world: wheel zooms, drag pans, **i** picks what is under the pointer (cell contents, nearby creatures, open a creature's genome), **g** shows the cell grid |
+| **Viewport** | the live picture of the world: wheel zooms, drag pans, a click selects a creature (see *Tracking creatures*), **i** picks what is under the pointer (cell contents, nearby creatures, open a creature's genome), **g** shows the cell grid |
 | **Parameters** | the box selected in the Network: its parameters, its text, and one edit for several selected boxes |
 | **Network** | the world's rules as boxes and wires (see *The network editor*) |
 | **Genome** | one living creature's genes in module frames, with the signals between them as wires |
 | **Look** | how the picture is drawn: a view (layers, palettes, scales, charts) written as text; the viewport redraws as you edit it, and a view that is part of the world's source is read-only here |
-| **Details** | a table of living creatures; click a row to open its genome |
-| **Inspector** | what the selected box *is*, what the world holds in it, and what the runner counted for it, kept apart (see *The network editor*) |
+| **Details** | a table of agents: an even sample, all of them paged, the selection, the tracked ones or one tracker's members, with a condition the server evaluates; click selects, double-click opens the genome, the star tracks |
+| **Inspector** | what the selected box *is*, what the world holds in it, and what the runner counted for it, kept apart (see *The network editor*); for a selected creature, one exact reading of it, which can be pinned |
 | **Source** | the complete source of the running world; edit a copy, open a file, make a new world from it |
 | **Rule Lens** | the checked schedule: the steps of one tick and the rules and statements in each; also a read/write matrix, per-statement activity and a trace |
 | **Lineage History** | population by lineage over time; drag on the chart to brush a span of ticks |
@@ -67,6 +68,7 @@ The window is split into panes, and each pane holds tabs. Drag a tab to move it,
 | **Flow Map** | the reactions of the world: declared, measured, and which outcomes blocked them |
 | **Life Histories** | ages and carried stock of the living, and one birth cohort |
 | **Notebook** | bookmarks that carry copies of their evidence, and a timeline of edits |
+| **Watches** | every tracker of the world: watches and sets, their recordings, exports and nodes (see *Tracking creatures*) |
 
 ## Keys
 
@@ -74,6 +76,9 @@ The window is split into panes, and each pane holds tabs. Drag a tab to move it,
 | :--- | :--- | :--- |
 | Space | anywhere | run or pause the world |
 | i | Viewport | the info picker |
+| click | Viewport | select the creature under the pointer |
+| T, F | Viewport | track (or stop tracking) the selection; frame it |
+| Esc | Viewport | close the list of overlapping creatures, leave Track on click, clear the selection |
 | g | Viewport / Network | the cell grid / frame the selection |
 | H | Network | frame everything |
 | Enter, U | Network | go into a statement's rule / go up |
@@ -187,6 +192,70 @@ A world on the GPU answers these questions with the same numbers as the CPU in c
 ## Reading a budget
 
 The budget of a lineage closes: its stock changed by what its creatures made, used, took, stole, gave, dropped and lost, minus upkeep and fees. If the lines do not explain the change, the difference is shown as **unreconciled**. Stock that creatures bring in by genesis or injection after the start is not counted, and shows up there.
+""",
+    },
+    {
+        "id": "using-tracking",
+        "section": SECTION,
+        "title": "Tracking creatures",
+        "summary": "Click a creature to select it, Track it to keep watching it, follow it with the camera, record it, and build trackers in the Observe network.",
+        "content": """# Tracking creatures
+
+Tracking only observes. Nothing here is part of the source: selecting, tracking, markers, trails and recordings change no revision and no tick, and the run goes the same way with or without them.
+
+## Select
+
+Click a creature in the **Viewport**. The click is matched against the picture on screen, not the world as it is a moment later, so it selects the creature that picture showed. It gets a white ring and a label, and keeps them as it moves. Where several creatures overlap, a short list offers them, nearest first; hovering one previews its ring. A drag still pans and selects nothing. **Esc** clears the selection. The `i` tool still shows the cell under the pointer; its pinned panel has **Select** and **Track** for each creature near it.
+
+The selection bar on the picture has **Track**, **Frame** (move the camera to it once), **Follow camera**, **Genome** and **Ancestry**. With the Viewport focused, **T** tracks or stops tracking the selection and **F** frames it.
+
+## Track
+
+**Track** keeps watching a creature while you select others: it gets a ring in its tracker's colour, a star in Details, and an entry in **Watches**. At most 32 creatures are watched at once. **Track on click** (◎ beside the picture, or the button in Watches) makes every click select a creature and add it to one *Watch set*; Esc leaves the tool and keeps the watches.
+
+A watched creature stays watched when it divides: its child is a new creature, not the same one (track the family with a Descendants tracker). When it dies it stays in the list, marked with the tick and cause of death where the engine recorded them, and a cross marks where it was last seen. Nothing jumps to another creature by itself.
+
+## Follow camera
+
+**Follow camera** keeps the creature inside the middle of the Viewport. Moving the camera by hand pauses it (**Resume** picks it up); zooming does not. **Stop** is always on screen while it follows. The picture is one image of a wrapping world, so at an edge the camera jumps across with the creature.
+
+## Details
+
+**Details** is a table of agents with a scope: *Population sample* (an even sample), *All agents* (sorted and paged on the server, all pages from one reading of the world; Refresh reads again), *Selected*, *Tracked* (every watched creature, the dead too) and *Tracker output* (one tracker's members, each with how long it has been in). A condition such as `age > 50 and carried.body >= 1000`, `region x 0..100 y 0..100` or `near #1042 within 20` is evaluated by the server over the whole population. Type an ID to select a creature that is in no sample. The selected and watched creatures always show in a strip above the rows. Click selects; double-click opens the genome; the star tracks.
+
+## Inspector
+
+With a creature selected, the **Inspector** shows it as one exact reading: age, position, heading, active genes, what it carries, its birth (its parent, or *founder*), its death if it died, and what tracks it, stamped with the tick, revision and backend. **Pin Inspector** keeps it on that creature while you select others; **Hold this observation** keeps the values on screen while the world runs on.
+
+## Watches and recordings
+
+**Watches** lists every tracker: its meaning in words, how many it holds now and ever, and buttons to **Show** or hide its markers, add a short **Trail** (positions from the frames the page received, not a recording), **Follow camera**, **Record**, export **CSV** or **JSON**, open its **Node** or its members in **Details**, **Stop observing** (the definition and data stay), and **Remove**.
+
+**Record** samples the members (at most 32) every chosen number of ticks on the server, at the end of each tick. It goes on whatever the page does: closing the tab or a slow connection changes nothing in it. It keeps up to 4096 samples per creature, then stops or drops the oldest, and the export says which, with the run, seed, source hash, cadence and the rule that chose the members. *Creature interactions* adds the give and steal requests that involve the members, from the run's one transfer recording, which it shares with the Rule Lens and never takes over silently.
+
+## Trackers in the Observe network
+
+In the **Network**, the context menu has **Observe**: *Run agents* feed each **Tracker**, and its outputs (current members, recorded samples, events) feed what shows them: *Marker* and *Trail* in the Viewport, *Samples* and *Event table* in Details and exports. A watch is a Tracker node too: renaming or changing one in Parameters changes the same object Watches shows. Each node has its **display flag** (◉) and a red dot while it records. Changes have their own undo and revision; one made against a tracker that changed elsewhere meanwhile is refused as stale. Moving a node is layout only.
+
+**Add** in Observe (and **New tracker…** in Watches) makes a tracker over a set:
+
+| Kind | Members |
+| :--- | :--- |
+| Capture the matches now | the creatures matching a condition at this tick, kept as fixed individuals (*Viewport's view* fills in the rectangle the picture shows) |
+| The selection and the watched | those individuals, fixed |
+| Live query | whoever matches at each evaluation: members enter and leave |
+| Latched query | everyone seen matching between two ticks, kept afterwards |
+| Descendants | a creature and every child born to its members (optionally the children already born, from the events) |
+| Representative | the one creature first by a ranking (oldest, most genes, …); each handoff is kept |
+
+A query is evaluated every chosen number of ticks: a match that begins and ends between two evaluations can be missed. A tracker holds at most 4096 creatures and says how many it had to leave out.
+
+## Limits
+
+- A world on the GPU records every 10 ticks or more (each sample reads the entity table back from the device).
+- A recording keeps at most 32 creatures; members over that are counted, not sampled.
+- A position history exists only from when a recording started: the past is not recorded.
+- Trails between two samples far apart on a wrapping world are split where they cross an edge, not joined across the map.
 """,
     },
     {
@@ -320,9 +389,27 @@ A request that fails answers with an error code and a message that says why; an 
 | Budgets | `accounts.start`, `accounts.query`, `accounts.import` |
 | Runs | `runs.compare`, `runs.outcomes`, `runs.pair`, `export.provenance`, `journal.read` |
 | Notebook | `notebook.add`, `notebook.list`, `notebook.events`, `notebook.export` |
+| Tracking | `entities.get`, `entities.find`, `tracker.create`, `tracker.update`, `tracker.stop`, `tracker.resume`, `tracker.remove`, `tracker.undo`, `tracker.redo`, `tracker.list`, `tracker.query`, `tracker.record_start`, `tracker.record_stop`, `tracker.samples`, `tracker.export`, `tracker.interactions` |
+| Frames (WebSocket only) | `view.subscribe` (with `pick` and `watch`), `view.unsubscribe`, `view.watch`, `view.pick_frame`, `view.record`, `view.recordings` |
 | Help | `docs.query`, `docs.examples`, `docs.example` |
 
-Answers to questions about the world carry an `observation` object: the token, world, tick, revision and backend they were read at.
+Answers to questions about the world carry an `observation` object: the token, world, run, tick, revision and backend they were read at.
+
+## Creatures, runs and IDs
+
+A creature is named by its run and its entity ID. `world.create` answers a `run`: an ID for this world in this server process, never given again. A call may pass `run` next to `world`; if the world handle now names another run (a restarted server gives out `w1` again) the call is refused with code `-32012` instead of answering about a different creature. Entity IDs in the tracking methods are decimal strings, because a JSON number read by JavaScript is not exact above 2^53; an ID may be sent as a number only below that.
+
+`entities.get` reads creatures by exact ID, whatever any sample holds: each answer says `alive`, `dead` (with the tick and cause from the death events), `not living` (not in the complete lookup, and no death recorded) or `unknown` (no creature of this run had that ID). `entities.find` evaluates a condition over every living creature at one tick, sorts on the server and pages from that one stored result (a `cursor`), so pages never skip or repeat a creature; `sample` gives an even sample instead. A condition is `{"attr", "op", "value"}` (attributes `id`, `lineage`, `age`, `x`, `y`, `active_genes`, `carried.SUBSTANCE`), `{"all": [...]}`, `{"any": [...]}`, `{"region": {"x": [a, b], "y": [c, d]}}` or `{"near": {"id", "radius"}}`. A condition that names a substance the world does not have is refused, never read as zero.
+
+## Trackers
+
+A tracker is a named set of creatures with a membership rule: `fixed` (these individuals), `live` (whoever matches at each evaluation), `latched` (everyone seen matching during a window, kept afterwards), `descendants` (a root and the children born to its members) or `representative` (one creature first by a ranking; each handoff is kept). A `watch` is a tracker made by Track (at most 32 creatures in all). Changes to a tracker have their own definition revision and undo (`tracker.undo`), and `base` makes a change made against an older definition fail as stale. A death never removes a member.
+
+`tracker.record_start` samples the members (at most 32) at completed tick boundaries, every `every` ticks, on the server: what a browser receives changes nothing. It keeps at most `cap` samples per creature and then stops or drops the oldest (`policy`), and says so in its coverage. `tracker.samples` pages by sequence number (`after`), so a client that reconnects asks after the last one it has. `interactions: true` shares the run's one transfer recording: it attaches to one that keeps creatures' actions, starts one if none is open, and is refused if another owner holds it; `trace.start` likewise refuses to replace an open recording someone else started unless `replace: true`.
+
+## Frames
+
+`view.subscribe` with `pick: true` keeps an index of the agents each sent frame drew. Each frame header carries `frame`, `run`, the map's size, and `agents`: the selected creatures (`view.watch`) and every visible tracker's members, with their position in that same frame. `view.pick_frame` names the creatures under a point of a frame the subscription was sent; once the frame is no longer kept it answers `frame expired` (code `-32011`) rather than picking from the present.
 
 ## Edits and revisions
 

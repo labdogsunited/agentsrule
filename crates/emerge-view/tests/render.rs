@@ -217,3 +217,22 @@ fn thinning_merges_samples_keeps_totals_and_records_the_original_interval() {
     assert_eq!(h.samples.iter().map(|s| s.deaths).sum::<u64>(), n);
     assert_eq!(h.samples.last().unwrap().tick, n, "the last sample is the latest");
 }
+
+#[test]
+fn the_pick_index_holds_what_the_view_draws_once_each() {
+    // `agent_hits` (`proposals/agent-tracking.md` §12): every agent an agents layer draws, at its pixel centre with its glyph
+    // radius; a `where` leaves agents out; an agent drawn by two layers is there once, with the larger glyph; a view with
+    // only a field draws none to pick.
+    let a = |id, x, age| Agent { id, lineage: 0, pos: [x, 5.0], heading: [1.0, 0.0], age, expressed_genes: 4, amounts: vec![0], made: 0 };
+    let f = frame(vec![0; 35], vec![a(1, 3.0, 1), a(2, 7.0, 9), a(3, 11.0, 9)]);
+    let two = view("view V for W {\n    layer small = agents(where: true) {\n        glyph: dot();\n        size: 1.0;\n    }\n    layer old = agents(where: age > 5) {\n        glyph: dot();\n        size: 2.0;\n    }\n}\n");
+    let hits = emerge_view::render::agent_hits(&two, &f, 10);
+    assert_eq!(hits.iter().map(|h| h.agent).collect::<Vec<_>>(), vec![0, 1, 2]);
+    // 10 pixels a cell, 2 world units a cell: 5 pixels a unit; a size-1 dot has radius 2.5, a size-2 one 5.
+    assert_eq!((hits[0].px, hits[0].r), ([15.0, 25.0], 2.5));
+    assert_eq!(hits[1].r, 5.0, "drawn by both layers: the larger glyph");
+    let old = view("view V for W {\n    layer old = agents(where: age > 5) {\n        glyph: dot();\n    }\n}\n");
+    assert_eq!(emerge_view::render::agent_hits(&old, &f, 10).iter().map(|h| h.agent).collect::<Vec<_>>(), vec![1, 2], "the `where` leaves #1 out");
+    let field = view("view V for W {\n    layer ground = field(cells.sugar) {\n        color: value |> scale(linear, range: 0.0..1.0) |> palette(magma);\n    }\n}\n");
+    assert!(emerge_view::render::agent_hits(&field, &f, 10).is_empty());
+}

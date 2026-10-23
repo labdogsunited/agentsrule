@@ -51,8 +51,27 @@ pub struct Run {
     law_since: u64,
     /// A bounded recording of transfer requests (`trace.start`).
     trace: Option<Trace>,
+    /// This run's incarnation (`proposals/agent-tracking.md` §13): unique to the server process and the
+    /// world, never reused, so a reference to a creature names its run and not a `w1` handle that a new
+    /// server hands out again. Set by the engine.
+    pub run_id: String,
+    /// Watches, trackers and their recordings (`crate::track`): observation only, never part of the source.
+    pub track: crate::track::Tracking,
 }
 
+/// One creature as an exact lookup reads it (`entities.get`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentRow {
+    pub id: u64,
+    pub lineage: usize,
+    pub age: u64,
+    pub pos: [f32; 2],
+    pub heading: [f32; 2],
+    pub active_genes: usize,
+    pub carried: Vec<u32>,
+}
+
+#[derive(Clone)]
 /// One recorded transfer request: the tick, who asked (a rule's statement, or a creature), the two ends, and what happened.
 struct TraceRec {
     tick: u64,
@@ -78,6 +97,11 @@ struct Trace {
     seen: u64,
     dropped: u64,
     last_tick: u64,
+    /// Who started it (`trace.start` names itself, or a tracker): the one slot is not taken over silently.
+    owner: String,
+    /// Only requests with one of these creatures at either end (a tracker's recording on the CPU; the device keeps every
+    /// creature's requests and they are filtered when read).
+    ids: Option<std::collections::HashSet<u64>>,
 }
 
 /// The start of a budget window: tick, revision, and each lineage's creature count and stock of the
@@ -152,9 +176,10 @@ impl Run {
         };
         journal.header(&spec, &device);
         let every = if spec.gpu { 10 } else { 1 };
-        let mut run = Run { spec, live, backend, journal, device, last_swap: None, audit: None, made: None, history: emerge_view::frame::History::new(every), sampled: (0, 0), acct: None, law_since: 0, trace: None };
+        let mut run = Run { spec, live, backend, journal, device, last_swap: None, audit: None, made: None, history: emerge_view::frame::History::new(every), sampled: (0, 0), acct: None, law_since: 0, trace: None, run_id: String::new(), track: Default::default() };
         run.sampled = (run.births(), run.deaths());
         run.sample();
+        run.track.founders_below = run.next_id();
         Ok(run)
     }
 
@@ -203,6 +228,11 @@ impl Run {
             done += 1;
             if self.tick().is_multiple_of(self.history.every) {
                 self.sample();
+            }
+            if self.track.due(self.tick()) {
+                let mut t = std::mem::take(&mut self.track);
+                t.observe(self);
+                self.track = t;
             }
         }
         done
@@ -523,7 +553,7 @@ impl Run {
             .take(limit)
             .map(|e| {
                 let carried: serde_json::Map<String, Value> = (0..ns).filter(|&s| e.carried[s] > 0).map(|s| (w.chem.substances[s].name.clone(), json!(e.carried[s]))).collect();
-                json!({"id": e.id, "lineage": self.spec.lineages[e.lineage], "age": e.age, "x": e.pos[0], "y": e.pos[1], "distance": e.d2.sqrt(), "active_genes": e.active, "carried_mu": carried})
+                json!({"id": e.id, "ref": e.id.to_string(), "lineage": self.spec.lineages[e.lineage], "age": e.age, "x": e.pos[0], "y": e.pos[1], "distance": e.d2.sqrt(), "active_genes": e.active, "carried_mu": carried})
             })
             .collect();
         Ok(json!({
@@ -852,6 +882,9 @@ impl Run {
         for (x, m) in w.last_transfers.iter().zip(&w.last_transfer_meta) {
             let wanted = match m.law { Some(l) => t.laws.as_ref().is_none_or(|ls| ls.contains(&l)), None => t.creatures };
             if !wanted { continue; }
+            if let Some(ids) = &t.ids {
+                if !(m.origin_id.is_some_and(|i| ids.contains(&i)) || m.dest_id.is_some_and(|i| ids.contains(&i))) { continue; }
+            }
             t.seen += 1;
             if t.records.len() >= t.cap { t.dropped += 1; continue; }
             t.records.push(TraceRec { tick, law: m.law, origin: end(&x.origin, m.origin_id), dest: end(&x.dest, m.dest_id), steal: m.steal, substance: x.s, requested: x.requested, delivered: x.delivered, overflowed: x.overflowed });
@@ -862,13 +895,70 @@ impl Run {
     /// `proposals/science-panels.md` §4): all of them, or only some rules' statements (`laws`) and/or creatures'
     /// own actions. It keeps at most `cap` records and counts the rest as dropped. Counted on the device for a GPU run (at most 32768 records).
     pub fn start_trace(&mut self, ticks: u64, cap: usize, laws: Option<Vec<u32>>, creatures: bool) -> Result<Value, String> {
+        self.start_trace_as(ticks, cap, laws, creatures, "trace.start", false)
+    }
+
+    /// `start_trace` by `owner`. A recording still open that someone else started is refused unless `replace`
+    /// (`proposals/agent-tracking.md` §14: a tracker must not silently replace the Rule Lens's evidence, or the other way).
+    pub fn start_trace_as(&mut self, ticks: u64, cap: usize, laws: Option<Vec<u32>>, creatures: bool, owner: &str, replace: bool) -> Result<Value, String> {
         let from = self.tick();
+        if let Some(t) = &self.trace {
+            if from < t.until && t.owner != owner && !replace {
+                return Err(format!("the transfer recording is held by {} until tick {}: wait for it, or pass replace: true", t.owner, t.until));
+            }
+        }
         if let Backend::Gpu(r) = &mut self.backend {
             if cap > emerge_gpu::pack::TRACE_CAP { return Err(format!("the GPU keeps at most {} records", emerge_gpu::pack::TRACE_CAP)); }
             r.trace_start(cap, laws.as_deref(), creatures)?;
         }
-        self.trace = Some(Trace { from, until: from + ticks, cap, laws, creatures, records: vec![], seen: 0, dropped: 0, last_tick: from });
-        Ok(json!({"from_tick": from, "until_tick": from + ticks, "cap": cap}))
+        self.trace = Some(Trace { from, until: from + ticks, cap, laws, creatures, records: vec![], seen: 0, dropped: 0, last_tick: from, owner: owner.to_string(), ids: None });
+        Ok(json!({"from_tick": from, "until_tick": from + ticks, "cap": cap, "owner": owner}))
+    }
+
+    /// A tracker's claim on the transfer recording: an open one that keeps creatures' actions is shared (its owner
+    /// is returned); an open one that does not is refused; with none open, one of creatures' actions starts.
+    pub fn claim_trace(&mut self, owner: &str, ticks: u64, ids: Option<std::collections::HashSet<u64>>) -> Result<String, String> {
+        let now = self.tick();
+        if let Some(t) = &self.trace {
+            if now < t.until {
+                if t.creatures { return Ok(t.owner.clone()); }
+                return Err(format!("the transfer recording is held by {} until tick {} and does not keep creatures' actions", t.owner, t.until));
+            }
+        }
+        let cap = if self.spec.gpu { emerge_gpu::pack::TRACE_CAP } else { 100_000 };
+        self.start_trace_as(ticks, cap, Some(vec![]), true, owner, false)?;
+        if let Some(t) = &mut self.trace { t.ids = ids; }
+        Ok(owner.to_string())
+    }
+
+    /// The kept transfer records, how many matched and how many were dropped.
+    fn trace_records(&self) -> Result<(std::borrow::Cow<'_, [TraceRec]>, u64, u64), String> {
+        let t = self.trace.as_ref().ok_or("no recording: start one with trace.start")?;
+        match &self.backend {
+            Backend::Cpu => Ok((std::borrow::Cow::Borrowed(&t.records[..]), t.seen, t.dropped)),
+            Backend::Gpu(r) => {
+                let (recs, seen) = r.trace_read().ok_or("no recording: start one with trace.start")?;
+                let name = |k: u8, v: u64| match k { 0 => format!("cell {v}"), 1 => format!("creature #{v}"), 2 => format!("source {v}"), _ => format!("sink {v}") };
+                let mut v: Vec<TraceRec> = recs.iter().map(|x| TraceRec { tick: x.tick, law: x.law.map(|l| l as u32), origin: name(x.origin.0, x.origin.1), dest: name(x.dest.0, x.dest.1), steal: x.steal, substance: x.substance, requested: x.requested, delivered: x.delivered, overflowed: x.overflowed }).collect();
+                v.sort_by(|a, b| (a.tick, a.law, &a.origin, &a.dest, a.substance).cmp(&(b.tick, b.law, &b.origin, &b.dest, b.substance)));
+                let kept = v.len() as u64;
+                Ok((std::borrow::Cow::Owned(v), seen, seen - kept))
+            }
+        }
+    }
+
+    /// The kept transfer requests that involve any of `ids` at either end (a tracker's recorded interactions), with
+    /// the recording's window, owner and losses: a full recording cannot give an exact count.
+    pub fn interactions_of(&self, ids: &std::collections::HashSet<u64>) -> Result<Value, String> {
+        let t = self.trace.as_ref().ok_or("no transfer recording")?;
+        let (records, seen, dropped) = self.trace_records()?;
+        let who = |e: &str| e.strip_prefix("creature #").and_then(|x| x.parse::<u64>().ok());
+        let names = self.substance_names();
+        let rows: Vec<Value> = records.iter().filter(|r| who(&r.origin).is_some_and(|i| ids.contains(&i)) || who(&r.dest).is_some_and(|i| ids.contains(&i)))
+            .map(|r| json!({"tick": r.tick, "from": r.origin, "to": r.dest, "kind": if r.steal { "steal" } else if r.law.is_none() { "creature" } else { "rule" }, "substance": names.get(r.substance), "requested_mu": r.requested, "delivered_mu": r.delivered})).collect();
+        let kept = match (&t.ids, &self.backend) { (Some(_), Backend::Cpu) => "only requests involving the tracked creatures were kept", (_, Backend::Gpu(_)) => "the device keeps every creature's requests (up to its cap); these are filtered from them", _ => "the recording keeps what its owner asked for; these are filtered from it" };
+        Ok(json!({"owner": t.owner, "from_tick": t.from, "until_tick": t.until, "records": rows, "requests_matching_recording": seen, "dropped": dropped, "kept": kept,
+            "complete": dropped == 0, "note": "requests where a tracked creature is at either end, from the run's one transfer recording; a recording that dropped records gives no exact interaction count"}))
     }
 
     /// The recording so far, with what it kept and what it dropped, and who gave to or took from whom
@@ -987,6 +1077,89 @@ impl Run {
             })
             .collect();
         json!({"tick": self.tick(), "coverage": "every living entity (exact counts, no sampling)", "metric": "active genes per entity", "lineages": rows})
+    }
+
+    /// The creatures with these IDs, as they are now, in the order asked (`None`: not living). One read of the
+    /// runner's state for all of them: the CPU world, or one read-back of the GPU's entity table.
+    pub fn agents_by_id(&self, ids: &[u64]) -> Vec<Option<AgentRow>> {
+        let want: std::collections::HashMap<u64, usize> = ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
+        let mut out = vec![None; ids.len()];
+        match &self.backend {
+            Backend::Cpu => {
+                let ns = self.live.world.chem.substances.len();
+                for e in &self.live.world.entities {
+                    if let Some(&i) = want.get(&e.id) {
+                        out[i] = Some(AgentRow { id: e.id, lineage: e.lineage, age: e.age, pos: e.pos, heading: e.heading, active_genes: e.genome.active_genes(), carried: e.store.amounts[..ns].to_vec() });
+                    }
+                }
+            }
+            Backend::Gpu(r) => {
+                let ns = r.ns();
+                let (ent, epos, amounts) = r.entity_table();
+                for (k, e) in ent.chunks(emerge_gpu::pack::ENT).enumerate() {
+                    let id = u64::from(e[0]) | (u64::from(e[1]) << 32);
+                    if let Some(&i) = want.get(&id) {
+                        out[i] = Some(AgentRow { id, lineage: e[11] as usize, age: u64::from(e[10]), pos: [epos[k * 4], epos[k * 4 + 1]], heading: [epos[k * 4 + 2], epos[k * 4 + 3]], active_genes: e[5] as usize, carried: amounts[k * ns..(k + 1) * ns].to_vec() });
+                    }
+                }
+            }
+        }
+        // Several asks for one ID get the same row.
+        for (i, id) in ids.iter().enumerate() {
+            if out[i].is_none() {
+                if let Some(&j) = want.get(id) { out[i] = out[j].clone(); }
+            }
+        }
+        out
+    }
+
+    /// Every living creature as `agents_by_id` reads one, in the runner's order (`entities.find`, live trackers).
+    /// Without `carried`, rows have no amounts (a condition that reads none need not copy them).
+    pub fn all_agents(&self, carried: bool) -> Vec<AgentRow> {
+        match &self.backend {
+            Backend::Cpu => {
+                let ns = if carried { self.live.world.chem.substances.len() } else { 0 };
+                self.live.world.entities.iter().map(|e| AgentRow { id: e.id, lineage: e.lineage, age: e.age, pos: e.pos, heading: e.heading, active_genes: e.genome.active_genes(), carried: e.store.amounts[..ns].to_vec() }).collect()
+            }
+            Backend::Gpu(r) => {
+                let ns = r.ns();
+                let (ent, epos, amounts) = r.entity_table();
+                let m = if carried { ns } else { 0 };
+                ent.chunks(emerge_gpu::pack::ENT).enumerate().map(|(k, e)| AgentRow { id: u64::from(e[0]) | (u64::from(e[1]) << 32), lineage: e[11] as usize, age: u64::from(e[10]), pos: [epos[k * 4], epos[k * 4 + 1]], heading: [epos[k * 4 + 2], epos[k * 4 + 3]], active_genes: e[5] as usize, carried: amounts[k * ns..k * ns + m].to_vec() }).collect()
+            }
+        }
+    }
+
+    /// The next entity ID the runner will give out: every ID below it was given to some creature.
+    pub fn next_id(&self) -> u64 {
+        match &self.backend {
+            Backend::Cpu => self.live.world.next_id,
+            Backend::Gpu(r) => r.next_id,
+        }
+    }
+
+    /// Birth and death events, and how many the GPU's log dropped (`entities.get`, trackers).
+    pub fn events(&self) -> Result<(std::borrow::Cow<'_, [emerge_ref::world::Event]>, u64), String> {
+        self.event_list()
+    }
+
+    /// The events after the first `from` of the log, the place to read from next time, and how many the GPU's log
+    /// dropped: a tracker that keeps its place reads each event once (on the GPU, only the new records come back).
+    pub fn events_since(&self, from: usize) -> Result<(std::borrow::Cow<'_, [emerge_ref::world::Event]>, usize, u64), String> {
+        match &self.backend {
+            Backend::Cpu => { let e = &self.live.world.events; Ok((std::borrow::Cow::Borrowed(&e[from.min(e.len())..]), e.len(), 0)) }
+            Backend::Gpu(r) => r.events_since(from).map(|(v, next, dropped)| (std::borrow::Cow::Owned(v), next, dropped)).ok_or_else(|| "the GPU run keeps no events".to_string()),
+        }
+    }
+
+    /// The names of the substances, in index order.
+    pub fn substance_names(&self) -> Vec<String> {
+        self.live.world.chem.substances.iter().map(|s| s.name.clone()).collect()
+    }
+
+    /// The space: width, height, whether it wraps.
+    pub fn space(&self) -> Option<(f32, f32, bool)> {
+        self.live.world.space.as_ref().map(|s| (s.w, s.h, s.wrap))
     }
 
     /// Entities, sampled evenly: ID, lineage, age, position, active genes, amounts carried.
