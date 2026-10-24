@@ -692,6 +692,8 @@ pub struct Glyph {
     pub shape: Shape,
     pub n: [f32; 2],
     pub layer: u8,
+    /// The creature's entity ID, so a page can follow it from frame to frame (the onion skin interpolates between them).
+    pub id: u64,
 }
 
 /// A frame for the live viewer: the cell layers as a picture (with any chart strip under it, no legend), the creatures as
@@ -772,11 +774,11 @@ fn render_parts(view: &View, frame: &Frame, opt: Options, extra: u32, vector: bo
                 keys.push(key);
             }
             "agents" if vector => {
-                let (agents, key) = agents_layer(l, frame);
+                let (agents, key) = agents_layer_at(l, frame);
                 let li = vlayers.len() as u8;
                 vlayers.push((l.name.clone(), blend.to_string(), opacity));
                 let px = sx.min(sy);
-                glyphs.extend(agents.iter().map(|(pos, at)| Glyph { x: pos[0] * sx, y: pos[1] * sy, size: (at.pscale * px).max(1.5), cd: at.cd, alpha: at.alpha, shape: at.shape, n: at.n, layer: li }));
+                glyphs.extend(agents.iter().map(|(i, pos, at)| Glyph { x: pos[0] * sx, y: pos[1] * sy, size: (at.pscale * px).max(1.5), cd: at.cd, alpha: at.alpha, shape: at.shape, n: at.n, layer: li, id: frame.agents[*i].id }));
                 keys.push(key);
             }
             "agents" => {

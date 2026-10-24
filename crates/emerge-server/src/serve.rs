@@ -393,16 +393,17 @@ fn push_frames(engine: &Engine, subs: &mut Vec<Sub>, timelines: &mut std::collec
             "pickable": s.pick, "drawn_agents": shot.hits.len(), "past": past.is_some(), "live_tick": run.tick(), "png_bytes": shot.png.len()});
         let mut glyph_bytes = Vec::new();
         if let Some((glyphs, layers, keys)) = &vector {
-            // 24 bytes a creature: x, y, size (f32, picture pixels), r, g, b, alpha (u8), the angle it points (f32, radians),
-            // its shape (0 dot, 1 arrow), its layer, two bytes unused.
-            glyph_bytes.reserve(glyphs.len() * 24);
+            // 32 bytes a creature: x, y, size (f32, picture pixels), r, g, b, alpha (u8), the angle it points (f32, radians),
+            // its shape (0 dot, 1 arrow), its layer, two bytes unused, its entity ID (u64).
+            glyph_bytes.reserve(glyphs.len() * 32);
             for g in glyphs {
                 for v in [g.x, g.y, g.size] { glyph_bytes.extend_from_slice(&v.to_le_bytes()); }
                 glyph_bytes.extend_from_slice(&[g.cd[0], g.cd[1], g.cd[2], (g.alpha.clamp(0.0, 1.0) * 255.0).round() as u8]);
                 glyph_bytes.extend_from_slice(&g.n[1].atan2(g.n[0]).to_le_bytes());
                 glyph_bytes.extend_from_slice(&[u8::from(g.shape == emerge_view::render::Shape::Arrow), g.layer, 0, 0]);
+                glyph_bytes.extend_from_slice(&g.id.to_le_bytes());
             }
-            header["glyphs"] = json!({"count": glyphs.len(), "stride": 24, "layers": layers.iter().map(|(n, b, o)| json!({"name": n, "blend": b, "opacity": o})).collect::<Vec<_>>()});
+            header["glyphs"] = json!({"count": glyphs.len(), "stride": 32, "layers": layers.iter().map(|(n, b, o)| json!({"name": n, "blend": b, "opacity": o})).collect::<Vec<_>>()});
             header["legend"] = legend_json(&s.view, f, keys);
         }
         let header = header.to_string();

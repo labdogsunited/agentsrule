@@ -222,7 +222,7 @@ fn a_recording_of_a_world_that_dies_out_ends() {
 }
 
 /// The live viewer's vector frames (the user's list of 2026-10-23): the picture holds the cell layers only (no legend, no
-/// creatures), every creature the view draws comes as a 24-byte glyph after it, and the legend comes as data. The frames
+/// creatures), every creature the view draws comes as a 32-byte glyph after it (with its ID), and the legend comes as data. The frames
 /// shown are kept to scrub back over (`view.timeline`, `view.show`) without rewinding the world, and a paused world sends a
 /// frame for every tick it moves.
 #[test]
@@ -249,7 +249,9 @@ fn a_vector_frame_carries_glyphs_a_legend_and_a_timeline() {
     let png = h["png_bytes"].as_u64().unwrap() as usize;
     let count = h["glyphs"]["count"].as_u64().unwrap() as usize;
     assert_eq!(count, 300, "every creature as a glyph");
-    assert_eq!(tail.len(), png + count * 24, "the glyphs follow the picture, 24 bytes each");
+    assert_eq!(tail.len(), png + count * 32, "the glyphs follow the picture, 32 bytes each");
+    let ids: std::collections::BTreeSet<u64> = (0..count).map(|i| u64::from_le_bytes(tail[png + i * 32 + 24..png + i * 32 + 32].try_into().unwrap())).collect();
+    assert_eq!(ids.len(), count, "each glyph carries its creature's ID");
     assert_eq!((h["width"].as_u64(), h["map"]["w"].as_u64()), (Some(192), Some(192)), "the picture is the map alone: no legend in it");
     assert_eq!(h["legend"]["layers"][1]["categories"][0]["name"], "Drifter");
     assert!(h["legend"]["layers"][0]["ramp"]["colours"].as_array().unwrap().len() == 17);

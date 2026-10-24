@@ -663,7 +663,7 @@ const mapSize = () => (lastImg && lastImg.map ? { w: lastImg.map.w, h: lastImg.m
 function glyphPaths(vf, alphaMul, w, h) {
   const cam = cams.picture, m = mapSize(), wrap = lastImg && lastImg.map && lastImg.map.wrap, dv = vf.glyphs, out = new Map();
   for (let i = 0; i < vf.count; i++) {
-    const o = i * 24, px = dv.getFloat32(o, true), py = dv.getFloat32(o + 4, true), size = dv.getFloat32(o + 8, true);
+    const o = i * 32, px = dv.getFloat32(o, true), py = dv.getFloat32(o + 4, true), size = dv.getFloat32(o + 8, true);
     const r = dv.getUint8(o + 12), gg = dv.getUint8(o + 13), b = dv.getUint8(o + 14), a = dv.getUint8(o + 15) / 255 * alphaMul;
     const ang = dv.getFloat32(o + 16, true), arrow = dv.getUint8(o + 20) === 1, layer = dv.getUint8(o + 21);
     if (a <= 0.003) continue;
@@ -3569,7 +3569,7 @@ function onFrame(buf) {
   const pngLen = header.png_bytes || buf.byteLength - 4 - n;
   const url = URL.createObjectURL(new Blob([new Uint8Array(buf, 4 + n, pngLen)], { type: "image/png" }));
   // The creatures as vector glyphs, after the picture (none for a raster frame).
-  const gl = header.glyphs ? { glyphs: new DataView(buf, 4 + n + pngLen, header.glyphs.count * 24), count: header.glyphs.count, layers: header.glyphs.layers, tick: header.tick } : null;
+  const gl = header.glyphs ? { glyphs: new DataView(buf, 4 + n + pngLen, header.glyphs.count * (header.glyphs.stride || 24)), count: header.glyphs.count, layers: header.glyphs.layers, tick: header.tick } : null;
   const img = $("frame");
   img.onload = () => {
     if (shown) URL.revokeObjectURL(shown);
