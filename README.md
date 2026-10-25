@@ -43,14 +43,6 @@ Run the tests in release mode: `cargo test --release --workspace --no-fail-fast`
 | :-- | :-- |
 | `language.md` | the `.em` language, normative for syntax |
 | `spec-v0.7.9.md` | runtime behaviour, the engine API, the roadmap; `core.md` is the core language it is being restructured around |
-| `proposals/plan-next.md` | the active plan; `proposals/decisions-for-review.md` is the queue of decisions and what was decided |
-| `proposals/*.md` | one document per design (node editor, live viewer, rule conditions, checked schedule IR, catalyst experiment, …) with its pass rules and results |
-| [`proposals/world-presets.md`](proposals/world-presets.md) | proposed world presets, their visual character, controls, capability requirements, and validation plan |
-| [`proposals/science-panels.md`](proposals/science-panels.md) | proposed rule, lineage, genome, resource, and experiment panels with observation requirements |
-| [`proposals/agent-tracking.md`](proposals/agent-tracking.md) | agent selection and tracking: linked Details highlights, camera follow, trails, Tracker nodes, and recording contracts |
-| [`proposals/genome-editor.md`](proposals/genome-editor.md) | genome editor design: seed authoring, signal wiring, modules, captures, and test runs |
-| [`proposals/houdini-node-system.md`](proposals/houdini-node-system.md) | the node editor as a Houdini-like authoring environment: ports, contexts, nested authoring, the Look network, reuse (H1 to H6, built) |
-| [`proposals/reusable-operators.md`](proposals/reusable-operators.md) | templates and versioned operator definitions with instances (`operator`, `use`), written out before checking |
 | `crates/emerge-lang` | parser, checker, formatter, patches, the checked schedule, the graph model |
 | `crates/emerge-ref` | the CPU reference runner |
 | `crates/emerge-gpu` | the GPU runtime |
