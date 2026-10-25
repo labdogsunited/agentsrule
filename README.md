@@ -2,21 +2,26 @@
 
 A rule-based language and engine for open-ended evolution. A world is a few lines of rules over conserved substances (`.em` files); creatures with evolvable genomes live in it; conservation, dissipation and the cost of living are laws that cannot be broken. It runs on the CPU (the reference) and on the GPU (equal word for word in contract mode), and has a browser editor.
 
-![Interactive Web Viewer](gallery/viewer-l3.png)
+![Interactive Web Viewer](gallery/app-hero-simulate.png)
 
 ## Screenshots
 
-### Application Panes & Desktop Layouts
+### Application Workspaces
 
-| Node Network Editor (`Rules`) | Creature Genome Editor (`Genome`) |
+| Live Simulation (`Simulate`) | Node Network Editor (`Rules`) |
 | :---: | :---: |
-| ![Node Network Editor](gallery/app-node-network.png) | ![Genome Editor](gallery/app-genome-editor.png) |
-| *Houdini-like network of rules as boxes, ports, and wires* | *Evolvable modules, signal wiring, and parameter cards* |
+| ![Live Simulation](gallery/app-hero-simulate.png) | ![Node Network Editor](gallery/app-rules-network.png) |
+| *Vector glyphs, legend, rulers, scrubber, and live cellular layers* | *Houdini-like network of rules as boxes, ports, and wires* |
 
 | Science Panels & Rule Lens (`Science`) | Agent Tracking & Inspector (`Track`) |
 | :---: | :---: |
 | ![Science Panels](gallery/app-science-lens.png) | ![Agent Tracking](gallery/app-agent-tracking.png) |
 | *Rule execution schedule, lineage history, and accounts* | *Live creature tracking, follow camera, and entity inspect* |
+
+| Creature Genome Editor (`Genome`) | Look Network Pipeline (`Look`) |
+| :---: | :---: |
+| ![Genome Editor](gallery/app-genome-editor.png) | ![Look Network](gallery/app-look-network.png) |
+| *Evolvable modules, signal wiring, and parameter cards* | *Typed visual shader pipeline with live node previews* |
 
 ### Simulation Runs
 
