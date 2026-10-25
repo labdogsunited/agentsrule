@@ -2,14 +2,62 @@
 
 A rule-based language and engine for open-ended evolution. A world is a few lines of rules over conserved substances (`.em` files); creatures with evolvable genomes live in it; conservation, dissipation and the cost of living are laws that cannot be broken. It runs on the CPU (the reference) and on the GPU (equal word for word in contract mode), and has a browser editor.
 
-## Try it
+![Interactive Web Viewer](gallery/viewer-l3.png)
+
+## Screenshots
+
+| Sunlit Nursery (`examples/presets/nursery.em`) | Emerging Producers (`archive/test9-dish.em`) |
+| :---: | :---: |
+| ![Sunlit Nursery](gallery/preset-nursery-seed1-tick300.png) | ![Producers Spreading](gallery/test9-seed4-tick5000.png) |
+| *Biolume view: 5,978 creatures in a layered cellular dish* | *Producers spreading through a Drifter population over nitrate* |
+
+## Prerequisites
+
+Before installing, ensure you have:
+
+* **Rust Toolchain**: Rust 1.75+ (edition 2021). Install via [rustup](https://rustup.rs/):
+  ```sh
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+* **Python 3**: Python 3.10+ (used by helper scripts and documentation generator).
+* **Modern Web Browser**: Chrome, Brave, Firefox, Edge, or Safari with WebGL/WebSocket support.
+* **GPU Drivers (Optional)**: Vulkan, Metal, or DirectX 12 drivers if running the GPU backend (`emerge-gpu` via `wgpu`). The CPU reference backend (`emerge-ref`) has no GPU dependency.
+* **FFmpeg (Optional)**: Required only if recording and exporting simulation journals to `.mov` videos.
+
+## Installation & Quick Start
+
+### 1. Clone the repository
+
+```sh
+git clone https://github.com/labdogsunited/agentsrule.git
+cd agentsrule
+```
+
+### 2. Build the binaries
+
+Build the core binaries in release mode:
+
+```sh
+cargo build --release -p emerge-ref -p emerge-server -p emerge-gpu
+```
+
+This builds:
+* `target/release/emerge` — CPU runner, compiler, and CLI checker
+* `target/release/emerge-server` — Engine API server (JSON-RPC over WebSocket) and renderer
+* `target/release/emerge-gpu` — GPU accelerated runner
+
+### 3. Launch the Web Viewer
+
+Link the helper script and launch the interactive viewer:
 
 ```sh
 ln -s "$PWD/scripts/agentsrule" ~/.local/bin/agentsrule   # once
 agentsrule web                                            # builds, starts the viewer, opens the browser
 ```
 
-`agentsrule web [--port N] [--no-open] [--journal-dir DIR]` takes the first free port from 7878 (or the one you give), prints the address, and has a **Restart server** and a **Stop server** button; Ctrl-C stops it too. In the page:
+`agentsrule web [--port N] [--no-open] [--journal-dir DIR]` binds to the first free port starting from 7878, prints the local address, and opens your browser. Ctrl-C stops the server.
+
+In the viewer:
 
 The viewer's panes, in short (the guide *Using the viewer*, in the **Docs** button or `docs/index.html`, has all of them):
 
