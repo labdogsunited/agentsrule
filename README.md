@@ -63,3 +63,9 @@ Run the tests in release mode: `cargo test --release --workspace --no-fail-fast`
 ## Rules of the house
 
 Conservation, determinism, tick ordering, default evolutionary behaviour, success criteria and stop rules are the scientific contract: changes to them are proposed with their evidence and consequence first, and each experiment fixes its pass and stop rules before it runs. Everything is committed locally; pushing waits for review.
+
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0-or-later) - see the [LICENSE](LICENSE) file for details.
+Copyright (C) 2026 Lab Dogs United.
+
