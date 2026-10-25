@@ -2,8 +2,6 @@
 
 A rule-based language and engine for open-ended evolution. A world is a few lines of rules over conserved substances (`.em` files); creatures with evolvable genomes live in it; conservation, dissipation and the cost of living are laws that cannot be broken. It runs on the CPU (the reference) and on the GPU (equal word for word in contract mode), and has a browser editor.
 
-![Interactive Web Viewer](gallery/app-hero-simulate.png)
-
 ## Screenshots
 
 ### Application Workspaces
