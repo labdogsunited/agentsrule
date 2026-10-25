@@ -6,10 +6,25 @@ A rule-based language and engine for open-ended evolution. A world is a few line
 
 ## Screenshots
 
+### Application Panes & Desktop Layouts
+
+| Node Network Editor (`Rules`) | Creature Genome Editor (`Genome`) |
+| :---: | :---: |
+| ![Node Network Editor](gallery/app-node-network.png) | ![Genome Editor](gallery/app-genome-editor.png) |
+| *Houdini-like network of rules as boxes, ports, and wires* | *Evolvable modules, signal wiring, and parameter cards* |
+
+| Science Panels & Rule Lens (`Science`) | Agent Tracking & Inspector (`Track`) |
+| :---: | :---: |
+| ![Science Panels](gallery/app-science-lens.png) | ![Agent Tracking](gallery/app-agent-tracking.png) |
+| *Rule execution schedule, lineage history, and accounts* | *Live creature tracking, follow camera, and entity inspect* |
+
+### Simulation Runs
+
 | Sunlit Nursery (`examples/presets/nursery.em`) | Emerging Producers (`archive/test9-dish.em`) |
 | :---: | :---: |
 | ![Sunlit Nursery](gallery/preset-nursery-seed1-tick300.png) | ![Producers Spreading](gallery/test9-seed4-tick5000.png) |
 | *Biolume view: 5,978 creatures in a layered cellular dish* | *Producers spreading through a Drifter population over nitrate* |
+
 
 ## Prerequisites
 
